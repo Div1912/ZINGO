@@ -1,0 +1,7 @@
+# Ignore Python backend files from Vercel deployments
+server.py
+requirements.txt
+__pycache__/
+*.py[cod]
+.venv/
+venv/
