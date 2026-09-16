@@ -26,6 +26,57 @@ export function detectTaskType(content: string): TaskType {
 }
 
 /**
+ * Determine if a task is complex enough to require the Neural Cluster thinking card
+ */
+export function isComplexTask(
+  content: string,
+  filesCount: number = 0,
+  effort?: string
+): boolean {
+  // 1. Files / documents uploaded -> OCR & deep extraction needed
+  if (filesCount > 0) return true
+
+  // 2. User explicitly selected Deep Reason or Max Effort
+  if (effort === 'Deep Reason' || effort === 'Max Effort') return true
+
+  const text = content.toLowerCase().trim()
+
+  // 3. Simple greetings and conversational queries are NEVER complex
+  const simpleQueries = [
+    'hi', 'hii', 'hiii', 'hello', 'hey', 'heyy', 'who are you', 'who r u',
+    'what is your name', 'how are you', 'good morning', 'good evening',
+    'good afternoon', 'what can you do', 'test', 'ping', 'thanks', 'thank you',
+    'ok', 'okay', 'bye', 'good night', 'help', 'sup'
+  ]
+  if (simpleQueries.includes(text)) return false
+  if (text.length <= 15 && !/[0-9=+\-*/^]/.test(text)) return false
+
+  // 4. Non-general tasks (code, document, analysis)
+  const task = detectTaskType(content)
+  if (task === 'code' || task === 'document' || task === 'analysis') {
+    return true
+  }
+
+  // 5. Engineering / industrial / complex reasoning keywords
+  const complexKeywords = [
+    'calculate', 'mass balance', 'heat balance', 'exchanger', 'distillation',
+    'refinery', 'oisd', 'cdu', 'vdu', 'pipeline', 'corrosion', 'fouling',
+    'algorithm', 'optimize', 'root cause', 'troubleshoot', 'simulation',
+    'furnace', 'reboiler', 'hydraulic', 'thermodynamic', 'furnace', 'fraction'
+  ]
+  if (complexKeywords.some((k) => text.includes(k))) {
+    return true
+  }
+
+  // 6. Long technical queries (> 180 characters)
+  if (text.length > 180) {
+    return true
+  }
+
+  return false
+}
+
+/**
  * Ping backend node health directly
  */
 export async function checkServerHealth(

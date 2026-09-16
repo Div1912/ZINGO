@@ -3,7 +3,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useServerStore } from '../stores/serverStore'
 import { useToastStore } from '../stores/toastStore'
-import { detectTaskType, streamChatResponse } from '../services/qwenApi'
+import { detectTaskType, isComplexTask, streamChatResponse } from '../services/qwenApi'
 import type { Message, ModelId, TaskType, UploadedFile } from '../types'
 
 export function useChat(targetChatId?: string | null) {
@@ -18,6 +18,7 @@ export function useChat(targetChatId?: string | null) {
     startGenerating,
     stopGenerating,
     isChatGenerating,
+    setIsComplexGenerating,
   } = useChatStore()
 
   const { settings } = useSettingsStore()
@@ -32,7 +33,8 @@ export function useChat(targetChatId?: string | null) {
   const sendMessage = async (
     content: string,
     files: UploadedFile[] = [],
-    forcedModel?: ModelId
+    forcedModel?: ModelId,
+    effort?: string
   ) => {
     if (!content.trim() && files.length === 0) return
 
@@ -84,6 +86,9 @@ export function useChat(targetChatId?: string | null) {
       taskType: detectedTask,
     }
     addMessage(sendToChatId, assistantMsg)
+
+    const isComplex = isComplexTask(content, files.length, effort)
+    setIsComplexGenerating(isComplex, detectedTask)
 
     const controller = new AbortController()
     startGenerating(sendToChatId, controller)
@@ -147,6 +152,7 @@ export function useChat(targetChatId?: string | null) {
       }
     } finally {
       stopGenerating(sendToChatId)
+      setIsComplexGenerating(false, null)
     }
   }
 

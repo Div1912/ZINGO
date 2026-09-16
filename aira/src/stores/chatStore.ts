@@ -1,11 +1,13 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Chat, Message, Source } from '../types'
+import type { Chat, Message, Source, TaskType } from '../types'
 
 interface ChatStore {
   chats: Chat[]
   activeChatId: string | null
   isGenerating: boolean
+  isComplexGenerating: boolean
+  currentTaskType: TaskType | null
   generatingChatIds: string[]
   activeSources: Source[] | null
   isSourcePanelOpen: boolean
@@ -24,6 +26,7 @@ interface ChatStore {
   searchChats: (query: string) => Chat[]
   stopGeneration: (chatId?: string) => void
   setIsGenerating: (isGenerating: boolean) => void
+  setIsComplexGenerating: (isComplex: boolean, taskType?: TaskType | null) => void
   startGenerating: (chatId: string, controller?: AbortController) => void
   stopGenerating: (chatId: string) => void
   isChatGenerating: (chatId: string | null) => boolean
@@ -190,6 +193,8 @@ export const useChatStore = create<ChatStore>()(
       chats: INITIAL_CHATS,
       activeChatId: 'chat-cdu-2',
       isGenerating: false,
+      isComplexGenerating: false,
+      currentTaskType: null,
       generatingChatIds: [],
       abortControllers: {},
       activeSources: INITIAL_CHATS[0].messages[1].sources || null,
@@ -359,10 +364,13 @@ export const useChatStore = create<ChatStore>()(
           const updatedIds = state.generatingChatIds.filter((id) => id !== chatId)
           const updatedControllers = { ...state.abortControllers }
           delete updatedControllers[chatId]
+          const isStillGenerating = updatedIds.length > 0
           return {
             generatingChatIds: updatedIds,
             abortControllers: updatedControllers,
-            isGenerating: updatedIds.length > 0,
+            isGenerating: isStillGenerating,
+            isComplexGenerating: isStillGenerating ? state.isComplexGenerating : false,
+            currentTaskType: isStillGenerating ? state.currentTaskType : null,
             abortController: updatedIds.length === 0 ? null : state.abortController,
           }
         })
@@ -384,13 +392,28 @@ export const useChatStore = create<ChatStore>()(
           } catch {
             // ignore
           }
-          set({ isGenerating: false, abortController: null, generatingChatIds: [], abortControllers: {} })
+          set({
+            isGenerating: false,
+            isComplexGenerating: false,
+            currentTaskType: null,
+            abortController: null,
+            generatingChatIds: [],
+            abortControllers: {},
+          })
         } else if (targetId) {
           state.stopGenerating(targetId)
         }
       },
 
-      setIsGenerating: (isGenerating) => set({ isGenerating }),
+      setIsGenerating: (isGenerating) =>
+        set((state) => ({
+          isGenerating,
+          isComplexGenerating: isGenerating ? state.isComplexGenerating : false,
+          currentTaskType: isGenerating ? state.currentTaskType : null,
+        })),
+
+      setIsComplexGenerating: (isComplex, taskType = null) =>
+        set({ isComplexGenerating: isComplex, currentTaskType: taskType }),
 
       setActiveSources: (sources) => set({ activeSources: sources }),
 

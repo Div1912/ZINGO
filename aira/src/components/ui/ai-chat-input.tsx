@@ -321,6 +321,8 @@ export interface PromptInputProps {
   maxAttachments?: number;
   // Enhanced AIRA additions
   isGenerating?: boolean;
+  isComplexTask?: boolean;
+  taskType?: string;
   onStop?: () => void;
   enableBorderBeam?: boolean;
   thinkingStatus?: string;
@@ -341,6 +343,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       onChange,
       maxAttachments = 6,
       isGenerating = false,
+      isComplexTask = false,
+      taskType,
       onStop,
       enableBorderBeam = true,
       thinkingStatus,
@@ -360,7 +364,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     }, [defaultValue]);
 
     const [selectedModel, setSelectedModel] = useState(models[0]);
-    const [effortIndex, setEffortIndex] = useState(1);
+    const [effortIndex, setEffortIndex] = useState(0);
     const [isModelSelectOpen, setIsModelSelectOpen] = useState(false);
 
     const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -743,12 +747,13 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
             transition: isSmoothResize ? "max-width 0.15s ease-out" : "max-width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
           }}
         >
-          {/* Active Thinking Orbs when Generating */}
-          {isGenerating && (
+          {/* Active Thinking Orbs ONLY when Generating a Complex Task */}
+          {isGenerating && isComplexTask && (
             <div className="mb-2 w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
               <ThinkingOrbs
                 status={thinkingStatus}
                 modelName={selectedModel}
+                taskType={taskType}
                 compact={false}
                 showSteps={true}
               />

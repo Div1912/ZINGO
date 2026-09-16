@@ -9,15 +9,36 @@ export interface ThinkingOrbsProps {
   className?: string
   compact?: boolean
   showSteps?: boolean
+  taskType?: string
+  steps?: string[]
 }
 
-const DEFAULT_STEPS = [
-  'Querying local ChromaDB knowledge base...',
-  'Parsing CDU-2 & VDU engineering manuals...',
-  'Verifying OISD-105 process safety envelopes...',
-  'Performing mass-balance & yield calculations...',
-  'Synthesizing sovereign operational guidance...',
-]
+const TASK_STEPS: Record<string, string[]> = {
+  code: [
+    'Parsing logic requirements & language syntax...',
+    'Evaluating algorithmic structures & edge conditions...',
+    'Verifying type signatures & execution safety...',
+    'Synthesizing optimized implementation...',
+  ],
+  document: [
+    'Accessing engineering documentation & SOP manuals...',
+    'Parsing operating envelopes & equipment specs...',
+    'Verifying process safety & compliance protocols...',
+    'Synthesizing sovereign operational guidance...',
+  ],
+  analysis: [
+    'Extracting technical variables & operational data...',
+    'Computing mass-balance & thermodynamic formulas...',
+    'Correlating parameters against baseline envelopes...',
+    'Synthesizing deep engineering analysis report...',
+  ],
+  default: [
+    'Deconstructing multi-step problem constraints...',
+    'Evaluating reasoning pathways & domain logic...',
+    'Verifying technical consistency & constraints...',
+    'Synthesizing structured analytical response...',
+  ],
+}
 
 export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
   status,
@@ -25,17 +46,20 @@ export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
   className,
   compact = false,
   showSteps = true,
+  taskType,
+  steps,
 }) => {
+  const activeSteps = steps || (taskType && TASK_STEPS[taskType]) || TASK_STEPS.default
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentStepIndex((prev) => (prev + 1) % DEFAULT_STEPS.length)
+      setCurrentStepIndex((prev) => (prev + 1) % activeSteps.length)
     }, 2400)
     return () => clearInterval(interval)
-  }, [])
+  }, [activeSteps.length])
 
-  const currentAction = status || DEFAULT_STEPS[currentStepIndex]
+  const currentAction = status || activeSteps[currentStepIndex]
 
   if (compact) {
     return (
@@ -87,7 +111,7 @@ export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-2xl bg-surface border border-border p-4 sm:p-5 shadow-sm space-y-3.5',
+        'relative overflow-hidden rounded-xl sm:rounded-2xl bg-surface/95 dark:bg-[#111113]/95 backdrop-blur-md border border-border p-3.5 sm:p-4 shadow-sm space-y-3',
         className
       )}
     >
@@ -154,8 +178,8 @@ export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
                 <span>Thinking</span>
               </span>
             </div>
-            <p className="text-[11px] text-content-tertiary mt-0.5 font-mono">
-              On-premise G15 Neural Cluster Active
+            <p className="text-[10px] sm:text-[11px] text-content-tertiary mt-0.5 font-mono">
+              On-premise Neural Cluster Active &bull; Deep Reasoning
             </p>
           </div>
         </div>
@@ -183,8 +207,8 @@ export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
         </div>
 
         {showSteps && (
-          <div className="space-y-1 pl-3.5 border-l-2 border-border/70">
-            {DEFAULT_STEPS.map((step, idx) => {
+          <div className="space-y-1 pl-3.5 border-l-2 border-border/70 max-h-[135px] overflow-y-auto">
+            {activeSteps.map((step, idx) => {
               const isPast = idx < currentStepIndex
               const isCurrent = idx === currentStepIndex
               return (

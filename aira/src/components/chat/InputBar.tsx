@@ -1,9 +1,15 @@
 import React from 'react'
 import type { ModelId, UploadedFile } from '../../types'
 import { PromptInput } from '../ui/ai-chat-input'
+import { useChatStore } from '../../stores/chatStore'
 
 interface InputBarProps {
-  onSendMessage: (content: string, files: UploadedFile[], model?: ModelId) => void
+  onSendMessage: (
+    content: string,
+    files: UploadedFile[],
+    model?: ModelId,
+    effort?: string
+  ) => void
   onStop: () => void
   isGenerating: boolean
   initialPrompt?: string
@@ -15,6 +21,7 @@ export const InputBar: React.FC<InputBarProps> = ({
   isGenerating,
   initialPrompt = '',
 }) => {
+  const { isComplexGenerating, currentTaskType } = useChatStore()
   const handleSendMessage = (
     message: string,
     meta: { model: string; effort: string; attachments: File[] }
@@ -47,7 +54,7 @@ export const InputBar: React.FC<InputBarProps> = ({
       }
     })
 
-    onSendMessage(message, uploadedFiles, modelId)
+    onSendMessage(message, uploadedFiles, modelId, meta.effort)
   }
 
   return (
@@ -57,6 +64,8 @@ export const InputBar: React.FC<InputBarProps> = ({
           defaultValue={initialPrompt}
           onSubmit={handleSendMessage}
           isGenerating={isGenerating}
+          isComplexTask={isComplexGenerating}
+          taskType={currentTaskType || undefined}
           onStop={onStop}
           enableBorderBeam={true}
           placeholder="Ask AIRA anything... (Shift+Enter for new line)"

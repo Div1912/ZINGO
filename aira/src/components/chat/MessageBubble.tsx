@@ -138,16 +138,23 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         {/* Content Body / Streaming Indicator / Error */}
         {message.isStreaming && !message.content ? (
           <div className="py-2 animate-in fade-in duration-300">
-            <ThinkingOrbs
-              modelName={
-                message.modelUsed === 'qwen2.5-coder-7b'
-                  ? 'Qwen2.5-Coder-7B'
-                  : message.modelUsed === 'qwen2.5-7b'
-                  ? 'Qwen2.5-7B'
-                  : 'AIRA Cognition'
-              }
-              showSteps={true}
-            />
+            {message.taskType && message.taskType !== 'general' ? (
+              <ThinkingOrbs
+                modelName={
+                  message.modelUsed === 'qwen3:8b'
+                    ? 'Qwen3-8B'
+                    : message.modelUsed === 'qwen2.5-coder-7b'
+                    ? 'Qwen2.5-Coder-7B'
+                    : message.modelUsed === 'qwen2.5-7b'
+                    ? 'Qwen2.5-7B'
+                    : 'AIRA Cognition'
+                }
+                taskType={message.taskType}
+                showSteps={true}
+              />
+            ) : (
+              <ThinkingOrbs compact status="Synthesizing response..." />
+            )}
           </div>
         ) : message.error ? (
           <div className="p-3.5 rounded-lg bg-danger/10 border border-danger/30 text-danger text-xs flex items-center justify-between gap-3">
