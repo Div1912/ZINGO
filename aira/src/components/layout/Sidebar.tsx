@@ -15,10 +15,13 @@ import {
   PanelLeftClose,
   MessageSquare,
   Loader2,
+  LogIn,
+  LogOut,
 } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useServerStore } from '../../stores/serverStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useAuthStore } from '../../stores/authStore'
 import { useTheme } from '../../hooks/useTheme'
 import { Dropdown } from '../ui/Dropdown'
 import { exportChatToMarkdown } from '../../services/storage'
@@ -140,9 +143,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setEditingChatId(null)
   }
 
+  const { user, profile, signOut, openAuthModal } = useAuthStore()
+
   const isServerOnline = server.connectionStatus === 'connected'
-  const userInitial = (settings.userName || 'Div').trim().charAt(0).toUpperCase() || 'D'
-  const userName = settings.userName || 'Div'
+  const displayName = profile?.display_name || user?.email?.split('@')[0] || settings.userName || 'Guest Engineer'
+  const userInitial = displayName.trim().charAt(0).toUpperCase() || 'G'
+  const userSubtext = user?.email || 'MRPL Sovereign Hub'
 
   const renderChatItem = (chat: Chat) => {
     const isActive = chat.id === activeChatId
@@ -617,10 +623,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   <div className="truncate flex-1">
                     <span className="text-xs font-medium text-content-primary block truncate">
-                      {userName}
+                      {displayName}
                     </span>
                     <span className="text-[10px] text-content-tertiary block truncate">
-                      MRPL Engineer
+                      {userSubtext}
                     </span>
                   </div>
                 </div>
@@ -646,6 +652,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
                   </button>
+                  {user ? (
+                    <button
+                      type="button"
+                      onClick={() => signOut()}
+                      className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-danger transition-colors"
+                      title="Sign out of Supabase session"
+                    >
+                      <LogOut size={13} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => openAuthModal('signin')}
+                      className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-accent transition-colors"
+                      title="Sign in with Supabase"
+                    >
+                      <LogIn size={13} />
+                    </button>
+                  )}
                 </div>
               </div>
 

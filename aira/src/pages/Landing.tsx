@@ -9,6 +9,8 @@ import { useServerStore } from '../stores/serverStore'
 import { useTheme } from '../hooks/useTheme'
 import { Modal } from '../components/ui/Modal'
 import { GradientWave } from '../components/ui/gradient-wave'
+import { useAuthStore } from '../stores/authStore'
+import { AuthModal } from '../components/auth/AuthModal'
 
 export const Landing: React.FC = () => {
   const { server } = useServerStore()
@@ -18,6 +20,7 @@ export const Landing: React.FC = () => {
   const [isStatusOpen, setIsStatusOpen] = useState(false)
 
   const isOnline = server.connectionStatus === 'connected'
+  const { user, profile, openAuthModal } = useAuthStore()
 
   return (
     <div className="min-h-screen flex flex-col bg-page text-content-primary selection:bg-accent selection:text-accent-text relative overflow-hidden">
@@ -122,6 +125,21 @@ export const Landing: React.FC = () => {
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
 
+          {/* Sign In / User Status */}
+          {!user ? (
+            <button
+              onClick={() => openAuthModal('signin')}
+              className="btn-ghost !text-xs !py-1.5 !px-3 font-medium text-content-primary"
+            >
+              Sign In
+            </button>
+          ) : (
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-content-secondary font-mono px-2 py-1 rounded-md bg-elevated/70 border border-border">
+              <span className="w-2 h-2 rounded-full bg-success" />
+              <span className="truncate max-w-[120px]">{profile?.display_name || user.email?.split('@')[0]}</span>
+            </div>
+          )}
+
           {/* Enter App Primary CTA */}
           <Link to="/app" className="btn-primary !py-2 !px-4 !text-xs">
             <span>Enter App</span>
@@ -203,6 +221,9 @@ export const Landing: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Supabase Authentication Modal */}
+      <AuthModal />
     </div>
   )
 }

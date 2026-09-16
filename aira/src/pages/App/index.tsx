@@ -13,6 +13,9 @@ import { ProjectsModal } from '../../components/layout/ProjectsModal'
 import { ArtifactsModal } from '../../components/layout/ArtifactsModal'
 import { GradientWave } from '../../components/ui/gradient-wave'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useAuthStore } from '../../stores/authStore'
+import { NamePromptModal } from '../../components/auth/NamePromptModal'
+import { AuthModal } from '../../components/auth/AuthModal'
 
 export const AppShell: React.FC = () => {
   const location = useLocation()
@@ -51,6 +54,11 @@ export const AppShell: React.FC = () => {
   useEffect(() => {
     setIsMobileSidebarOpen(false)
   }, [location.pathname])
+
+  // Initialize Supabase Auth & Session Listener
+  useEffect(() => {
+    useAuthStore.getState().initialize()
+  }, [])
 
   const handleOpenSettings = (tab: string = 'general') => {
     setSettingsTab(tab as TabKey)
@@ -226,6 +234,10 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
         isOpen={isCommandBarOpen}
         onClose={() => setIsCommandBarOpen(false)}
       />
+
+      {/* Supabase Authentication & Name Prompt Modals */}
+      <NamePromptModal />
+      <AuthModal />
 
       {/* Notification Toast Stack */}
       <ToastContainer />
