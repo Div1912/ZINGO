@@ -1,4 +1,4 @@
-export type ModelId = 'qwen2.5-7b' | 'qwen2.5-coder-7b'
+export type ModelId = 'qwen3:8b' | 'qwen3-8b' | 'qwen2.5-7b' | 'qwen2.5-coder-7b'
 export type TaskType = 'document' | 'code' | 'analysis' | 'general'
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type Theme = 'light' | 'dark' | 'system'
@@ -18,6 +18,7 @@ export interface UploadedFile {
   type: 'pdf' | 'image' | 'docx' | 'xlsx' | 'txt'
   size: number
   previewUrl?: string
+  rawFile?: File
 }
 
 export interface Message {

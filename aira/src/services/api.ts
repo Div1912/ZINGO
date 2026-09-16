@@ -1,23 +1,20 @@
 import axios from 'axios'
 
-// Sovereign offline Axios instance
+export const DEFAULT_API_BASE_URL = 'https://oasis-modular-card-symbol.trycloudflare.com'
+
+// Configured Axios instance connecting to the Qwen cluster tunnel
 export const api = axios.create({
-  baseURL: 'http://192.168.1.10:8080/api',
-  timeout: 15000,
+  baseURL: DEFAULT_API_BASE_URL,
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
     'X-AIRA-Client': 'MRPL-Sovereign-Workbench/1.0.0',
   },
 })
 
-// Request interceptor logging local Sovereign headers
+// Request interceptor
 api.interceptors.request.use(
   (config) => {
-    // Ensuring zero external calls
-    if (config.url && !config.url.startsWith('http://192.168.') && !config.url.startsWith('/')) {
-      console.warn('[AIRA Sovereign Security] Blocked external outbound request:', config.url)
-      return Promise.reject(new Error('Outbound traffic blocked by MRPL Air-Gap Policy'))
-    }
     return config
   },
   (error) => Promise.reject(error)
@@ -27,7 +24,7 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    console.warn('[AIRA Network] Local cluster response:', error.message)
+    console.warn('[AIRA Network] Cluster response error:', error.message)
     return Promise.reject(error)
   }
 )

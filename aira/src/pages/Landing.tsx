@@ -155,13 +155,13 @@ export const Landing: React.FC = () => {
           <div className="p-3 bg-elevated rounded-lg border border-border">
             <div className="font-semibold text-content-primary mb-1">Local Network Cluster Topology:</div>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Primary Node G15 #1: <code>192.168.1.10:8080</code> (Qwen2.5-7B Instruct)</li>
-              <li>Coder Node G15 #2: <code>192.168.1.11:11434</code> (Qwen2.5-Coder-7B)</li>
-              <li>Vector Database: Local ChromaDB instance with nomic-embed-text</li>
+              <li>Primary Qwen Node: <code className="break-all">{server.g15_1_url}</code> (Qwen3-8B)</li>
+              <li>Local Ollama Node: <code>{server.g15_2_url}</code> (Local Node)</li>
+              <li>OCR Engine: EasyOCR Multilingual (English &amp; Hindi)</li>
             </ul>
           </div>
           <p>
-            Data security is guaranteed by hardware-level isolation. No telemetry or analytics leave the MRPL intranet.
+            Connected to on-premise inference cluster via sovereign tunnel.
           </p>
         </div>
       </Modal>
@@ -175,27 +175,31 @@ export const Landing: React.FC = () => {
       >
         <div className="space-y-3 text-xs">
           <div className="flex items-center justify-between p-3 rounded-lg bg-elevated border border-border">
-            <div>
-              <div className="font-medium text-content-primary">G15 #1 (General & SOP Reasoning)</div>
-              <div className="text-content-tertiary font-mono">192.168.1.10:8080</div>
+            <div className="min-w-0 pr-2">
+              <div className="font-medium text-content-primary">Qwen Cloudflare Tunnel Node</div>
+              <div className="text-content-tertiary font-mono truncate text-[11px]">{server.g15_1_url}</div>
             </div>
-            <span className="px-2 py-0.5 rounded-pill bg-success/15 text-success text-[11px] font-medium">
-              Operational
+            <span className={`px-2 py-0.5 rounded-pill text-[11px] font-medium shrink-0 ${
+              server.primaryStatus === 'connected' ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger'
+            }`}>
+              {server.primaryStatus === 'connected' ? 'Operational' : 'Offline'}
             </span>
           </div>
 
           <div className="flex items-center justify-between p-3 rounded-lg bg-elevated border border-border">
-            <div>
-              <div className="font-medium text-content-primary">G15 #2 (Coder & Calculations)</div>
-              <div className="text-content-tertiary font-mono">192.168.1.11:11434</div>
+            <div className="min-w-0 pr-2">
+              <div className="font-medium text-content-primary">Local Ollama Node (Qwen3-8B)</div>
+              <div className="text-content-tertiary font-mono text-[11px]">{server.g15_2_url}</div>
             </div>
-            <span className="px-2 py-0.5 rounded-pill bg-success/15 text-success text-[11px] font-medium">
-              Operational
+            <span className={`px-2 py-0.5 rounded-pill text-[11px] font-medium shrink-0 ${
+              server.coderStatus === 'connected' ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger'
+            }`}>
+              {server.coderStatus === 'connected' ? 'Operational' : 'Offline'}
             </span>
           </div>
 
           <div className="p-2.5 text-center text-content-tertiary text-[11px]">
-            Zero outbound connections verified &middot; Air-gap intact
+            Live Qwen inference active &middot; Zero third-party telemetry
           </div>
         </div>
       </Modal>

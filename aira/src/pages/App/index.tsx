@@ -47,6 +47,11 @@ export const AppShell: React.FC = () => {
     }
   }, [isSettingsRoute])
 
+  // Automatically close mobile sidebar on route navigation
+  useEffect(() => {
+    setIsMobileSidebarOpen(false)
+  }, [location.pathname])
+
   const handleOpenSettings = (tab: string = 'general') => {
     setSettingsTab(tab as TabKey)
     setIsSettingsOpen(true)
@@ -91,7 +96,13 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
   useKeyboard({
     onOpenCommandBar: () => setIsCommandBarOpen(true),
     onOpenSettings: () => handleOpenSettings('general'),
-    onToggleSidebar: () => setIsSidebarCollapsed((prev) => !prev),
+    onToggleSidebar: () => {
+      if (window.innerWidth < 1024) {
+        setIsMobileSidebarOpen((prev) => !prev)
+      } else {
+        setIsSidebarCollapsed((prev) => !prev)
+      }
+    },
     onToggleTheme: () => toggleTheme(),
     onStopGeneration: () => {
       if (isGenerating) {
@@ -164,12 +175,17 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative z-10">
         <Header
           isSidebarCollapsed={isSidebarCollapsed}
+          isMobileSidebarOpen={isMobileSidebarOpen}
           onToggleSidebar={() => {
             if (window.innerWidth < 1024) {
-              setIsMobileSidebarOpen(true)
+              setIsMobileSidebarOpen(!isMobileSidebarOpen)
             } else {
               setIsSidebarCollapsed(!isSidebarCollapsed)
             }
+          }}
+          onNewChat={() => {
+            const newId = useChatStore.getState().createChat()
+            navigate(`/app/chat/${newId}`)
           }}
         />
 

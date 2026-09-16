@@ -281,19 +281,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {isMobileOpen && (
         <div
           onClick={() => setIsMobileOpen(false)}
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden transition-opacity duration-200"
         />
       )}
 
       <aside
-        className={`fixed lg:static top-0 bottom-0 left-0 z-50 flex flex-col bg-surface/85 dark:bg-[#111111]/85 backdrop-blur-xl border-r border-black/[0.06] dark:border-white/[0.06] transition-all duration-200 ease-in-out shrink-0 ${
-          isCollapsed
-            ? 'w-0 -translate-x-full lg:translate-x-0 lg:w-0 overflow-hidden border-r-0 p-0 pointer-events-none opacity-0'
-            : 'w-64 translate-x-0 opacity-100'
-        } ${
+        className={`fixed lg:static top-0 bottom-0 left-0 z-50 flex flex-col bg-surface/95 dark:bg-[#111111]/95 backdrop-blur-xl border-r border-black/[0.06] dark:border-white/[0.06] transition-transform lg:transition-all duration-200 ease-in-out shrink-0 ${
           isMobileOpen
-            ? '!translate-x-0 !w-64 !opacity-100 !pointer-events-auto'
-            : ''
+            ? 'translate-x-0 w-[280px] max-w-[85vw] opacity-100 pointer-events-auto shadow-2xl visible'
+            : '-translate-x-full w-[280px] opacity-0 pointer-events-none invisible'
+        } ${
+          isCollapsed
+            ? 'lg:w-0 lg:translate-x-0 lg:overflow-hidden lg:border-r-0 lg:p-0 lg:pointer-events-none lg:opacity-0 lg:visible'
+            : 'lg:w-64 lg:translate-x-0 lg:opacity-100 lg:pointer-events-auto lg:overflow-visible lg:visible'
         }`}
       >
         {/* Compact Header with Branding & Sidebar Toggle */}
@@ -336,11 +336,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Mobile Close Button */}
           <button
+            type="button"
             onClick={() => setIsMobileOpen(false)}
-            className="lg:hidden btn-icon !w-6 !h-6 text-content-tertiary hover:text-content-primary"
+            className="lg:hidden flex items-center justify-center w-8 h-8 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-elevated transition-colors"
             aria-label="Close menu"
           >
-            <X size={14} />
+            <X size={16} />
           </button>
         </div>
 
@@ -361,7 +362,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* Projects Item */}
               <button
                 type="button"
-                onClick={() => (onOpenProjects ? onOpenProjects() : addToast({ type: 'info', title: 'Refinery Projects', message: 'Active workspaces: CDU-2 Revamp, VDU Revamp, OISD PTW Audit' }))}
+                onClick={() => {
+                  setIsMobileOpen(false)
+                  if (onOpenProjects) onOpenProjects()
+                  else addToast({ type: 'info', title: 'Refinery Projects', message: 'Active workspaces: CDU-2 Revamp, VDU Revamp, OISD PTW Audit' })
+                }}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-content-secondary hover:text-content-primary hover:bg-elevated/60 transition-colors border-none bg-transparent cursor-pointer text-left font-normal"
               >
                 <svg
@@ -386,7 +391,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* Artifacts Item */}
               <button
                 type="button"
-                onClick={() => (onOpenArtifacts ? onOpenArtifacts() : addToast({ type: 'info', title: 'Generated Artifacts', message: 'Access generated Python models, P&ID scripts, and checklists.' }))}
+                onClick={() => {
+                  setIsMobileOpen(false)
+                  if (onOpenArtifacts) onOpenArtifacts()
+                  else addToast({ type: 'info', title: 'Generated Artifacts', message: 'Access generated Python models, P&ID scripts, and checklists.' })
+                }}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-content-secondary hover:text-content-primary hover:bg-elevated/60 transition-colors border-none bg-transparent cursor-pointer text-left font-normal"
               >
                 <svg
@@ -411,7 +420,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* Code Item with [Upgrade] pill */}
               <button
                 type="button"
-                onClick={() => (onOpenCodeRunner ? onOpenCodeRunner() : addToast({ type: 'info', title: 'Code Runtime', message: 'G15 #2 Python 3.11 sandbox available.' }))}
+                onClick={() => {
+                  setIsMobileOpen(false)
+                  if (onOpenCodeRunner) onOpenCodeRunner()
+                  else addToast({ type: 'info', title: 'Code Runtime', message: 'G15 #2 Python 3.11 sandbox available.' })
+                }}
                 className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm text-content-secondary hover:text-content-primary hover:bg-elevated/60 transition-colors border-none bg-transparent cursor-pointer text-left font-normal"
               >
                 <div className="flex items-center gap-3">
@@ -439,7 +452,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* Customize Item */}
               <button
                 type="button"
-                onClick={() => (onOpenSettings ? onOpenSettings('skills') : navigate('/app/settings'))}
+                onClick={() => {
+                  setIsMobileOpen(false)
+                  if (onOpenSettings) onOpenSettings('skills')
+                  else navigate('/app/settings')
+                }}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-content-secondary hover:text-content-primary hover:bg-elevated/60 transition-colors border-none bg-transparent cursor-pointer text-left font-normal"
               >
                 <svg
@@ -588,7 +605,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* User Profile & Settings Row */}
               <div className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors">
                 <div
-                  onClick={() => (onOpenSettings ? onOpenSettings('general') : navigate('/app/settings'))}
+                  onClick={() => {
+                    setIsMobileOpen(false)
+                    if (onOpenSettings) onOpenSettings('general')
+                    else navigate('/app/settings')
+                  }}
                   className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0"
                 >
                   <div className="w-7 h-7 rounded-full bg-black/[0.06] dark:bg-white/[0.08] border border-black/[0.08] dark:border-white/[0.1] text-content-primary flex items-center justify-center font-semibold text-xs shrink-0 select-none">
@@ -607,7 +628,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex items-center gap-0.5">
                   <button
                     type="button"
-                    onClick={() => (onOpenSettings ? onOpenSettings('general') : navigate('/app/settings'))}
+                    onClick={() => {
+                      setIsMobileOpen(false)
+                      if (onOpenSettings) onOpenSettings('general')
+                      else navigate('/app/settings')
+                    }}
                     className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary"
                     title="Settings (⌘,)"
                   >
@@ -633,11 +658,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }`}
                   />
                   <span className="text-[10px] font-medium">
-                    {isServerOnline ? 'G15 Cluster Online' : 'Offline'}
+                    {isServerOnline ? 'Qwen Online' : 'Offline'}
                   </span>
                 </span>
                 <span className="font-mono text-[9px] text-content-tertiary">
-                  Air-Gapped
+                  Tunnel
                 </span>
               </div>
             </>
@@ -663,7 +688,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className={`w-2 h-2 rounded-full my-0.5 ${
                   isServerOnline ? 'bg-success' : 'bg-danger'
                 }`}
-                title={isServerOnline ? 'G15 Cluster Connected' : 'Disconnected'}
+                title={isServerOnline ? 'Qwen Model Connected' : 'Disconnected'}
               />
             </div>
           )}

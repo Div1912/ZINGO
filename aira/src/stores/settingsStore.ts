@@ -16,17 +16,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   reducedMotion: false,
   chatFont: 'inter',
   theme: 'dark',
-  defaultModel: 'qwen2.5-7b',
+  defaultModel: 'qwen3:8b',
   autoRouteModel: true,
   streamingEnabled: true,
   showSources: true,
   showModelBadge: true,
   showTokenCount: true,
   showLatency: true,
-  systemPrompt: `You are AIRA, an AI assistant for Mangalore Refinery and Petrochemicals Limited (MRPL).
-You have access to MRPL's internal documents, SOPs, and historical data.
-Always ground your answers in the available documentation.
-You are running entirely on-premise — no data leaves MRPL's network.`,
+  systemPrompt: `You are AIRA, an intelligent AI research assistant grounded in technical operating manuals, P&IDs, and process engineering standards.`,
   temperature: 0.7,
   maxTokens: 2048,
   topP: 0.9,
@@ -36,7 +33,7 @@ You are running entirely on-premise — no data leaves MRPL's network.`,
   notificationsEnabled: true,
   autoRouteRules: [
     { id: '1', keywords: 'code, script, python, debug, function, bash, algorithm, calculate, yield', targetModel: 'qwen2.5-coder-7b' },
-    { id: '2', keywords: 'document, SOP, report, search, find, permit, inspection, OISD, CDU, valve', targetModel: 'qwen2.5-7b' },
+    { id: '2', keywords: 'document, SOP, report, search, find, permit, inspection, OISD, CDU, valve', targetModel: 'qwen3:8b' },
   ],
 }
 
@@ -54,7 +51,7 @@ export const useSettingsStore = create<SettingsStore>()(
         })),
     }),
     {
-      name: 'aira-settings-v2',
+      name: 'aira-settings-v3',
     }
   )
 )

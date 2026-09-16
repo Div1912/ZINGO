@@ -13,6 +13,7 @@ import {
   FileText,
   FileJson,
   Check,
+  Plus,
 } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useToastStore } from '../../stores/toastStore'
@@ -27,9 +28,16 @@ import { Modal } from '../ui/Modal'
 interface HeaderProps {
   onToggleSidebar: () => void
   isSidebarCollapsed?: boolean
+  isMobileSidebarOpen?: boolean
+  onNewChat?: () => void
 }
 
-export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarCollapsed }) => {
+export const Header: React.FC<HeaderProps> = ({
+  onToggleSidebar,
+  isSidebarCollapsed,
+  isMobileSidebarOpen,
+  onNewChat,
+}) => {
   const { chats, activeChatId, renameChat, clearChat } = useChatStore()
   const { addToast } = useToastStore()
 
@@ -73,22 +81,46 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarCollap
   return (
     <>
       <header
-        className={`h-[52px] px-4 flex items-center justify-between gap-3 shrink-0 transition-colors ${
-          hasMessages ? 'border-b border-border bg-surface/85 backdrop-blur-md' : 'bg-transparent'
-        }`}
+        className={`h-[52px] px-3 sm:px-4 flex items-center justify-between gap-3 shrink-0 transition-colors border-b border-border/50 bg-surface/85 dark:bg-page/85 backdrop-blur-md z-30`}
       >
-        {/* Left: Sidebar Toggle & Inline Editable Title (only when conversation has started) */}
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        {/* Left: Sidebar Toggle, Mobile Branding, & Chat Title */}
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
           <button
+            type="button"
             onClick={onToggleSidebar}
-            className={`btn-icon !w-8 !h-8 text-content-secondary hover:text-content-primary rounded-lg transition-colors ${
-              !isSidebarCollapsed ? 'lg:hidden' : 'inline-flex'
+            className={`btn-icon !w-8 !h-8 text-content-secondary hover:text-content-primary rounded-lg transition-colors inline-flex ${
+              !isSidebarCollapsed ? 'lg:hidden' : 'lg:inline-flex'
             }`}
-            aria-label={isSidebarCollapsed ? 'Open sidebar (⌘B)' : 'Close sidebar (⌘B)'}
-            title={isSidebarCollapsed ? 'Open sidebar (⌘B)' : 'Close sidebar (⌘B)'}
+            aria-label="Toggle sidebar (⌘B)"
+            aria-expanded={isMobileSidebarOpen}
+            title="Toggle sidebar (⌘B)"
           >
-            {isSidebarCollapsed ? <PanelLeft size={18} /> : <Menu size={18} />}
+            <span className="flex lg:hidden items-center justify-center">
+              <Menu size={18} />
+            </span>
+            <span className="hidden lg:flex items-center justify-center">
+              <PanelLeft size={18} />
+            </span>
           </button>
+
+          {/* Mobile brand badge when no conversation has messages */}
+          {!hasMessages && (
+            <div className="flex lg:hidden items-center gap-2 select-none">
+              <div className="w-5 h-5 rounded-md bg-black/[0.04] dark:bg-white/[0.06] border border-black/[0.06] dark:border-white/[0.08] flex items-center justify-center shrink-0">
+                <svg
+                  className="w-3 h-3 text-content-primary"
+                  viewBox="0 0 100 100"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="10"
+                >
+                  <polygon points="50,6 90,29 90,75 50,98 10,75 10,29" />
+                </svg>
+              </div>
+              <span className="font-semibold text-xs text-content-primary tracking-tight">AIRA</span>
+              <span className="text-[10px] text-content-tertiary font-mono">Qwen</span>
+            </div>
+          )}
 
           {hasMessages && (
             isEditingTitle ? (
@@ -129,18 +161,32 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarCollap
           )}
         </div>
 
-        {/* Right Actions: Only show Share, Export, and Kebab menu when chat has messages */}
-        {hasMessages && (
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            {/* Share Button */}
+        {/* Right Actions */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          {/* Quick Mobile New Chat Button */}
+          {onNewChat && (
             <button
-              onClick={handleShare}
-              className="btn-ghost !py-1.5 !px-2.5 !text-xs hidden sm:inline-flex items-center gap-1.5"
-              title="Share session link"
+              type="button"
+              onClick={onNewChat}
+              className="lg:hidden btn-icon !w-8 !h-8 text-content-secondary hover:text-content-primary rounded-lg"
+              title="New chat"
+              aria-label="New chat"
             >
-              <Share2 size={13} />
-              <span>Share</span>
+              <Plus size={16} />
             </button>
+          )}
+
+          {hasMessages && (
+            <>
+              {/* Share Button */}
+              <button
+                onClick={handleShare}
+                className="btn-ghost !py-1.5 !px-2.5 !text-xs hidden sm:inline-flex items-center gap-1.5"
+                title="Share session link"
+              >
+                <Share2 size={13} />
+                <span>Share</span>
+              </button>
 
             {/* Export Dropdown */}
             <Dropdown
@@ -263,8 +309,9 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarCollap
                 },
               ]}
             />
-          </div>
+          </>
         )}
+        </div>
       </header>
 
       {/* Raw JSON Modal */}

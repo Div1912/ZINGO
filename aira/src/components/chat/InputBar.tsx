@@ -22,6 +22,8 @@ export const InputBar: React.FC<InputBarProps> = ({
     let modelId: ModelId | undefined = undefined
     if (meta.model.includes('Coder')) {
       modelId = 'qwen2.5-coder-7b'
+    } else if (meta.model.includes('Qwen3') || meta.model.includes('8B')) {
+      modelId = 'qwen3:8b'
     } else if (meta.model.includes('7B')) {
       modelId = 'qwen2.5-7b'
     }
@@ -41,6 +43,7 @@ export const InputBar: React.FC<InputBarProps> = ({
         previewUrl: file.type.startsWith('image/')
           ? URL.createObjectURL(file)
           : undefined,
+        rawFile: file,
       }
     })
 
@@ -57,7 +60,7 @@ export const InputBar: React.FC<InputBarProps> = ({
           onStop={onStop}
           enableBorderBeam={true}
           placeholder="Ask AIRA anything... (Shift+Enter for new line)"
-          models={['Auto (Recommended)', 'Qwen2.5-7B (Primary)', 'Qwen2.5-Coder-7B']}
+          models={['Auto (Recommended)', 'Qwen3-8B (Live Tunnel)', 'Qwen2.5-Coder-7B']}
           efforts={['Fast', 'Deep Reason', 'Max Effort']}
           maxWidthCollapsed={560}
           maxWidthExpanded={820}

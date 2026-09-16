@@ -1089,10 +1089,10 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="space-y-4">
-                  {/* G15 #1 */}
+                  {/* Live Qwen Tunnel Node */}
                   <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-content-primary">G15 #1 Primary Node (Qwen2.5-7B)</span>
+                      <span className="font-semibold text-content-primary">Live Qwen Cloudflare Tunnel (Qwen3-8B)</span>
                       <button
                         onClick={() => checkIndividual('primary')}
                         disabled={server.primaryStatus === 'checking'}
@@ -1115,10 +1115,10 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* G15 #2 */}
+                  {/* Local Ollama Node */}
                   <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-content-primary">G15 #2 Coder Node (Qwen2.5-Coder-7B)</span>
+                      <span className="font-semibold text-content-primary">Local Ollama Node (127.0.0.1:11434)</span>
                       <button
                         onClick={() => checkIndividual('coder')}
                         disabled={server.coderStatus === 'checking'}

@@ -8,11 +8,15 @@ interface ModelBadgeProps {
 }
 
 export const ModelBadge: React.FC<ModelBadgeProps> = ({
-  model = 'qwen2.5-7b',
+  model = 'qwen3:8b',
   taskType = 'document',
 }) => {
   const modelName =
-    model === 'qwen2.5-coder-7b' ? 'Qwen2.5-Coder-7B' : 'Qwen2.5-7B'
+    model === 'qwen3:8b' || model === 'qwen3-8b'
+      ? 'Qwen3-8B (Tunnel)'
+      : model === 'qwen2.5-coder-7b'
+      ? 'Qwen2.5-Coder-7B'
+      : 'Qwen2.5-7B'
 
   let taskIcon = <FileText size={11} className="text-content-secondary" />
   let taskLabel = 'Document'

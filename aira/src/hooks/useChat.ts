@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useServerStore } from '../stores/serverStore'
 import { useToastStore } from '../stores/toastStore'
-import { detectTaskType, mockStreamResponse } from '../services/mockApi'
+import { detectTaskType, streamChatResponse } from '../services/qwenApi'
 import type { Message, ModelId, TaskType, UploadedFile } from '../types'
 
 export function useChat(targetChatId?: string | null) {
@@ -20,6 +21,7 @@ export function useChat(targetChatId?: string | null) {
   } = useChatStore()
 
   const { settings } = useSettingsStore()
+  const { server } = useServerStore()
   const { addToast } = useToastStore()
   const [activeCodeToRun, setActiveCodeToRun] = useState<string | null>(null)
 
@@ -55,7 +57,7 @@ export function useChat(targetChatId?: string | null) {
           message: 'Switched to Qwen2.5-Coder-7B for calculation/code workload.',
         })
       } else {
-        selectedModel = 'qwen2.5-7b'
+        selectedModel = 'qwen3:8b'
       }
     }
 
@@ -92,9 +94,13 @@ export function useChat(targetChatId?: string | null) {
         userMsg,
       ].slice(-settings.contextWindow)
 
-      await mockStreamResponse(
+      const targetEndpoint = server.g15_1_url || 'https://oasis-modular-card-symbol.trycloudflare.com'
+
+      await streamChatResponse(
         messagesForContext,
         detectedTask,
+        targetEndpoint,
+        files,
         (chunk) => {
           updateMessage(sendToChatId, assistantMsgId, {
             content: chunk,
@@ -133,9 +139,10 @@ export function useChat(targetChatId?: string | null) {
     } catch (err: unknown) {
       const isAbort = err instanceof DOMException && err.name === 'AbortError'
       if (!isAbort) {
+        const errorMsg = err instanceof Error ? err.message : 'Error communicating with live Qwen node.'
         updateMessage(sendToChatId, assistantMsgId, {
           isStreaming: false,
-          error: 'An internal error occurred while communicating with the local GPU node.',
+          error: errorMsg,
         })
       }
     } finally {
