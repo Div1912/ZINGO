@@ -16,6 +16,7 @@ export const ChatPage: React.FC = () => {
     activeChatId,
     setActiveChat,
     createChat,
+    isLoadingChats,
   } = useChatStore()
 
   // Resolve the chat ID directly from route or store fallback
@@ -35,6 +36,8 @@ export const ChatPage: React.FC = () => {
 
   // Sync route param with store
   useEffect(() => {
+    if (isLoadingChats) return
+
     if (id && id !== activeChatId) {
       const exists = chats.some((c) => c.id === id)
       if (exists) {
@@ -43,10 +46,15 @@ export const ChatPage: React.FC = () => {
         const newId = createChat()
         navigate(`/app/chat/${newId}`, { replace: true })
       }
-    } else if (!id && chats.length > 0) {
-      navigate(`/app/chat/${chats[0].id}`, { replace: true })
+    } else if (!id) {
+      if (chats.length > 0) {
+        navigate(`/app/chat/${chats[0].id}`, { replace: true })
+      } else {
+        const newId = createChat()
+        navigate(`/app/chat/${newId}`, { replace: true })
+      }
     }
-  }, [id, activeChatId, chats, setActiveChat, createChat, navigate])
+  }, [id, activeChatId, chats, setActiveChat, createChat, navigate, isLoadingChats])
 
   const handleSelectSuggestion = (prompt: string) => {
     setPromptToFill(prompt)

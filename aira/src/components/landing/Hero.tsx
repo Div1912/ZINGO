@@ -1,9 +1,12 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-import { ArrowRight, ChevronDown, ShieldCheck } from 'lucide-react'
+import { ArrowRight, ChevronDown, ShieldCheck, LogIn } from 'lucide-react'
+import { useAuthStore } from '../../stores/authStore'
 
 export const Hero: React.FC = () => {
+  const { user, profile, openAuthModal } = useAuthStore()
+
   const scrollToFeatures = () => {
     const el = document.getElementById('features')
     el?.scrollIntoView({ behavior: 'smooth' })
@@ -51,10 +54,24 @@ export const Hero: React.FC = () => {
         transition={{ duration: 0.55, delay: 0.3 }}
         className="flex flex-wrap items-center justify-center gap-3.5 mt-9"
       >
-        <Link to="/app" className="btn-primary shadow-sm hover:shadow-md transition-shadow">
-          <span>Open AIRA</span>
-          <ArrowRight size={15} />
-        </Link>
+        {!user ? (
+          <button
+            onClick={() => openAuthModal('signin')}
+            className="btn-primary shadow-sm hover:shadow-md transition-shadow flex items-center gap-2"
+          >
+            <LogIn size={15} />
+            <span>Sign In to Access Workspace</span>
+            <ArrowRight size={15} />
+          </button>
+        ) : (
+          <Link
+            to="/app"
+            className="btn-primary shadow-sm hover:shadow-md transition-shadow flex items-center gap-2"
+          >
+            <span>Open Workspace ({profile?.display_name || user.email?.split('@')[0]})</span>
+            <ArrowRight size={15} />
+          </Link>
+        )}
         <button onClick={scrollToFeatures} className="btn-glass !backdrop-blur-xl bg-surface/60 hover:bg-surface/90">
           <span>See how it works</span>
           <ChevronDown size={15} />

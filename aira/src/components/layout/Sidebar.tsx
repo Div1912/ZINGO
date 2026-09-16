@@ -59,6 +59,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     renameChat,
     deleteChat,
     isChatGenerating,
+    isLoadingChats,
+    seedSampleChats,
   } = useChatStore()
 
   const { server } = useServerStore()
@@ -580,9 +582,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {renderSection('THIS WEEK', groupedChats.thisWeek)}
               {renderSection('OLDER', groupedChats.older)}
 
-              {filteredChats.length === 0 && (
-                <div className="p-4 text-center text-xs text-content-tertiary">
-                  No matching chats
+              {isLoadingChats && (
+                <div className="p-4 text-center text-xs text-content-tertiary flex flex-col items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-accent" />
+                  <span>Syncing your chats...</span>
+                </div>
+              )}
+
+              {!isLoadingChats && filteredChats.length === 0 && (
+                <div className="p-4 text-center text-xs text-content-tertiary space-y-2">
+                  <p>{searchQuery ? 'No matching chats found' : 'No conversations yet'}</p>
+                  {!searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => seedSampleChats()}
+                      className="text-[11px] text-accent hover:underline block mx-auto mt-1 cursor-pointer"
+                    >
+                      Load sample refinery SOPs
+                    </button>
+                  )}
                 </div>
               )}
             </>

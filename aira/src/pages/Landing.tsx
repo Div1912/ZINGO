@@ -125,26 +125,29 @@ export const Landing: React.FC = () => {
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
 
-          {/* Sign In / User Status */}
+          {/* Unified Auth & Workspace Navigation CTA */}
           {!user ? (
             <button
               onClick={() => openAuthModal('signin')}
-              className="btn-ghost !text-xs !py-1.5 !px-3 font-medium text-content-primary"
+              className="btn-primary !py-2 !px-4 !text-xs flex items-center gap-1.5 shadow-sm"
             >
-              Sign In
+              <span>Sign In / Get Started</span>
+              <ArrowRight size={13} />
             </button>
           ) : (
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-content-secondary font-mono px-2 py-1 rounded-md bg-elevated/70 border border-border">
-              <span className="w-2 h-2 rounded-full bg-success" />
-              <span className="truncate max-w-[120px]">{profile?.display_name || user.email?.split('@')[0]}</span>
+            <div className="flex items-center gap-2.5">
+              <div className="hidden sm:flex items-center gap-1.5 text-xs text-content-secondary font-mono px-2.5 py-1 rounded-md bg-elevated/70 border border-border">
+                <span className="w-2 h-2 rounded-full bg-success" />
+                <span className="truncate max-w-[120px] font-medium text-content-primary">
+                  {profile?.display_name || user.email?.split('@')[0]}
+                </span>
+              </div>
+              <Link to="/app" className="btn-primary !py-2 !px-4 !text-xs">
+                <span>Enter Workspace</span>
+                <ArrowRight size={13} />
+              </Link>
             </div>
           )}
-
-          {/* Enter App Primary CTA */}
-          <Link to="/app" className="btn-primary !py-2 !px-4 !text-xs">
-            <span>Enter App</span>
-            <ArrowRight size={13} />
-          </Link>
         </div>
       </header>
 

@@ -7,6 +7,8 @@ import { AppShell } from './pages/App/index'
 const Landing = lazy(() => import('./pages/Landing').then((m) => ({ default: m.Landing })))
 const ChatPage = lazy(() => import('./pages/App/Chat').then((m) => ({ default: m.ChatPage })))
 
+import { ProtectedRoute } from './components/auth/ProtectedRoute'
+
 const LoadingFallback = () => (
   <div className="flex-1 h-full w-full flex items-center justify-center p-8 bg-page">
     <div className="flex flex-col items-center gap-3">
@@ -26,8 +28,15 @@ export const App: React.FC = () => {
           {/* Public Landing Page */}
           <Route path="/" element={<Landing />} />
 
-          {/* Authenticated Sovereign Workbench Shell */}
-          <Route path="/app" element={<AppShell />}>
+          {/* Authenticated Sovereign Workbench Shell guarded by Supabase */}
+          <Route
+            path="/app"
+            element={
+              <ProtectedRoute>
+                <AppShell />
+              </ProtectedRoute>
+            }
+          >
             <Route index element={<ChatPage />} />
             <Route path="chat/:id" element={<ChatPage />} />
             <Route path="settings" element={<ChatPage />} />

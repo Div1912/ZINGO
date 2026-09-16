@@ -9,6 +9,7 @@ import {
 } from '../services/supabase'
 import { useSettingsStore } from './settingsStore'
 import { useToastStore } from './toastStore'
+import { useChatStore } from './chatStore'
 
 interface AuthStore {
   user: User | null
@@ -69,6 +70,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
         // Record session
         await recordUserSession(session.user.id, session.access_token)
+
+        // Load isolated chats for this authenticated user
+        await useChatStore.getState().loadUserChats(session.user.id)
       }
     } catch (err) {
       console.warn('Auth initialization warning:', err)
@@ -95,7 +99,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
         // Record user session in DB
         await recordUserSession(newSession.user.id, newSession.access_token)
+
+        // Load isolated chats for this authenticated user
+        await useChatStore.getState().loadUserChats(newSession.user.id)
       } else if (event === 'SIGNED_OUT') {
+        useChatStore.getState().clearUserChats()
         set({
           user: null,
           session: null,
@@ -164,6 +172,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   signOut: async () => {
     try {
       await supabase.auth.signOut()
+      useChatStore.getState().clearUserChats()
       set({
         user: null,
         session: null,
