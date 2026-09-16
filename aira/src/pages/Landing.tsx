@@ -11,6 +11,7 @@ import { Modal } from '../components/ui/Modal'
 import { GradientWave } from '../components/ui/gradient-wave'
 import { useAuthStore } from '../stores/authStore'
 import { AuthModal } from '../components/auth/AuthModal'
+import { NamePromptModal } from '../components/auth/NamePromptModal'
 
 export const Landing: React.FC = () => {
   const { server } = useServerStore()
@@ -225,8 +226,9 @@ export const Landing: React.FC = () => {
         </div>
       </Modal>
 
-      {/* Supabase Authentication Modal */}
+      {/* Supabase Authentication & Name Modals */}
       <AuthModal />
+      <NamePromptModal />
     </div>
   )
 }

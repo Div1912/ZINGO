@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { User, Sparkles, ArrowRight, Loader2 } from 'lucide-react'
 import { Modal } from '../ui/Modal'
 import { useAuthStore } from '../../stores/authStore'
 
 export const NamePromptModal: React.FC = () => {
+  const navigate = useNavigate()
   const { isNameModalOpen, saveDisplayName, user } = useAuthStore()
   const [name, setName] = useState('')
   const [preferredName, setPreferredName] = useState('')
@@ -21,7 +23,9 @@ export const NamePromptModal: React.FC = () => {
     setIsSubmitting(true)
     try {
       const success = await saveDisplayName(name.trim(), preferredName.trim() || undefined)
-      if (!success) {
+      if (success) {
+        navigate('/app')
+      } else {
         setError('Could not save to database. Please check connection.')
       }
     } catch (err: unknown) {

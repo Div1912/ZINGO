@@ -1,12 +1,14 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Lock, Mail, User, ArrowRight, Loader2, KeyRound } from 'lucide-react'
 import { Modal } from '../ui/Modal'
-import { supabase } from '../../services/supabase'
+import { supabase, updateProfile } from '../../services/supabase'
 import { useAuthStore } from '../../stores/authStore'
 import { useToastStore } from '../../stores/toastStore'
 
 export const AuthModal: React.FC = () => {
-  const { isAuthModalOpen, closeAuthModal, authModalMode, openAuthModal } = useAuthStore()
+  const navigate = useNavigate()
+  const { isAuthModalOpen, closeAuthModal, authModalMode, openAuthModal, refreshProfile } = useAuthStore()
   const { addToast } = useToastStore()
 
   const isSignUp = authModalMode === 'signup'
@@ -48,22 +50,32 @@ export const AuthModal: React.FC = () => {
           throw signUpError
         }
 
-        if (data.session) {
-          addToast({
-            type: 'success',
-            title: 'Account Created',
-            message: 'Signed in successfully to your new account.',
+        let userSession = data.session
+
+        // If session was not immediately returned by signUp, sign in directly with credentials
+        if (!userSession) {
+          const { data: signInData, error: autoSignInErr } = await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password: password.trim(),
           })
-          closeAuthModal()
-        } else {
-          // If Supabase has email confirmation enabled
-          addToast({
-            type: 'info',
-            title: 'Confirmation Email Sent',
-            message: 'Please check your email inbox to verify your account.',
-          })
-          closeAuthModal()
+          if (!autoSignInErr && signInData.session) {
+            userSession = signInData.session
+          }
         }
+
+        const userId = data.user?.id || userSession?.user?.id
+        if (userId && displayName.trim()) {
+          await updateProfile(userId, { display_name: displayName.trim() })
+          await refreshProfile()
+        }
+
+        addToast({
+          type: 'success',
+          title: 'Account Created',
+          message: 'Welcome! Directing you to your sovereign workspace...',
+        })
+        closeAuthModal()
+        navigate('/app')
       } else {
         // Sign In
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -78,9 +90,10 @@ export const AuthModal: React.FC = () => {
         addToast({
           type: 'success',
           title: 'Welcome Back',
-          message: 'Signed in successfully.',
+          message: 'Signed in successfully. Opening workspace...',
         })
         closeAuthModal()
+        navigate('/app')
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Authentication failed')
