@@ -13,6 +13,9 @@ import {
   Download,
   Trash2,
   Activity,
+  AlertTriangle,
+  Factory,
+  CheckCircle2,
 } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useTheme } from '../../hooks/useTheme'
@@ -106,6 +109,36 @@ export const CommandBar: React.FC<CommandBarProps> = ({ isOpen, onClose }) => {
       shortcut: '⌘ ,',
       action: () => {
         navigate('/app/settings')
+        onClose()
+      },
+    },
+    {
+      id: 'action-alerts',
+      label: 'Open Incident Alerts',
+      section: 'ACTIONS',
+      icon: <AlertTriangle size={14} className="text-amber-500" />,
+      action: () => {
+        navigate('/app/alerts')
+        onClose()
+      },
+    },
+    {
+      id: 'action-plant-health',
+      label: 'Open Plant Health Map',
+      section: 'ACTIONS',
+      icon: <Factory size={14} className="text-emerald-500" />,
+      action: () => {
+        navigate('/app/health')
+        onClose()
+      },
+    },
+    {
+      id: 'action-compliance',
+      label: 'Open Compliance Matrix',
+      section: 'ACTIONS',
+      icon: <CheckCircle2 size={14} className="text-blue-500" />,
+      action: () => {
+        navigate('/app/compliance')
         onClose()
       },
     },

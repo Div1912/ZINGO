@@ -24,15 +24,30 @@ import {
   ChevronDown,
   Check,
   CheckCircle2,
+  AlertTriangle,
+  Factory,
+  FileText,
+  RefreshCcw,
+  Network,
+  ClipboardList,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useServerStore } from '../../stores/serverStore'
 import { useTheme } from '../../hooks/useTheme'
 import { useToastStore } from '../../stores/toastStore'
+import { useZingoStore } from '../../stores/zingoStore'
 import { Toggle } from '../../components/ui/Toggle'
 import { Spinner } from '../../components/ui/Spinner'
 import type { ModelId } from '../../types'
+
+const AlertsPanel = React.lazy(() => import('../../components/zingo/AlertsPanel'))
+const PlantHealthMap = React.lazy(() => import('../../components/zingo/PlantHealthMap'))
+const DocumentTimeline = React.lazy(() => import('../../components/zingo/DocumentTimeline'))
+const ShiftHandover = React.lazy(() => import('../../components/zingo/ShiftHandover'))
+const ComplianceMatrix = React.lazy(() => import('../../components/zingo/ComplianceMatrix'))
+const KnowledgeGraph = React.lazy(() => import('../../components/zingo/KnowledgeGraph'))
+const AuditTrail = React.lazy(() => import('../../components/zingo/AuditTrail'))
 
 export type TabKey =
   | 'general'
@@ -50,6 +65,13 @@ export type TabKey =
   | 'server'
   | 'shortcuts'
   | 'about'
+  | 'alerts'
+  | 'health'
+  | 'documents'
+  | 'shift'
+  | 'compliance'
+  | 'graph'
+  | 'audit'
 
 const INITIAL_DOCS = [
   { id: '1', name: 'MRPL_CDU2_SOP_Rev4.pdf', size: '2.3 MB', category: 'Standard Operating Procedure' },
@@ -77,6 +99,8 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const { server, updateServer, checkConnection, checkIndividual, isChecking, lastChecked } = useServerStore()
   const { theme, setTheme } = useTheme()
   const { addToast } = useToastStore()
+  const criticalCount = useZingoStore((s) => s.activeAlerts.filter((a) => a.severity === 'CRITICAL').length)
+  const isWorkbenchTab = ['alerts', 'health', 'documents', 'shift', 'compliance', 'graph', 'audit'].includes(activeTab)
 
   useEffect(() => {
     if (initialTab) {
@@ -223,6 +247,18 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       ],
     },
     {
+      group: 'Workbench & Operations',
+      items: [
+        { id: 'alerts' as const, label: 'Incident Alerts', icon: <AlertTriangle size={15} />, badge: criticalCount > 0 ? String(criticalCount) : undefined },
+        { id: 'health' as const, label: 'Plant Health', icon: <Factory size={15} /> },
+        { id: 'documents' as const, label: 'Document Library', icon: <FileText size={15} /> },
+        { id: 'shift' as const, label: 'Shift Handover', icon: <RefreshCcw size={15} /> },
+        { id: 'compliance' as const, label: 'Compliance Matrix', icon: <CheckCircle2 size={15} /> },
+        { id: 'graph' as const, label: 'Knowledge Graph', icon: <Network size={15} /> },
+        { id: 'audit' as const, label: 'Audit Trail', icon: <ClipboardList size={15} /> },
+      ],
+    },
+    {
       group: 'Customize',
       items: [
         { id: 'skills' as const, label: 'Skills', icon: <BookOpen size={15} /> },
@@ -261,7 +297,9 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       {/* Modal Dialog Window */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-4xl h-[680px] max-h-[92vh] bg-surface text-content-primary rounded-2xl border border-border shadow-2xl flex overflow-hidden select-none"
+        className={`relative w-full ${
+          isWorkbenchTab ? 'max-w-6xl h-[820px]' : 'max-w-4xl h-[700px]'
+        } max-h-[94vh] bg-surface text-content-primary rounded-2xl border border-border shadow-2xl flex overflow-hidden select-none transition-all duration-200`}
       >
         {/* Left Sidebar (Width ~230px) */}
         <aside className="w-56 sm:w-60 border-r border-border bg-surface/90 flex flex-col shrink-0">
@@ -292,6 +330,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                 <div className="space-y-0.5 mt-0.5">
                   {sec.items.map((item) => {
                     const isActive = activeTab === item.id
+                    const badge = (item as any).badge
                     return (
                       <button
                         key={item.id}
@@ -306,7 +345,12 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         <span className={isActive ? 'text-content-primary' : 'text-content-tertiary'}>
                           {item.icon}
                         </span>
-                        <span className="truncate">{item.label}</span>
+                        <span className="truncate flex-1">{item.label}</span>
+                        {badge && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-danger text-white text-[9px] font-semibold tabular-nums shrink-0 font-mono">
+                            {badge}
+                          </span>
+                        )}
                       </button>
                     )
                   })}
@@ -322,18 +366,37 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
           <button
             type="button"
             onClick={handleClose}
-            className="absolute top-5 right-6 z-20 btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary hover:bg-elevated rounded-md transition-colors"
+            className="absolute top-5 right-6 z-30 btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary hover:bg-elevated rounded-md transition-colors"
             title="Close"
             aria-label="Close"
           >
             <X size={16} />
           </button>
 
-          {/* Scrollable Viewport with Claude-Style Row Layout */}
-          <div className="flex-1 overflow-y-auto px-7 sm:px-10 py-7 max-w-2xl select-text">
-            {/* TAB: GENERAL (CLAUDE PROFILE & PREFERENCES EXACT REPLICA) */}
-            {activeTab === 'general' && (
-              <div className="space-y-6">
+          {/* Viewport: Workbench modules vs Standard Settings */}
+          {isWorkbenchTab ? (
+            <div className="flex-1 h-full overflow-y-auto select-text">
+              <React.Suspense
+                fallback={
+                  <div className="flex h-full w-full items-center justify-center p-12">
+                    <Spinner size="lg" />
+                  </div>
+                }
+              >
+                {activeTab === 'alerts' && <AlertsPanel />}
+                {activeTab === 'health' && <PlantHealthMap />}
+                {activeTab === 'documents' && <DocumentTimeline />}
+                {activeTab === 'shift' && <ShiftHandover />}
+                {activeTab === 'compliance' && <ComplianceMatrix />}
+                {activeTab === 'graph' && <KnowledgeGraph />}
+                {activeTab === 'audit' && <AuditTrail />}
+              </React.Suspense>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto px-7 sm:px-10 py-7 max-w-2xl select-text">
+              {/* TAB: GENERAL (CLAUDE PROFILE & PREFERENCES EXACT REPLICA) */}
+              {activeTab === 'general' && (
+                <div className="space-y-6">
                 {/* Profile Heading */}
                 <div>
                   <h2 className="text-base sm:text-lg font-semibold text-content-primary">
@@ -1331,8 +1394,9 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
               </div>
             )}
           </div>
-        </main>
-      </div>
+        )}
+      </main>
     </div>
+  </div>
   )
 }

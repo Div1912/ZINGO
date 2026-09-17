@@ -27,7 +27,6 @@ import { Dropdown } from '../ui/Dropdown'
 import { exportChatToMarkdown } from '../../services/storage'
 import { useToastStore } from '../../stores/toastStore'
 import type { Chat } from '../../types'
-import { ZingoNav } from '../zingo/ZingoNav'
 
 interface SidebarProps {
   isCollapsed: boolean
@@ -367,9 +366,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Plus size={16} strokeWidth={2.2} className="text-content-primary" />
                 <span>New</span>
               </button>
-
-              {/* Workbench modules */}
-              <ZingoNav onNavigate={() => setIsMobileOpen(false)} />
 
               {/* Projects Item */}
               <button
