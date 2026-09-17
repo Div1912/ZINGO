@@ -15,7 +15,12 @@ export const zingoBaseUrl = (): string => {
   return (url || '').replace(/\/+$/, '')
 }
 
-const client = axios.create({ timeout: 180000 })
+const client = axios.create({
+  timeout: 180000,
+  headers: {
+    'ngrok-skip-browser-warning': 'true',
+  },
+})
 
 async function req<T>(method: 'get' | 'post' | 'delete', path: string, opts: {
   params?: Record<string, unknown>
@@ -27,7 +32,10 @@ async function req<T>(method: 'get' | 'post' | 'delete', path: string, opts: {
     url: `${zingoBaseUrl()}${path}`,
     params: opts.params,
     data: opts.formData ?? opts.data,
-    headers: opts.formData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' },
+    headers: {
+      'ngrok-skip-browser-warning': 'true',
+      ...(opts.formData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' }),
+    },
   })
   return res.data
 }

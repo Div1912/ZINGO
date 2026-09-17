@@ -99,7 +99,7 @@ export function useChat(targetChatId?: string | null) {
         userMsg,
       ].slice(-settings.contextWindow)
 
-      const targetEndpoint = server.g15_1_url || 'https://lbs-litigation-really-tap.trycloudflare.com'
+      const targetEndpoint = server.g15_1_url || 'https://splendid-sensibly-primate.ngrok-free.app'
 
       await streamChatResponse(
         messagesForContext,

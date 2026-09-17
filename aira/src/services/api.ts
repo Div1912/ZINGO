@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-export const DEFAULT_API_BASE_URL = 'https://lbs-litigation-really-tap.trycloudflare.com'
+export const DEFAULT_API_BASE_URL = 'https://splendid-sensibly-primate.ngrok-free.app'
 
 // Configured Axios instance connecting to the Qwen cluster tunnel
 export const api = axios.create({
@@ -9,6 +9,7 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
     'X-AIRA-Client': 'MRPL-Sovereign-Workbench/1.0.0',
+    'ngrok-skip-browser-warning': 'true',
   },
 })
 

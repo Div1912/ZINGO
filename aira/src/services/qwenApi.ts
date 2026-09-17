@@ -89,6 +89,7 @@ export async function checkServerHealth(
 
     const res = await fetch(`${cleanUrl}/health`, {
       method: 'GET',
+      headers: { 'ngrok-skip-browser-warning': 'true' },
       signal: controller.signal,
     })
     clearTimeout(timeoutId)
@@ -102,7 +103,10 @@ export async function checkServerHealth(
     }
 
     // Fallback check on root /
-    const rootRes = await fetch(`${cleanUrl}/`, { method: 'GET' })
+    const rootRes = await fetch(`${cleanUrl}/`, {
+      method: 'GET',
+      headers: { 'ngrok-skip-browser-warning': 'true' },
+    })
     if (rootRes.ok) {
       return { connected: true, model: 'qwen3:8b' }
     }
@@ -116,7 +120,7 @@ export async function checkServerHealth(
 }
 
 /**
- * Real-time SSE streaming from Qwen model backend via Cloudflare tunnel
+ * Real-time SSE streaming from Qwen model backend via Cloudflare/Ngrok tunnel
  */
 export async function streamChatResponse(
   messages: Message[],
@@ -129,7 +133,7 @@ export async function streamChatResponse(
   signal?: AbortSignal
 ): Promise<void> {
   const startTime = Date.now()
-  const cleanUrl = (serverUrl || 'https://lbs-litigation-really-tap.trycloudflare.com').replace(/\/+$/, '')
+  const cleanUrl = (serverUrl || 'https://splendid-sensibly-primate.ngrok-free.app').replace(/\/+$/, '')
   const modelUsed: ModelId = 'qwen3:8b'
 
   // Extract latest user prompt
@@ -152,6 +156,7 @@ export async function streamChatResponse(
   try {
     const response = await fetch(endpointUrl, {
       method: 'POST',
+      headers: { 'ngrok-skip-browser-warning': 'true' },
       body: hasRawFile ? formData : undefined,
       signal,
     })

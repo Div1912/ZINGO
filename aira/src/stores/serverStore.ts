@@ -13,7 +13,7 @@ interface ServerStore {
   checkIndividual: (node: 'primary' | 'coder') => Promise<void>
 }
 
-export const DEFAULT_TUNNEL_URL = 'https://lbs-litigation-really-tap.trycloudflare.com'
+export const DEFAULT_TUNNEL_URL = 'https://splendid-sensibly-primate.ngrok-free.app'
 
 const DEFAULT_SERVER: ServerConfig = {
   g15_1_url: DEFAULT_TUNNEL_URL,
@@ -116,7 +116,7 @@ export const useServerStore = create<ServerStore>()(
       name: 'aira-server-config-v2',
       onRehydrateStorage: () => (state) => {
         if (state && state.server) {
-          if (!state.server.g15_1_url || state.server.g15_1_url.includes('oasis-modular-card-symbol')) {
+          if (!state.server.g15_1_url || state.server.g15_1_url.includes('trycloudflare.com')) {
             state.server.g15_1_url = DEFAULT_TUNNEL_URL
           }
         }

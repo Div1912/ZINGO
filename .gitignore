@@ -54,3 +54,4 @@ uploads/
 sample_docs/
 vector_store.jsonl
 cloudflared.exe
+ngrok.exe
