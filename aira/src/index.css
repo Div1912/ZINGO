@@ -100,6 +100,37 @@ html, body, #root {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * Mobile browsers (Chrome/Safari on iOS & Android) size `100vh` to the LARGEST
+ * possible viewport — as if the address bar / bottom nav bar were fully
+ * collapsed. When they're visible, `100vh` overshoots the real visible area,
+ * so anything sized off it (a full-height app shell with a fixed footer,
+ * for example) gets pushed below the fold and needs a scroll to reach.
+ *
+ * `--app-vh` is kept in sync with the *actual* visible height by JS in
+ * main.tsx (using `visualViewport` where available, `window.innerHeight`
+ * otherwise) and used instead of `100vh` anywhere a screen-height container
+ * is needed. Falls back to `100vh` before JS has run (SSR-safe, no flash).
+ */
+:root {
+  --app-vh: 100vh;
+}
+
+.h-app-screen {
+  height: 100vh;
+  height: var(--app-vh);
+}
+
+.max-h-app-screen {
+  max-height: 100vh;
+  max-height: var(--app-vh);
+}
+
+.min-h-app-screen {
+  min-height: 100vh;
+  min-height: var(--app-vh);
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

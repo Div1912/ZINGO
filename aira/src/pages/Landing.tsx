@@ -24,7 +24,7 @@ export const Landing: React.FC = () => {
   const { user, profile, openAuthModal } = useAuthStore()
 
   return (
-    <div className="min-h-screen flex flex-col bg-page text-content-primary selection:bg-accent selection:text-accent-text relative overflow-hidden">
+    <div className="min-h-app-screen flex flex-col bg-page text-content-primary selection:bg-accent selection:text-accent-text relative overflow-hidden">
       {/* Ambient Premium Dynamic Background Layer */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         {/* WebGL Gradient Wave for Light Mode */}

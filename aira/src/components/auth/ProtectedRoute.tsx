@@ -21,7 +21,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   // While checking auth status on page load
   if (isLoading || !isInitialized) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-[#090b10] text-white">
+      <div className="min-h-app-screen w-full flex items-center justify-center bg-[#090b10] text-white">
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 animate-pulse flex items-center justify-center">
@@ -41,7 +41,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   // If user is not authenticated, block access and present login gateway
   if (!user) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-[#090b10] p-4 text-white relative overflow-hidden">
+      <div className="min-h-app-screen w-full flex items-center justify-center bg-[#090b10] p-4 text-white relative overflow-hidden">
         {/* Background glow */}
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
 

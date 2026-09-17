@@ -120,7 +120,7 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
   })
 
   return (
-    <div className={`flex h-screen w-screen overflow-hidden bg-page text-content-primary relative ${fontClass}`}>
+    <div className={`flex h-app-screen w-screen overflow-hidden bg-page text-content-primary relative ${fontClass}`}>
       {/* Ambient WebGL Gradient Wave Background — Adaptive Light & Dark Mode */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         {!isDark ? (

@@ -13,7 +13,7 @@ export const Hero: React.FC = () => {
   }
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-4 pt-20 pb-12 overflow-hidden">
+    <section className="relative min-h-app-screen flex flex-col items-center justify-center text-center px-4 pt-20 pb-12 overflow-hidden">
       {/* Sovereign Air-Gap Badge */}
       <motion.div
         initial={{ opacity: 0, y: -12 }}
