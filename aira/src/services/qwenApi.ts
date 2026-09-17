@@ -176,17 +176,22 @@ export async function streamChatResponse(
   // Extract latest user prompt
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')?.content || ''
 
-  // Build FormData for file attachments or OCR
+  // Build FormData for conversation history + file attachments
   const formData = new FormData()
-  let hasRawFile = false
 
   for (const f of files) {
     if (f.rawFile) {
       formData.append('file', f.rawFile)
-      hasRawFile = true
       break
     }
   }
+
+  // Include multi-turn conversation history so follow-up questions are understood in context
+  const history = messages.slice(-16).map((m) => ({
+    role: m.role,
+    content: m.content,
+  }))
+  formData.append('messages', JSON.stringify(history))
 
   const effortParam = encodeURIComponent(effort || 'Fast')
   const modelParam = targetModel && targetModel !== 'auto' ? `&model=${encodeURIComponent(targetModel)}` : ''
@@ -197,7 +202,7 @@ export async function streamChatResponse(
     const response = await fetch(endpointUrl, {
       method: 'POST',
       headers: { 'ngrok-skip-browser-warning': 'true' },
-      body: hasRawFile ? formData : undefined,
+      body: formData,
       signal,
     })
 

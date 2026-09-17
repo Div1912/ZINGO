@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 import base64
 import json
 import requests
-from fastapi import FastAPI, File, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -458,6 +458,9 @@ def retrieve_context(question: str, top_k: int = 5,
         preferred = [h for h in hits if tag in str((h.get("metadata") or {}).get("equipment_tags", "")).upper()]
         hits = preferred + [h for h in hits if h not in preferred]
 
+    # Filter out weak unrelated matches so conversational questions don't get false citations
+    hits = [h for h in hits if h.get("similarity") is None or h.get("similarity", 0) >= 0.22]
+
     blocks, sources, doc_ids = [], [], []
     for i, hit in enumerate(hits[:top_k], start=1):
         meta = hit.get("metadata") or {}
@@ -487,13 +490,15 @@ def retrieve_context(question: str, top_k: int = 5,
 
 
 # --------------------------------------------------------------------------------------
-# Retained: OCR + ask (Multi-Node Cluster Gateway with Auto-RAG)
+# Retained: OCR + ask (Multi-Node Cluster Gateway with Auto-RAG & Multi-Turn History)
 # --------------------------------------------------------------------------------------
 
 @app.post("/process-and-ask/")
 async def process_and_ask(
     user_query: str = Query(..., description="User query or prompt"),
     file: Optional[UploadFile] = File(None),
+    messages: Optional[str] = Form(None, description="JSON array of previous conversation turns"),
+    history: Optional[str] = Query(None, description="Fallback query param for conversation history"),
     stream: bool = Query(False, description="Stream response via Server-Sent Events (SSE)"),
     effort: str = Query("Fast", description="Reasoning effort: Fast | Deep Research | Max Effort"),
     model: Optional[str] = Query(None, description="Model ID or 'auto' for smart routing"),
@@ -502,6 +507,21 @@ async def process_and_ask(
     context = ""
     images_b64 = []
     sources = []
+
+    # Parse conversation history for multi-turn follow-up coherence
+    chat_history: List[Dict[str, str]] = []
+    raw_history = messages or history
+    if raw_history:
+        try:
+            parsed = json.loads(raw_history)
+            if isinstance(parsed, list):
+                chat_history = [
+                    {"role": str(m.get("role", "user")), "content": str(m.get("content", ""))}
+                    for m in parsed if isinstance(m, dict) and m.get("content")
+                ]
+        except Exception as parse_err:
+            print(f"--- Chat history parse warning: {parse_err} ---")
+
     if file:
         try:
             file_bytes = await file.read()
@@ -520,18 +540,37 @@ async def process_and_ask(
             print(f"--- OCR extraction warning: {ocr_err} ---")
     else:
         # Automatic RAG retrieval from ChromaDB document store when no file is attached
+        rag_query = user_query
+        if chat_history and len(user_query.strip().split()) <= 4:
+            prev_user_queries = [m["content"] for m in chat_history if m["role"] == "user" and m["content"] != user_query]
+            if prev_user_queries:
+                rag_query = f"{prev_user_queries[-1]} {user_query}"
+
         try:
-            retrieval = retrieve_context(user_query, top_k=5)
-            if retrieval.get("context"):
+            retrieval = retrieve_context(rag_query, top_k=5)
+            if retrieval.get("context") and retrieval.get("confidence", 0) > 0.15:
                 context = "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
                 sources = retrieval.get("sources", [])
-                print(f"--- RAG retrieved {len(sources)} chunks from ChromaDB for query: {user_query[:60]!r} ---")
+                print(f"--- RAG retrieved {len(sources)} chunks from ChromaDB for query: {rag_query[:60]!r} ---")
         except Exception as rag_err:
             print(f"--- RAG retrieval warning: {rag_err} ---")
 
     cfg = get_effort_config(effort, user_query)
-    full_prompt = (f"Context from Documents:\n{context}\n\nUser Query: {user_query}"
-                   if context else user_query)
+
+    # Build full prompt including conversation history turns
+    if chat_history:
+        lines = []
+        if context:
+            lines.append(f"Context from Documents:\n{context}")
+        for m in chat_history:
+            role_label = "User" if m["role"] == "user" else "Assistant"
+            lines.append(f"{role_label}: {m['content']}")
+        if not chat_history or chat_history[-1].get("content") != user_query:
+            lines.append(f"User: {user_query}")
+        full_prompt = "\n\n".join(lines) + "\n\nAssistant:"
+    else:
+        full_prompt = (f"Context from Documents:\n{context}\n\nUser Query: {user_query}"
+                       if context else user_query)
 
     # Dynamic model resolution for distributed multi-node cluster
     target_model = (model or "").strip()
