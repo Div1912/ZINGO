@@ -7,6 +7,15 @@ import { AppShell } from './pages/App/index'
 const Landing = lazy(() => import('./pages/Landing').then((m) => ({ default: m.Landing })))
 const ChatPage = lazy(() => import('./pages/App/Chat').then((m) => ({ default: m.ChatPage })))
 
+// ZINGO workbench modules
+const AlertsPanel = lazy(() => import('./components/zingo/AlertsPanel'))
+const PlantHealthMap = lazy(() => import('./components/zingo/PlantHealthMap'))
+const DocumentTimeline = lazy(() => import('./components/zingo/DocumentTimeline'))
+const ShiftHandover = lazy(() => import('./components/zingo/ShiftHandover'))
+const ComplianceMatrix = lazy(() => import('./components/zingo/ComplianceMatrix'))
+const KnowledgeGraph = lazy(() => import('./components/zingo/KnowledgeGraph'))
+const AuditTrail = lazy(() => import('./components/zingo/AuditTrail'))
+
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 
 const LoadingFallback = () => (
@@ -40,6 +49,13 @@ export const App: React.FC = () => {
             <Route index element={<ChatPage />} />
             <Route path="chat/:id" element={<ChatPage />} />
             <Route path="settings" element={<ChatPage />} />
+            <Route path="alerts" element={<AlertsPanel />} />
+            <Route path="health" element={<PlantHealthMap />} />
+            <Route path="documents" element={<DocumentTimeline />} />
+            <Route path="shift" element={<ShiftHandover />} />
+            <Route path="compliance" element={<ComplianceMatrix />} />
+            <Route path="graph" element={<KnowledgeGraph />} />
+            <Route path="audit" element={<AuditTrail />} />
           </Route>
 
           {/* Catch-all redirect */}
