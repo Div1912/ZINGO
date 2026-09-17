@@ -215,6 +215,16 @@ async def root():
                 <li><code>POST /api/chat</code> — RAG-grounded chat with sources &amp; confidence</li>
                 <li><code>POST /process-and-ask/</code> — OCR + ask</li>
             </ul>
+            <h2>Test Inference &amp; OCR</h2>
+            <form id="askForm" style="margin-top: 14px;">
+                <label style="display:block;margin-bottom:6px;font-size:13px;color:#cbd5e1;">User Query:</label>
+                <input type="text" id="user_query" placeholder="e.g. Summarize this inspection report" required style="width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;border:1px solid #475569;border-radius:6px;color:white;font-size:14px;margin-bottom:12px;" />
+                <label style="display:block;margin-bottom:6px;font-size:13px;color:#cbd5e1;">Upload Document/Image (Optional OCR):</label>
+                <input type="file" id="file" accept="image/*,.pdf" style="width:100%;box-sizing:border-box;padding:8px 12px;background:#0f172a;border:1px solid #475569;border-radius:6px;color:white;font-size:13px;margin-bottom:14px;" />
+                <button type="submit" id="submitBtn" style="width:100%;padding:10px;background:#2563eb;color:white;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">Ask Question</button>
+            </form>
+            <div id="output" style="margin-top:16px;padding:14px;background:#0b1120;border:1px solid #334155;border-radius:6px;font-family:monospace;font-size:13px;white-space:pre-wrap;word-break:break-word;color:#e2e8f0;display:none;"></div>
+
             <div class="proof">
                 Sovereignty: every model call is recorded in <code>ollama_calls</code>.
                 Verify at <a href="/api/audit/network_proof">/api/audit/network_proof</a> —
@@ -224,6 +234,32 @@ async def root():
                 Interactive API docs: <a href="/docs">/docs</a>
             </p>
         </div>
+        <script>
+            document.getElementById('askForm').onsubmit = async (e) => {{
+                e.preventDefault();
+                const out = document.getElementById('output');
+                const btn = document.getElementById('submitBtn');
+                out.style.display = 'block';
+                out.textContent = 'Processing request with Qwen on local Ollama node...';
+                btn.disabled = true;
+                const query = document.getElementById('user_query').value;
+                const fileInput = document.getElementById('file');
+                const formData = new FormData();
+                if (fileInput.files.length > 0) {{
+                    formData.append('file', fileInput.files[0]);
+                }}
+                try {{
+                    const url = '/process-and-ask/?user_query=' + encodeURIComponent(query);
+                    const res = await fetch(url, {{ method: 'POST', body: formData }});
+                    const data = await res.json();
+                    out.textContent = JSON.stringify(data, null, 2);
+                }} catch (err) {{
+                    out.textContent = 'Error: ' + err.message;
+                }} finally {{
+                    btn.disabled = false;
+                }}
+            }};
+        </script>
     </body>
     </html>
     """
@@ -259,7 +295,7 @@ def run_ollama_stream(payload: Dict[str, Any], context: str = "",
                 if not line:
                     continue
                 try:
-                    data = json.loads(line.decode("utf-8"))
+                    data = json.loads(line.decode("utf-8") if isinstance(line, (bytes, bytearray)) else line)
                     chunk = data.get("response", "")
                     done = bool(data.get("done"))
                     eval_count = data.get("eval_count", 0)
