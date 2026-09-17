@@ -240,10 +240,16 @@ def run_ollama_stream(payload: Dict[str, Any], context: str = "",
     started = datetime.now()
     collected = 0
     try:
+        meta = {
+            "type": "meta",
+            "ocr_context_found": bool(context),
+            "context_length": len(context),
+            "model": payload.get("model", MODEL_NAME),
+            "sources": sources or [],
+        }
+        yield f"data: {json.dumps(meta)}\n\n"
         if context:
-            meta = {"type": "context", "context_length": len(context),
-                    "sources": sources or []}
-            yield f"data: {json.dumps(meta)}\n\n"
+            yield f"data: {json.dumps({'type': 'context', 'context_length': len(context), 'sources': sources or []})}\n\n"
 
         with requests.post(payload.get("_endpoint", MODEL_ENDPOINT),
                            json={k: v for k, v in payload.items() if not k.startswith("_")},
