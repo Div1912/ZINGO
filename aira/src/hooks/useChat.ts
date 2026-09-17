@@ -102,6 +102,29 @@ export function useChat(targetChatId?: string | null) {
 
       const targetEndpoint = server.g15_1_url || 'https://splendid-sensibly-primate.ngrok-free.app'
 
+      // Distributed cluster node and model resolution
+      let targetNodeUrl: string | undefined = undefined
+      let targetModel: ModelId = selectedModel || 'auto'
+
+      if (targetModel === 'qwen2.5-coder-7b' || targetModel === 'qwen2.5-coder:7b') {
+        targetNodeUrl = server.g15_2_url
+      } else if (targetModel === 'qwen2.5-vl:7b' || targetModel === 'llava:7b') {
+        targetNodeUrl = server.vision_url
+      } else if (targetModel === 'deepseek-r1:8b') {
+        targetNodeUrl = server.reasoning_url
+      } else if (targetModel === 'qwen3:8b' || targetModel === 'qwen3-8b') {
+        targetNodeUrl = server.g15_1_url
+      } else if (targetModel === 'auto') {
+        const hasImage = files.some((f) => f.type === 'image')
+        if (hasImage && server.vision_url) {
+          targetNodeUrl = server.vision_url
+          targetModel = 'qwen2.5-vl:7b'
+        } else if (detectedTask === 'code' && server.g15_2_url) {
+          targetNodeUrl = server.g15_2_url
+          targetModel = 'qwen2.5-coder-7b'
+        }
+      }
+
       await streamChatResponse(
         messagesForContext,
         detectedTask,
@@ -141,7 +164,9 @@ export function useChat(targetChatId?: string | null) {
           }
         },
         controller.signal,
-        effort
+        effort,
+        targetModel,
+        targetNodeUrl
       )
     } catch (err: unknown) {
       const isAbort = err instanceof DOMException && err.name === 'AbortError'

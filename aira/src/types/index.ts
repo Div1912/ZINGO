@@ -1,5 +1,14 @@
-export type ModelId = 'qwen3:8b' | 'qwen3-8b' | 'qwen2.5-7b' | 'qwen2.5-coder-7b'
-export type TaskType = 'document' | 'code' | 'analysis' | 'general'
+export type ModelId =
+  | 'auto'
+  | 'qwen3:8b'
+  | 'qwen3-8b'
+  | 'qwen2.5-7b'
+  | 'qwen2.5-coder-7b'
+  | 'qwen2.5-coder:7b'
+  | 'qwen2.5-vl:7b'
+  | 'llava:7b'
+  | 'deepseek-r1:8b'
+export type TaskType = 'document' | 'code' | 'analysis' | 'general' | 'vision'
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -48,11 +57,15 @@ export interface Chat {
 }
 
 export interface ServerConfig {
-  g15_1_url: string      // default: http://192.168.1.10:8080
-  g15_2_url: string      // default: http://192.168.1.11:11434
+  g15_1_url: string      // Master / Chat Node (default: Live tunnel or http://127.0.0.1:8000)
+  g15_2_url: string      // Laptop 2: Coder Node (default: http://192.168.1.15:11434)
+  vision_url?: string    // Laptop 3: Vision Node (default: http://192.168.1.16:11434)
+  reasoning_url?: string // Laptop 4: Reasoning Node (default: http://192.168.1.17:11434)
   connectionStatus: 'connected' | 'disconnected' | 'checking'
   primaryStatus?: 'connected' | 'disconnected' | 'checking'
   coderStatus?: 'connected' | 'disconnected' | 'checking'
+  visionStatus?: 'connected' | 'disconnected' | 'checking'
+  reasoningStatus?: 'connected' | 'disconnected' | 'checking'
 }
 
 export interface AutoRouteRule {

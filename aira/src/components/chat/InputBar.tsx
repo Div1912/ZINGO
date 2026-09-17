@@ -26,13 +26,17 @@ export const InputBar: React.FC<InputBarProps> = ({
     message: string,
     meta: { model: string; effort: string; attachments: File[] }
   ) => {
-    let modelId: ModelId | undefined = undefined
+    let modelId: ModelId = 'auto'
     if (meta.model.includes('Coder')) {
-      modelId = 'qwen2.5-coder-7b'
-    } else if (meta.model.includes('Qwen3') || meta.model.includes('8B')) {
+      modelId = 'qwen2.5-coder:7b'
+    } else if (meta.model.includes('Vision') || meta.model.includes('VL')) {
+      modelId = 'qwen2.5-vl:7b'
+    } else if (meta.model.includes('R1') || meta.model.includes('DeepSeek')) {
+      modelId = 'deepseek-r1:8b'
+    } else if (meta.model.includes('Qwen3') || meta.model.includes('Master') || meta.model.includes('8B')) {
       modelId = 'qwen3:8b'
-    } else if (meta.model.includes('7B')) {
-      modelId = 'qwen2.5-7b'
+    } else {
+      modelId = 'auto'
     }
 
     const uploadedFiles: UploadedFile[] = (meta.attachments || []).map((file) => {
@@ -71,7 +75,13 @@ export const InputBar: React.FC<InputBarProps> = ({
           onStop={onStop}
           enableBorderBeam={true}
           placeholder="Ask AIRA anything... (Shift+Enter for new line)"
-          models={['Auto (Recommended)', 'Qwen3-8B (Live Tunnel)', 'Qwen2.5-Coder-7B']}
+          models={[
+            'Auto (Cluster Smart Router)',
+            'Qwen3-8B (Master / Chat Node)',
+            'Qwen2.5-Coder (Laptop 2)',
+            'Qwen2.5-VL Vision (Laptop 3)',
+            'DeepSeek-R1 (Laptop 4)'
+          ]}
           efforts={['Fast', 'Deep Research', 'Max Effort']}
           maxWidthCollapsed={560}
           maxWidthExpanded={820}

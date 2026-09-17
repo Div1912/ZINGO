@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import base64
 import json
 import requests
 from fastapi import FastAPI, File, Query, Request, UploadFile
@@ -159,6 +160,47 @@ async def api_models(task_type: str = Query("chat", description="chat|code|visio
         "routing": llm.TASK_MODEL_MAP,
         "host": llm.OLLAMA_HOST,
     }
+
+
+@app.get("/api/cluster/ping")
+async def cluster_ping(node_url: str = Query(..., description="Target node URL to ping")):
+    """Ping a cluster node URL (Ollama or FastAPI) from the server side to bypass browser CORS."""
+    clean_url = (node_url or "").strip().rstrip("/")
+    if not clean_url:
+        return {"connected": False, "error": "Missing node URL"}
+    try:
+        resp = requests.get(f"{clean_url}/api/tags", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            models = [m.get("name") for m in data.get("models", [])]
+            return {"connected": True, "type": "ollama", "models": models, "active": models[0] if models else "ready"}
+    except Exception:
+        pass
+
+    try:
+        resp = requests.get(f"{clean_url}/api/health", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {"connected": True, "type": "aira", "model": data.get("model", "ready")}
+    except Exception:
+        pass
+
+    try:
+        resp = requests.get(f"{clean_url}/health", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {"connected": True, "type": "aira", "model": data.get("model", "ready")}
+    except Exception:
+        pass
+
+    try:
+        resp = requests.get(f"{clean_url}/", timeout=3)
+        if resp.status_code == 200:
+            return {"connected": True, "type": "generic", "model": "ready"}
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+    return {"connected": False, "error": "Node returned non-200 status"}
 
 
 # --------------------------------------------------------------------------------------
@@ -343,26 +385,44 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
 def run_ollama_stream(payload: Dict[str, Any], context: str = "",
                       sources: Optional[List[Dict[str, Any]]] = None,
                       feature: str = "chat"):
-    """Yield Server-Sent Events from the local model, then log the call."""
+    """Yield Server-Sent Events from the local model or remote cluster node, then log the call."""
     started = datetime.now()
     collected = 0
+    endpoint = payload.get("_endpoint", MODEL_ENDPOINT)
+    model_name = payload.get("model", MODEL_NAME)
     try:
         meta = {
             "type": "meta",
             "ocr_context_found": bool(context),
             "context_length": len(context),
-            "model": payload.get("model", MODEL_NAME),
+            "model": model_name,
             "sources": sources or [],
             "effort": payload.get("_effort", "Fast"),
+            "node_endpoint": endpoint,
         }
         yield f"data: {json.dumps(meta)}\n\n"
         if context:
             yield f"data: {json.dumps({'type': 'context', 'context_length': len(context), 'sources': sources or []})}\n\n"
 
-        with requests.post(payload.get("_endpoint", MODEL_ENDPOINT),
-                           json={k: v for k, v in payload.items() if not k.startswith("_")},
-                           stream=True, timeout=600) as response:
-            response.raise_for_status()
+        req = None
+        try:
+            req = requests.post(endpoint,
+                                json={k: v for k, v in payload.items() if not k.startswith("_")},
+                                stream=True, timeout=10 if endpoint != MODEL_ENDPOINT else 600)
+            req.raise_for_status()
+        except Exception as remote_err:
+            if endpoint != MODEL_ENDPOINT:
+                print(f"[cluster] Remote node {endpoint} unreachable: {remote_err}. Falling back to master node.")
+                payload["model"] = llm.DEFAULT_MODEL
+                endpoint = MODEL_ENDPOINT
+                req = requests.post(endpoint,
+                                    json={k: v for k, v in payload.items() if not k.startswith("_")},
+                                    stream=True, timeout=600)
+                req.raise_for_status()
+            else:
+                raise remote_err
+
+        with req as response:
             for line in response.iter_lines():
                 if not line:
                     continue
@@ -379,18 +439,18 @@ def run_ollama_stream(payload: Dict[str, Any], context: str = "",
                         break
                 except Exception:
                     continue
-        log_ollama_call(MODEL_ENDPOINT, payload.get("model", MODEL_NAME), feature,
+        log_ollama_call(endpoint, payload.get("model", MODEL_NAME), feature,
                         len(payload.get("prompt", "")), collected,
                         int((datetime.now() - started).total_seconds() * 1000), True)
     except Exception as exc:
-        log_ollama_call(MODEL_ENDPOINT, payload.get("model", MODEL_NAME), feature,
+        log_ollama_call(endpoint, payload.get("model", MODEL_NAME), feature,
                         len(payload.get("prompt", "")), collected,
                         int((datetime.now() - started).total_seconds() * 1000), False)
         yield f"data: {json.dumps({'type': 'error', 'error': str(exc), 'done': True})}\n\n"
 
 
 # --------------------------------------------------------------------------------------
-# Retained: OCR + ask
+# Retained: OCR + ask (Multi-Node Cluster Gateway)
 # --------------------------------------------------------------------------------------
 
 @app.post("/process-and-ask/")
@@ -399,11 +459,22 @@ async def process_and_ask(
     file: Optional[UploadFile] = File(None),
     stream: bool = Query(False, description="Stream response via Server-Sent Events (SSE)"),
     effort: str = Query("Fast", description="Reasoning effort: Fast | Deep Research | Max Effort"),
+    model: Optional[str] = Query(None, description="Model ID or 'auto' for smart routing"),
+    node_url: Optional[str] = Query(None, description="Direct URL of the target node (e.g. http://192.168.1.15:11434)"),
 ):
     context = ""
+    images_b64 = []
     if file:
         try:
             file_bytes = await file.read()
+            # If image, prepare base64 for multimodal vision models
+            is_image = bool(file.content_type and file.content_type.startswith("image/"))
+            if not is_image and file.filename:
+                ext = file.filename.lower()
+                is_image = ext.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
+            if is_image:
+                images_b64.append(base64.b64encode(file_bytes).decode("utf-8"))
+
             ocr_result = get_reader().readtext(file_bytes, detail=0)
             context = " ".join(ocr_result)
             print(f"--- OCR extracted {len(context)} chars ---")
@@ -413,9 +484,40 @@ async def process_and_ask(
     cfg = get_effort_config(effort, user_query)
     full_prompt = (f"Context from Document:\n{context}\n\nUser Query: {user_query}"
                    if context else user_query)
-    model = llm.resolve_model("document")
+
+    # Dynamic model resolution for distributed multi-node cluster
+    target_model = (model or "").strip()
+    if not target_model or target_model == "auto" or target_model == "Auto (Recommended)":
+        if images_b64:
+            target_model = "qwen2.5-vl:7b"
+        elif any(k in user_query.lower() for k in ["code", "python", "script", "def ", "sql", "bug", "error", "function", "class "]):
+            target_model = "qwen2.5-coder:7b"
+        elif "max" in effort.lower():
+            target_model = "deepseek-r1:8b"
+        else:
+            target_model = llm.DEFAULT_MODEL
+    elif "coder" in target_model.lower():
+        target_model = "qwen2.5-coder:7b"
+    elif "vl" in target_model.lower() or "vision" in target_model.lower():
+        target_model = "qwen2.5-vl:7b"
+    elif "r1" in target_model.lower() or "deepseek" in target_model.lower():
+        target_model = "deepseek-r1:8b"
+    elif "8b" in target_model.lower() or "qwen3" in target_model.lower():
+        target_model = "qwen3:8b"
+
+    # Resolve target endpoint
+    target_endpoint = MODEL_ENDPOINT
+    if node_url and node_url.strip():
+        clean_node = node_url.strip().rstrip("/")
+        if clean_node.endswith("/api/generate"):
+            target_endpoint = clean_node
+        elif clean_node.endswith("/api/chat"):
+            target_endpoint = clean_node.replace("/api/chat", "/api/generate")
+        else:
+            target_endpoint = f"{clean_node}/api/generate"
+
     payload = {
-        "model": model,
+        "model": target_model,
         "prompt": full_prompt,
         "system": cfg["instruction"],
         "stream": stream,
@@ -423,32 +525,51 @@ async def process_and_ask(
         "options": cfg["options"],
         "keep_alive": -1,
         "_effort": cfg["effort"],
+        "_endpoint": target_endpoint,
     }
+    if images_b64:
+        payload["images"] = images_b64
 
     log_audit("ocr_query", "engineer", None, "chat",
-              {"query": user_query[:300], "ocr_chars": len(context), "effort": cfg["effort"]})
+              {"query": user_query[:300], "ocr_chars": len(context), "effort": cfg["effort"],
+               "model": target_model, "endpoint": target_endpoint})
 
     if stream:
         return StreamingResponse(run_ollama_stream(payload, context=context, feature="ocr_chat"),
                                  media_type="text/event-stream")
     try:
-        response = requests.post(MODEL_ENDPOINT,
-                                 json={k: v for k, v in payload.items() if not k.startswith("_")},
-                                 timeout=300)
-        response.raise_for_status()
+        try:
+            response = requests.post(target_endpoint,
+                                     json={k: v for k, v in payload.items() if not k.startswith("_")},
+                                     timeout=8 if target_endpoint != MODEL_ENDPOINT else 300)
+            response.raise_for_status()
+        except Exception as remote_err:
+            if target_endpoint != MODEL_ENDPOINT:
+                print(f"[cluster] Remote node {target_endpoint} failed: {remote_err}. Falling back to master.")
+                target_endpoint = MODEL_ENDPOINT
+                target_model = llm.DEFAULT_MODEL
+                payload["model"] = target_model
+                response = requests.post(target_endpoint,
+                                         json={k: v for k, v in payload.items() if not k.startswith("_")},
+                                         timeout=300)
+                response.raise_for_status()
+            else:
+                raise remote_err
+
         data = response.json()
         answer = data.get("response", "")
-        log_ollama_call(MODEL_ENDPOINT, model, "ocr_chat", len(full_prompt), len(answer), 0, True)
+        log_ollama_call(target_endpoint, target_model, "ocr_chat", len(full_prompt), len(answer), 0, True)
         return {
             "ocr_context_found": bool(context),
             "context_length": len(context),
             "answer": answer,
             "eval_count": data.get("eval_count", 0),
-            "model": model,
+            "model": target_model,
             "effort": cfg["effort"],
+            "endpoint": target_endpoint,
         }
     except requests.exceptions.RequestException as exc:
-        return {"error": f"Ollama request failed: {exc}"}
+        return {"error": f"Node request failed: {exc}"}
     except Exception as exc:
         return {"error": f"Server error: {exc}"}
 

@@ -78,17 +78,41 @@ export function isComplexTask(
 }
 
 /**
- * Ping backend node health directly
+ * Ping backend node health directly with server proxy fallback to bypass CORS
  */
 export async function checkServerHealth(
-  baseUrl: string
+  baseUrl: string,
+  proxyHost?: string
 ): Promise<{ connected: boolean; model?: string; error?: string }> {
-  const cleanUrl = baseUrl.replace(/\/+$/, '')
+  const cleanUrl = (baseUrl || '').trim().replace(/\/+$/, '')
+  if (!cleanUrl) {
+    return { connected: false, error: 'Empty URL' }
+  }
+
+  // 1. Direct fetch attempts
   try {
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 8000)
+    const timeoutId = setTimeout(() => controller.abort(), 4000)
 
-    const res = await fetch(`${cleanUrl}/health`, {
+    // Probe 1: Ollama tags
+    try {
+      const tagRes = await fetch(`${cleanUrl}/api/tags`, {
+        method: 'GET',
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+        signal: controller.signal,
+      })
+      if (tagRes.ok) {
+        clearTimeout(timeoutId)
+        const data = await tagRes.json()
+        const models = (data.models || []).map((m: any) => m.name)
+        return { connected: true, model: models[0] || 'Ollama Node' }
+      }
+    } catch {
+      // Continue to next probe
+    }
+
+    // Probe 2: FastAPI health
+    const res = await fetch(`${cleanUrl}/api/health`, {
       method: 'GET',
       headers: { 'ngrok-skip-browser-warning': 'true' },
       signal: controller.signal,
@@ -102,26 +126,35 @@ export async function checkServerHealth(
         model: data.model || 'qwen3:8b',
       }
     }
+  } catch {
+    // Direct browser fetch failed (common with cross-origin LAN IPs)
+  }
 
-    // Fallback check on root /
-    const rootRes = await fetch(`${cleanUrl}/`, {
+  // 2. Fallback: Query master node proxy to ping the target node without browser CORS
+  const master = (proxyHost || 'http://127.0.0.1:8000').replace(/\/+$/, '')
+  try {
+    const proxyRes = await fetch(`${master}/api/cluster/ping?node_url=${encodeURIComponent(cleanUrl)}`, {
       method: 'GET',
       headers: { 'ngrok-skip-browser-warning': 'true' },
     })
-    if (rootRes.ok) {
-      return { connected: true, model: 'qwen3:8b' }
+    if (proxyRes.ok) {
+      const data = await proxyRes.json()
+      if (data.connected) {
+        return { connected: true, model: data.active || data.model || 'ready' }
+      }
     }
-    return { connected: false, error: `HTTP ${res.status}` }
-  } catch (err: unknown) {
-    return {
-      connected: false,
-      error: err instanceof Error ? err.message : 'Connection failed',
-    }
+  } catch {
+    // Both failed
+  }
+
+  return {
+    connected: false,
+    error: 'Node unreachable or offline',
   }
 }
 
 /**
- * Real-time SSE streaming from Qwen model backend via Cloudflare/Ngrok tunnel
+ * Real-time SSE streaming from distributed Qwen/Cluster model backend via tunnel or LAN
  */
 export async function streamChatResponse(
   messages: Message[],
@@ -132,11 +165,13 @@ export async function streamChatResponse(
   onSources: (sources: Source[]) => void,
   onDone: (meta: { tokensUsed: number; latencyMs: number; modelUsed: ModelId }) => void,
   signal?: AbortSignal,
-  effort?: string
+  effort?: string,
+  targetModel?: ModelId,
+  targetNodeUrl?: string
 ): Promise<void> {
   const startTime = Date.now()
   const cleanUrl = (serverUrl || 'https://splendid-sensibly-primate.ngrok-free.app').replace(/\/+$/, '')
-  const modelUsed: ModelId = 'qwen3:8b'
+  let modelUsed: ModelId = targetModel || 'qwen3:8b'
 
   // Extract latest user prompt
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')?.content || ''
@@ -154,7 +189,9 @@ export async function streamChatResponse(
   }
 
   const effortParam = encodeURIComponent(effort || 'Fast')
-  const endpointUrl = `${cleanUrl}/process-and-ask/?user_query=${encodeURIComponent(lastUserMsg)}&stream=true&effort=${effortParam}`
+  const modelParam = targetModel && targetModel !== 'auto' ? `&model=${encodeURIComponent(targetModel)}` : ''
+  const nodeParam = targetNodeUrl ? `&node_url=${encodeURIComponent(targetNodeUrl)}` : ''
+  const endpointUrl = `${cleanUrl}/process-and-ask/?user_query=${encodeURIComponent(lastUserMsg)}&stream=true&effort=${effortParam}${modelParam}${nodeParam}`
 
   try {
     const response = await fetch(endpointUrl, {
@@ -201,6 +238,9 @@ export async function streamChatResponse(
             const data = JSON.parse(jsonStr)
 
             if (data.type === 'meta') {
+              if (data.model) {
+                modelUsed = data.model as ModelId
+              }
               if (data.ocr_context_found) {
                 onSources([
                   {

@@ -95,6 +95,8 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   // Server state
   const [g15Primary, setG15Primary] = useState(server.g15_1_url)
   const [g15Coder, setG15Coder] = useState(server.g15_2_url)
+  const [g15Vision, setG15Vision] = useState(server.vision_url || 'http://192.168.1.16:11434')
+  const [g15Reasoning, setG15Reasoning] = useState(server.reasoning_url || 'http://192.168.1.17:11434')
 
   // Knowledge base state
   const [docs, setDocs] = useState(INITIAL_DOCS)
@@ -176,11 +178,13 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     updateServer({
       g15_1_url: g15Primary,
       g15_2_url: g15Coder,
+      vision_url: g15Vision,
+      reasoning_url: g15Reasoning,
     })
     addToast({
       type: 'success',
-      title: 'Configuration Saved',
-      message: 'Local cluster endpoints updated.',
+      title: 'Cluster Configuration Saved',
+      message: 'All 4 GPU cluster node endpoints updated.',
     })
   }
 
@@ -1084,15 +1088,23 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
               <div className="space-y-6">
                 <div>
                   <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Local GPU Cluster Nodes
+                    Distributed Multi-Laptop Cluster
                   </h2>
+                  <p className="text-xs text-content-secondary mt-1">
+                    Connect up to 4 dedicated laptops over LAN or tunnels. Each laptop hosts its own resident model in VRAM for zero-latency execution.
+                  </p>
                 </div>
 
                 <div className="space-y-4">
-                  {/* Live Qwen Tunnel Node */}
+                  {/* Node 1: Master Node */}
                   <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-content-primary">Live Qwen Cloudflare Tunnel (Qwen3-8B)</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-content-primary">Laptop 1: Master Node</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 text-primary border border-primary/20">
+                          Qwen3-8B (Chat & Orchestration)
+                        </span>
+                      </div>
                       <button
                         onClick={() => checkIndividual('primary')}
                         disabled={server.primaryStatus === 'checking'}
@@ -1105,6 +1117,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       <input
                         type="text"
                         value={g15Primary}
+                        placeholder="e.g. https://splendid-sensibly-primate.ngrok-free.app or http://127.0.0.1:8000"
                         onChange={(e) => setG15Primary(e.target.value)}
                         className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
                       />
@@ -1115,10 +1128,15 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Local Ollama Node */}
+                  {/* Node 2: Coder Node */}
                   <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-content-primary">Local Ollama Node (127.0.0.1:11434)</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-content-primary">Laptop 2: Coder Node</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                          Qwen2.5-Coder:7b (Code & Debug)
+                        </span>
+                      </div>
                       <button
                         onClick={() => checkIndividual('coder')}
                         disabled={server.coderStatus === 'checking'}
@@ -1131,14 +1149,96 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       <input
                         type="text"
                         value={g15Coder}
+                        placeholder="e.g. http://192.168.1.15:11434 or tunnel URL"
                         onChange={(e) => setG15Coder(e.target.value)}
                         className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
                       />
                       <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
                         <span className={`w-2 h-2 rounded-full ${server.coderStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
-                        <span className="capitalize text-[11px]">{server.coderStatus || 'online'}</span>
+                        <span className="capitalize text-[11px]">{server.coderStatus || 'offline'}</span>
                       </span>
                     </div>
+                  </div>
+
+                  {/* Node 3: Multimodal Vision Node */}
+                  <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-content-primary">Laptop 3: Vision Node</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                          Qwen2.5-VL:7b (Images & Blueprints)
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => checkIndividual('vision')}
+                        disabled={server.visionStatus === 'checking'}
+                        className="btn-ghost !py-0.5 !px-2 !text-[11px]"
+                      >
+                        {server.visionStatus === 'checking' ? 'Testing...' : 'Test connection'}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={g15Vision}
+                        placeholder="e.g. http://192.168.1.16:11434 or tunnel URL"
+                        onChange={(e) => setG15Vision(e.target.value)}
+                        className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                      />
+                      <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
+                        <span className={`w-2 h-2 rounded-full ${server.visionStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
+                        <span className="capitalize text-[11px]">{server.visionStatus || 'offline'}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Node 4: Deep Reasoning Node */}
+                  <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-content-primary">Laptop 4: Deep Reasoning Node</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          DeepSeek-R1:8b (Math & Step-by-Step)
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => checkIndividual('reasoning')}
+                        disabled={server.reasoningStatus === 'checking'}
+                        className="btn-ghost !py-0.5 !px-2 !text-[11px]"
+                      >
+                        {server.reasoningStatus === 'checking' ? 'Testing...' : 'Test connection'}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={g15Reasoning}
+                        placeholder="e.g. http://192.168.1.17:11434 or tunnel URL"
+                        onChange={(e) => setG15Reasoning(e.target.value)}
+                        className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                      />
+                      <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
+                        <span className={`w-2 h-2 rounded-full ${server.reasoningStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
+                        <span className="capitalize text-[11px]">{server.reasoningStatus || 'offline'}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quick Setup Guide Box */}
+                  <div className="p-3.5 rounded-xl bg-surface/60 border border-border/80 text-xs space-y-2">
+                    <div className="font-semibold text-content-primary flex items-center gap-1.5">
+                      <Info size={14} className="text-primary" />
+                      <span>How to connect each laptop tomorrow:</span>
+                    </div>
+                    <p className="text-content-secondary leading-relaxed">
+                      1. On each laptop, allow Ollama to accept LAN connections by running PowerShell as Admin:
+                    </p>
+                    <pre className="p-2 rounded bg-black/40 font-mono text-[11px] text-content-primary overflow-x-auto">
+                      [System.Environment]::SetEnvironmentVariable(&apos;OLLAMA_HOST&apos;, &apos;0.0.0.0:11434&apos;, &apos;User&apos;)
+                    </pre>
+                    <p className="text-content-secondary leading-relaxed">
+                      2. Restart Ollama, run <code className="text-primary font-mono text-[11px]">ipconfig</code> to find that laptop&apos;s IP, enter it above (e.g. <code className="text-primary font-mono text-[11px]">http://192.168.1.15:11434</code>), and click <strong>Test connection</strong>!
+                    </p>
                   </div>
 
                   <div className="flex items-center justify-between pt-2">
@@ -1148,16 +1248,16 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       className="btn-glass !py-1.5 !px-3 !text-xs flex items-center gap-1.5"
                     >
                       {isChecking && <Spinner size="sm" />}
-                      <span>{isChecking ? 'Checking...' : 'Test all nodes'}</span>
+                      <span>{isChecking ? 'Checking...' : 'Test all 4 nodes'}</span>
                     </button>
                     <button onClick={handleSaveServerConfig} className="btn-primary !py-1.5 !px-4 !text-xs">
-                      Save configuration
+                      Save cluster configuration
                     </button>
                   </div>
 
                   {lastChecked && (
                     <div className="text-[11px] text-content-tertiary pt-2 border-t border-border">
-                      Last ping: {new Date(lastChecked).toLocaleTimeString()}
+                      Last cluster check: {new Date(lastChecked).toLocaleTimeString()}
                     </div>
                   )}
                 </div>
