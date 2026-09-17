@@ -67,7 +67,7 @@ def get_ocr_reader():
 # --------------------------------------------------------------------------------------
 
 def extract_from_pdf(data: bytes) -> Dict[str, Any]:
-    """pdfplumber first; fall back to pdf2image + EasyOCR when the PDF is a scan."""
+    """pdfplumber first; fallback to pypdf; fallback to pypdfium2/pdf2image + EasyOCR for scans."""
     pages: List[str] = []
     method = "pdfplumber"
     try:
@@ -85,21 +85,52 @@ def extract_from_pdf(data: bytes) -> Dict[str, Any]:
 
     text = "\n".join(p for p in pages if p).strip()
 
-    if len(text) < 100:
-        # Scanned document -> rasterise and OCR every page.
+    if not text:
         try:
-            from pdf2image import convert_from_bytes
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(data))
+            pypdf_pages = [page.extract_text() or "" for page in reader.pages]
+            pypdf_text = "\n".join(pypdf_pages).strip()
+            if pypdf_text:
+                text = pypdf_text
+                method = "pypdf"
+                if not pages:
+                    pages = pypdf_pages
+        except Exception as exc:
+            print(f"[ingest] pypdf fallback failed: {exc}")
+
+    if len(text.strip()) < 30:
+        # Scanned document -> rasterise and OCR every page via pypdfium2 (no poppler needed)
+        try:
+            import pypdfium2 as pdfium
             import numpy as np
             reader = get_ocr_reader()
             ocr_pages = []
-            for image in convert_from_bytes(data, dpi=200):
-                result = reader.readtext(np.array(image), detail=0, paragraph=True)
+            doc = pdfium.PdfDocument(io.BytesIO(data))
+            for page in doc:
+                pil_img = page.render(scale=2.0).to_pil().convert("RGB")
+                result = reader.readtext(np.array(pil_img), detail=0, paragraph=True)
                 ocr_pages.append("\n".join(result))
             ocr_text = "\n".join(ocr_pages).strip()
             if len(ocr_text) > len(text):
-                text, method = ocr_text, "pdf2image+easyocr"
+                text, method = ocr_text, "pypdfium2+easyocr"
+                if not pages:
+                    pages = ocr_pages
         except Exception as exc:
-            print(f"[ingest] PDF OCR fallback failed: {exc}")
+            print(f"[ingest] pypdfium2 OCR fallback failed: {exc}")
+            try:
+                from pdf2image import convert_from_bytes
+                import numpy as np
+                reader = get_ocr_reader()
+                ocr_pages = []
+                for image in convert_from_bytes(data, dpi=200):
+                    result = reader.readtext(np.array(image), detail=0, paragraph=True)
+                    ocr_pages.append("\n".join(result))
+                ocr_text = "\n".join(ocr_pages).strip()
+                if len(ocr_text) > len(text):
+                    text, method = ocr_text, "pdf2image+easyocr"
+            except Exception as exc2:
+                print(f"[ingest] pdf2image OCR fallback failed: {exc2}")
 
     return {"text": text, "method": method, "page_count": len(pages)}
 
@@ -308,6 +339,8 @@ def extract_entities(text: str, feature: str = "ingestion",
             result.update({k: parsed.get(k, v) for k, v in EMPTY_EXTRACTION.items()})
     except llm.ModelUnavailable as exc:
         print(f"[ingest] model unavailable, regex-only extraction: {exc}")
+    except Exception as exc:
+        print(f"[ingest] LLM entity extraction failed, falling back to regex: {exc}")
 
     fallback = regex_fallback(text)
     tags = {str(t).strip().upper() for t in (result.get("equipment_tags") or []) if t}
@@ -384,7 +417,11 @@ async def upload_document(
     extracted = extract_text(safe_name, data)
     raw_text = extracted.get("text") or ""
     if not raw_text.strip():
-        raise HTTPException(422, "No text could be extracted from this document.")
+        raise HTTPException(
+            422,
+            "No readable text or characters could be detected in this document. "
+            "If this is a scanned document or drawing, ensure the file is clear, readable, and not password-protected.",
+        )
 
     # ---------- STEP 2: entity extraction ----------
     entities = extract_entities(raw_text, primary_tag=equipment_tag)

@@ -48,8 +48,15 @@ export const ModulePage: React.FC<{
         <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-danger/25 bg-danger/5 px-4 py-3 text-sm text-danger">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           <div>
-            <p className="font-medium">Could not reach the ZINGO backend</p>
-            <p className="mt-0.5 text-xs opacity-80">{error}</p>
+            <p className="font-medium">
+              {error.toLowerCase().includes('network error') ||
+              error.toLowerCase().includes('unreachable') ||
+              error.toLowerCase().includes('failed to fetch') ||
+              error.toLowerCase().includes('econrefused')
+                ? 'Could not reach the ZINGO backend'
+                : 'Module Notice'}
+            </p>
+            <p className="mt-0.5 text-xs opacity-90 leading-relaxed">{error}</p>
           </div>
         </div>
       )}

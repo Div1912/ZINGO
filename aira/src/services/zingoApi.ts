@@ -27,15 +27,18 @@ async function req<T>(method: 'get' | 'post' | 'delete', path: string, opts: {
   data?: unknown
   formData?: FormData
 } = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    'ngrok-skip-browser-warning': 'true',
+  }
+  if (!opts.formData) {
+    headers['Content-Type'] = 'application/json'
+  }
   const res = await client.request<T>({
     method,
     url: `${zingoBaseUrl()}${path}`,
     params: opts.params,
     data: opts.formData ?? opts.data,
-    headers: {
-      'ngrok-skip-browser-warning': 'true',
-      ...(opts.formData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' }),
-    },
+    headers,
   })
   return res.data
 }

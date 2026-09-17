@@ -60,7 +60,13 @@ export const DocumentTimeline: React.FC = () => {
       await load()
       await refreshGlobal()
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || 'Upload failed')
+      let msg = err?.response?.data?.detail || err?.message || 'Upload failed'
+      if (Array.isArray(msg)) {
+        msg = msg.map((m: any) => m.msg || JSON.stringify(m)).join(', ')
+      } else if (typeof msg === 'object') {
+        msg = JSON.stringify(msg)
+      }
+      setError(msg)
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
