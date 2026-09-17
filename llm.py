@@ -79,14 +79,30 @@ def resolve_model(task_type: str = "chat", requested: Optional[str] = None) -> s
 def generate(prompt: str, system: Optional[str] = None, model: Optional[str] = None,
              feature: str = "core", task_type: str = "general", temperature: float = 0.2,
              json_mode: bool = False, num_predict: int = 1400,
-             timeout: int = 240) -> str:
+             effort: Optional[str] = None, timeout: int = 240) -> str:
     """Single-shot completion against the local node. Always audited."""
     model_name = resolve_model(task_type, model)
+
+    options = {"temperature": temperature, "num_predict": num_predict, "top_p": 0.9}
+    think_flag = False
+    if effort:
+        eff = effort.lower()
+        if "max" in eff:
+            options = {"temperature": 0.7, "num_predict": 8192, "top_p": 0.95}
+            think_flag = True
+        elif "deep" in eff or "reason" in eff or "research" in eff:
+            options = {"temperature": 0.6, "num_predict": 4096, "top_p": 0.9}
+            think_flag = True
+        else:
+            options = {"temperature": 0.2, "num_predict": 1024, "top_p": 0.8}
+            think_flag = False
+
     payload: Dict[str, Any] = {
         "model": model_name,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": temperature, "num_predict": num_predict, "top_p": 0.9},
+        "think": think_flag,
+        "options": options,
     }
     if system:
         payload["system"] = system

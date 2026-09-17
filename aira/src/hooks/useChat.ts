@@ -84,6 +84,7 @@ export function useChat(targetChatId?: string | null) {
       isStreaming: true,
       modelUsed: selectedModel,
       taskType: detectedTask,
+      effort,
     }
     addMessage(sendToChatId, assistantMsg)
 
@@ -139,7 +140,8 @@ export function useChat(targetChatId?: string | null) {
             })
           }
         },
-        controller.signal
+        controller.signal,
+        effort
       )
     } catch (err: unknown) {
       const isAbort = err instanceof DOMException && err.name === 'AbortError'

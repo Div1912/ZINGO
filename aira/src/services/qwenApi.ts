@@ -36,8 +36,9 @@ export function isComplexTask(
   // 1. Files / documents uploaded -> OCR & deep extraction needed
   if (filesCount > 0) return true
 
-  // 2. User explicitly selected Deep Reason or Max Effort
-  if (effort === 'Deep Reason' || effort === 'Max Effort') return true
+  // 2. User explicitly selected Deep Research, Deep Reason, or Max Effort
+  const eff = (effort || '').toLowerCase()
+  if (eff.includes('deep') || eff.includes('reason') || eff.includes('research') || eff.includes('max')) return true
 
   const text = content.toLowerCase().trim()
 
@@ -130,7 +131,8 @@ export async function streamChatResponse(
   onChunk: (chunk: string) => void,
   onSources: (sources: Source[]) => void,
   onDone: (meta: { tokensUsed: number; latencyMs: number; modelUsed: ModelId }) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  effort?: string
 ): Promise<void> {
   const startTime = Date.now()
   const cleanUrl = (serverUrl || 'https://splendid-sensibly-primate.ngrok-free.app').replace(/\/+$/, '')
@@ -151,7 +153,8 @@ export async function streamChatResponse(
     }
   }
 
-  const endpointUrl = `${cleanUrl}/process-and-ask/?user_query=${encodeURIComponent(lastUserMsg)}&stream=true`
+  const effortParam = encodeURIComponent(effort || 'Fast')
+  const endpointUrl = `${cleanUrl}/process-and-ask/?user_query=${encodeURIComponent(lastUserMsg)}&stream=true&effort=${effortParam}`
 
   try {
     const response = await fetch(endpointUrl, {

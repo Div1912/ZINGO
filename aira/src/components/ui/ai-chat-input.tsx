@@ -132,7 +132,7 @@ function CloseIcon() {
 }
 
 function DynamicBarsIcon({ level }: { level: string }) {
-  const isMediumOrHigh = level === "Medium" || level === "Max Effort" || level === "Deep Reason";
+  const isMediumOrHigh = level === "Medium" || level === "Max Effort" || level === "Deep Reason" || level === "Deep Research";
   const isHigh = level === "Max Effort";
 
   return (
@@ -337,7 +337,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       placeholder = "Ask anything",
       className,
       models = ["Auto (Recommended)", "Qwen2.5-7B (Primary)", "Qwen2.5-Coder-7B", "GPT 5.5", "Opus 4.8"],
-      efforts = ["Fast", "Deep Reason", "Max Effort"],
+      efforts = ["Fast", "Deep Research", "Max Effort"],
       defaultValue = "",
       value: controlledValue,
       onChange,

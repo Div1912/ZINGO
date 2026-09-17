@@ -266,6 +266,48 @@ async def root():
 
 
 # --------------------------------------------------------------------------------------
+# Reasoning effort mapper
+# --------------------------------------------------------------------------------------
+
+def get_effort_config(effort: Optional[str] = None) -> Dict[str, Any]:
+    """Map UI reasoning effort to inference parameters, thinking mode, and system guidance."""
+    eff = (effort or "Fast").lower()
+    if "max" in eff:
+        return {
+            "effort": "Max Effort",
+            "options": {"temperature": 0.7, "num_predict": 8192, "top_p": 0.95},
+            "think": True,
+            "instruction": (
+                "Operating at MAXIMUM REASONING EFFORT. Conduct an exhaustive, multi-faceted engineering analysis "
+                "with the highest level of rigor. Explore root causes, secondary impacts, relevant standards "
+                "(OISD, API, ASME, ISO), step-by-step calculations or parameters where applicable, "
+                "and structured mitigation checklists."
+            ),
+        }
+    elif "deep" in eff or "reason" in eff or "research" in eff:
+        return {
+            "effort": "Deep Research",
+            "options": {"temperature": 0.6, "num_predict": 4096, "top_p": 0.9},
+            "think": True,
+            "instruction": (
+                "Operating in DEEP RESEARCH mode. Conduct systematic, step-by-step reasoning. "
+                "Break down technical problem constraints, evaluate underlying mechanisms, "
+                "reference applicable refinery procedures, and deliver a comprehensive, structured response."
+            ),
+        }
+    else:
+        return {
+            "effort": "Fast",
+            "options": {"temperature": 0.2, "num_predict": 1024, "top_p": 0.8},
+            "think": False,
+            "instruction": (
+                "Operating in FAST mode. Provide a direct, concise, and immediate engineering answer with minimal "
+                "preamble. Focus strictly on accuracy, clarity, and rapid resolution."
+            ),
+        }
+
+
+# --------------------------------------------------------------------------------------
 # Streaming helper (retained from the original backend)
 # --------------------------------------------------------------------------------------
 
@@ -282,6 +324,7 @@ def run_ollama_stream(payload: Dict[str, Any], context: str = "",
             "context_length": len(context),
             "model": payload.get("model", MODEL_NAME),
             "sources": sources or [],
+            "effort": payload.get("_effort", "Fast"),
         }
         yield f"data: {json.dumps(meta)}\n\n"
         if context:
@@ -326,6 +369,7 @@ async def process_and_ask(
     user_query: str = Query(..., description="User query or prompt"),
     file: Optional[UploadFile] = File(None),
     stream: bool = Query(False, description="Stream response via Server-Sent Events (SSE)"),
+    effort: str = Query("Fast", description="Reasoning effort: Fast | Deep Research | Max Effort"),
 ):
     context = ""
     if file:
@@ -337,19 +381,30 @@ async def process_and_ask(
         except Exception as ocr_err:
             print(f"--- OCR extraction warning: {ocr_err} ---")
 
+    cfg = get_effort_config(effort)
     full_prompt = (f"Context from Document:\n{context}\n\nUser Query: {user_query}"
                    if context else user_query)
     model = llm.resolve_model("document")
-    payload = {"model": model, "prompt": full_prompt, "stream": stream, "think": False}
+    payload = {
+        "model": model,
+        "prompt": full_prompt,
+        "system": cfg["instruction"],
+        "stream": stream,
+        "think": cfg["think"],
+        "options": cfg["options"],
+        "_effort": cfg["effort"],
+    }
 
     log_audit("ocr_query", "engineer", None, "chat",
-              {"query": user_query[:300], "ocr_chars": len(context)})
+              {"query": user_query[:300], "ocr_chars": len(context), "effort": cfg["effort"]})
 
     if stream:
         return StreamingResponse(run_ollama_stream(payload, context=context, feature="ocr_chat"),
                                  media_type="text/event-stream")
     try:
-        response = requests.post(MODEL_ENDPOINT, json=payload, timeout=300)
+        response = requests.post(MODEL_ENDPOINT,
+                                 json={k: v for k, v in payload.items() if not k.startswith("_")},
+                                 timeout=300)
         response.raise_for_status()
         data = response.json()
         answer = data.get("response", "")
@@ -360,6 +415,7 @@ async def process_and_ask(
             "answer": answer,
             "eval_count": data.get("eval_count", 0),
             "model": model,
+            "effort": cfg["effort"],
         }
     except requests.exceptions.RequestException as exc:
         return {"error": f"Ollama request failed: {exc}"}
@@ -386,6 +442,7 @@ class ChatPayload(BaseModel):
     use_rag: bool = True
     equipment_tag: Optional[str] = None
     top_k: int = 5
+    effort: Optional[str] = "Fast"
     user: Optional[str] = "engineer"
 
 
@@ -449,8 +506,10 @@ async def api_chat(payload_data: ChatPayload):
         context = (context + "\n\n" if context else "") + \
             "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
 
+    cfg = get_effort_config(payload_data.effort)
+
     system = payload_data.system or (
-        "You are ZINGO, an on-premise engineering assistant for an Indian refinery. "
+        f"You are ZINGO, an on-premise engineering assistant for an Indian refinery. {cfg['instruction']} "
         "Answer using the retrieved organisation documents where they are relevant, and cite them "
         "by their bracket number, e.g. [1]. If the documents do not contain the answer, say so "
         "plainly instead of speculating."
@@ -473,10 +532,18 @@ async def api_chat(payload_data: ChatPayload):
         "rag_used": bool(retrieval["chunks_retrieved"]),
         "sources": retrieval["doc_ids"], "confidence": retrieval["confidence"],
         "model": model,
+        "effort": cfg["effort"],
     })
 
-    ollama_payload = {"model": model, "prompt": full_prompt,
-                      "stream": payload_data.stream, "think": False}
+    ollama_payload = {
+        "model": model,
+        "prompt": full_prompt,
+        "system": system,
+        "stream": payload_data.stream,
+        "think": cfg["think"],
+        "options": cfg["options"],
+        "_effort": cfg["effort"],
+    }
 
     if payload_data.stream:
         return StreamingResponse(
@@ -486,7 +553,9 @@ async def api_chat(payload_data: ChatPayload):
 
     try:
         started = datetime.now()
-        response = requests.post(MODEL_ENDPOINT, json=ollama_payload, timeout=600)
+        response = requests.post(MODEL_ENDPOINT,
+                                 json={k: v for k, v in ollama_payload.items() if not k.startswith("_")},
+                                 timeout=600)
         response.raise_for_status()
         data = response.json()
         answer = data.get("response", "")
@@ -501,6 +570,7 @@ async def api_chat(payload_data: ChatPayload):
             "confidence": retrieval["confidence"],
             "chunks_retrieved": retrieval["chunks_retrieved"],
             "rag_used": bool(retrieval["chunks_retrieved"]),
+            "effort": cfg["effort"],
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})

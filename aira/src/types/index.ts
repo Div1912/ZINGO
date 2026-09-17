@@ -33,6 +33,7 @@ export interface Message {
   isStreaming?: boolean
   tokensUsed?: number
   latencyMs?: number
+  effort?: string
   error?: string
 }
 

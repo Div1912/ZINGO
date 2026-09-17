@@ -14,7 +14,10 @@ import {
   AlertCircle,
   Clock,
   Zap,
+  ChevronDown,
+  Sparkles,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { Message } from '../../types'
 import { ModelBadge } from './ModelBadge'
 import { ThinkingOrbs } from '../ui/thinking-orbs'
@@ -40,6 +43,32 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
   const [copiedCodeIndex, setCopiedCodeIndex] = useState<number | null>(null)
+  const [showThinking, setShowThinking] = useState(true)
+
+  // Parse <think>...</think> reasoning blocks if present
+  let thinkingText = ''
+  let finalContent = message.content || ''
+  let isThinkingComplete = false
+  let hasThinking = false
+
+  if (message.content && message.content.includes('<think>')) {
+    hasThinking = true
+    const thinkEndIndex = message.content.indexOf('</think>')
+    if (thinkEndIndex !== -1) {
+      thinkingText = message.content.substring(
+        message.content.indexOf('<think>') + 7,
+        thinkEndIndex
+      ).trim()
+      finalContent = message.content.substring(thinkEndIndex + 8).trim()
+      isThinkingComplete = true
+    } else {
+      thinkingText = message.content.substring(
+        message.content.indexOf('<think>') + 7
+      ).trim()
+      finalContent = ''
+      isThinkingComplete = false
+    }
+  }
 
   const isUser = message.role === 'user'
 
@@ -173,105 +202,151 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         ) : (
           <div className="markdown-body select-text">
-            <Markdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ inline, className, children, ...props }: any) {
-                  const match = /language-(\w+)/.exec(className || '')
-                  const codeText = String(children).replace(/\n$/, '')
+            {hasThinking && (
+              <div className="mb-3 rounded-lg border border-border/70 bg-surface-secondary/40 backdrop-blur-sm overflow-hidden text-xs">
+                <button
+                  type="button"
+                  onClick={() => setShowThinking(!showThinking)}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-surface-secondary/60 hover:bg-surface-secondary/90 transition-colors select-none text-content-secondary"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={13} className={!isThinkingComplete ? "text-primary animate-pulse" : "text-content-tertiary"} />
+                    <span className="font-semibold text-content-primary">
+                      {!isThinkingComplete ? 'Reasoning & Researching...' : 'Thought Process'}
+                    </span>
+                    {message.effort && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-primary/10 text-primary border border-primary/20">
+                        {message.effort}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-content-tertiary">
+                    <span className="text-[11px] font-mono">
+                      {showThinking ? 'Hide' : 'Show'}
+                    </span>
+                    <ChevronDown size={13} className={cn("transition-transform duration-200", showThinking ? "rotate-180" : "")} />
+                  </div>
+                </button>
+                {showThinking && (
+                  <div className="p-3 border-t border-border/50 font-mono text-[11.5px] leading-relaxed text-content-secondary bg-surface-primary/50 max-h-64 overflow-y-auto whitespace-pre-wrap select-text">
+                    {thinkingText || 'Deconstructing problem constraints & evaluating operational parameters...'}
+                    {!isThinkingComplete && (
+                      <span className="inline-block w-1.5 h-3 ml-1 bg-primary/70 animate-pulse" />
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
-                  if (!inline && match) {
-                    const lang = match[1]
-                    const codeIndex = Math.random()
+            {finalContent ? (
+              <Markdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code({ inline, className, children, ...props }: any) {
+                    const match = /language-(\w+)/.exec(className || '')
+                    const codeText = String(children).replace(/\n$/, '')
+
+                    if (!inline && match) {
+                      const lang = match[1]
+                      const codeIndex = Math.random()
+
+                      return (
+                        <div className="my-4 rounded-xl overflow-hidden border border-border bg-[#0C0C0C]">
+                          {/* Code Block Header */}
+                          <div className="flex items-center justify-between px-3.5 py-2 bg-[#161616] border-b border-border text-xs">
+                            <span className="font-mono text-content-secondary font-medium lowercase">
+                              {lang}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={async () => {
+                                  await navigator.clipboard.writeText(codeText)
+                                  setCopiedCodeIndex(codeIndex)
+                                  setTimeout(() => setCopiedCodeIndex(null), 2000)
+                                }}
+                                className="btn-ghost !py-1 !px-2 !text-[11px] text-content-secondary hover:text-content-primary flex items-center gap-1"
+                              >
+                                {copiedCodeIndex === codeIndex ? (
+                                  <>
+                                    <Check size={12} className="text-success" />
+                                    <span>Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy size={12} />
+                                    <span>Copy</span>
+                                  </>
+                                )}
+                              </button>
+
+                              {onRunCode && (lang === 'python' || lang === 'bash' || lang === 'py') && (
+                                <button
+                                  onClick={() => onRunCode(codeText)}
+                                  className="btn-glass !py-1 !px-2.5 !text-[11px] !rounded-md flex items-center gap-1 text-content-primary"
+                                >
+                                  <Play size={11} className="text-success" />
+                                  <span>Run ›</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Syntax Highlighted Code */}
+                          <Highlight
+                            theme={themes.vsDark}
+                            code={codeText}
+                            language={lang}
+                          >
+                            {({
+                              className: highlightClass,
+                              style,
+                              tokens,
+                              getLineProps,
+                              getTokenProps,
+                            }) => (
+                              <pre
+                                className={`${highlightClass} p-4 text-xs font-mono overflow-x-auto leading-relaxed`}
+                                style={{ ...style, backgroundColor: 'transparent' }}
+                              >
+                                {tokens.map((line, i) => (
+                                  <div key={i} {...getLineProps({ line })}>
+                                    <span className="inline-block w-6 text-content-tertiary select-none opacity-40 text-right mr-3 text-[10px]">
+                                      {i + 1}
+                                    </span>
+                                    {line.map((token, key) => (
+                                      <span key={key} {...getTokenProps({ token })} />
+                                    ))}
+                                  </div>
+                                ))}
+                              </pre>
+                            )}
+                          </Highlight>
+                        </div>
+                      )
+                    }
 
                     return (
-                      <div className="my-4 rounded-xl overflow-hidden border border-border bg-[#0C0C0C]">
-                        {/* Code Block Header */}
-                        <div className="flex items-center justify-between px-3.5 py-2 bg-[#161616] border-b border-border text-xs">
-                          <span className="font-mono text-content-secondary font-medium lowercase">
-                            {lang}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={async () => {
-                                await navigator.clipboard.writeText(codeText)
-                                setCopiedCodeIndex(codeIndex)
-                                setTimeout(() => setCopiedCodeIndex(null), 2000)
-                              }}
-                              className="btn-ghost !py-1 !px-2 !text-[11px] text-content-secondary hover:text-content-primary flex items-center gap-1"
-                            >
-                              {copiedCodeIndex === codeIndex ? (
-                                <>
-                                  <Check size={12} className="text-success" />
-                                  <span>Copied</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy size={12} />
-                                  <span>Copy</span>
-                                </>
-                              )}
-                            </button>
-
-                            {onRunCode && (lang === 'python' || lang === 'bash' || lang === 'py') && (
-                              <button
-                                onClick={() => onRunCode(codeText)}
-                                className="btn-glass !py-1 !px-2.5 !text-[11px] !rounded-md flex items-center gap-1 text-content-primary"
-                              >
-                                <Play size={11} className="text-success" />
-                                <span>Run ›</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Syntax Highlighted Code */}
-                        <Highlight
-                          theme={themes.vsDark}
-                          code={codeText}
-                          language={lang}
-                        >
-                          {({
-                            className: highlightClass,
-                            style,
-                            tokens,
-                            getLineProps,
-                            getTokenProps,
-                          }) => (
-                            <pre
-                              className={`${highlightClass} p-4 text-xs font-mono overflow-x-auto leading-relaxed`}
-                              style={{ ...style, backgroundColor: 'transparent' }}
-                            >
-                              {tokens.map((line, i) => (
-                                <div key={i} {...getLineProps({ line })}>
-                                  <span className="inline-block w-6 text-content-tertiary select-none opacity-40 text-right mr-3 text-[10px]">
-                                    {i + 1}
-                                  </span>
-                                  {line.map((token, key) => (
-                                    <span key={key} {...getTokenProps({ token })} />
-                                  ))}
-                                </div>
-                              ))}
-                            </pre>
-                          )}
-                        </Highlight>
-                      </div>
+                      <code className={className} {...props}>
+                        {children}
+                      </code>
                     )
-                  }
+                  },
+                }}
+              >
+                {finalContent}
+              </Markdown>
+            ) : (
+              hasThinking && !isThinkingComplete && (
+                <div className="text-xs text-content-tertiary font-mono italic flex items-center gap-2 py-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-primary animate-ping" />
+                  <span>Formulating verified engineering answer...</span>
+                </div>
+              )
+            )}
 
-                  return (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  )
-                },
-              }}
-            >
-              {message.content}
-            </Markdown>
             {message.isStreaming && (
               <div className="pt-2">
-                <ThinkingOrbs compact status="Synthesizing response stream..." />
+                <ThinkingOrbs compact status={hasThinking && !isThinkingComplete ? "Synthesizing deep reasoning tokens..." : "Synthesizing response stream..."} />
               </div>
             )}
           </div>
