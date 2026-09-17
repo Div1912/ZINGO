@@ -30,6 +30,7 @@ import {
   RefreshCcw,
   Network,
   ClipboardList,
+  ChevronLeft,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -93,6 +94,9 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
 }) => {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab)
+  const [mobileView, setMobileView] = useState<'menu' | 'content'>(
+    initialTab && initialTab !== 'general' ? 'content' : 'menu'
+  )
   const [searchQuery, setSearchQuery] = useState('')
 
   const { settings, updateSettings } = useSettingsStore()
@@ -105,6 +109,9 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab)
+      if (initialTab !== 'general') {
+        setMobileView('content')
+      }
     }
   }, [initialTab])
 
@@ -285,6 +292,15 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     ),
   })).filter((sec) => sec.items.length > 0)
 
+  const getTabLabel = (tab: TabKey): string => {
+    for (const sec of NAV_SECTIONS) {
+      for (const item of sec.items) {
+        if ((item as any).id === tab) return item.label
+      }
+    }
+    return 'Settings'
+  }
+
   const userInitial = fullName.trim().charAt(0).toUpperCase() || 'D'
 
   if (!isOpen) return null
@@ -292,17 +308,35 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   return (
     <div
       onClick={handleClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/65 backdrop-blur-sm select-none animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-6 bg-black/65 backdrop-blur-sm select-none animate-in fade-in duration-200"
     >
       {/* Modal Dialog Window */}
       <div
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full ${
-          isWorkbenchTab ? 'max-w-6xl h-[820px]' : 'max-w-4xl h-[700px]'
-        } max-h-[94vh] bg-surface text-content-primary rounded-2xl border border-border shadow-2xl flex overflow-hidden select-none transition-all duration-200`}
+          isWorkbenchTab ? 'md:max-w-6xl md:h-[820px]' : 'md:max-w-4xl md:h-[700px]'
+        } h-full md:max-h-[94vh] bg-surface text-content-primary rounded-none md:rounded-2xl border-0 md:border md:border-border shadow-2xl flex overflow-hidden select-none transition-all duration-200`}
       >
-        {/* Left Sidebar (Width ~230px) */}
-        <aside className="w-56 sm:w-60 border-r border-border bg-surface/90 flex flex-col shrink-0">
+        {/* Left Sidebar */}
+        <aside
+          className={`w-full md:w-60 border-r-0 md:border-r border-border bg-surface/90 flex flex-col shrink-0 ${
+            mobileView === 'content' ? 'hidden md:flex' : 'flex'
+          }`}
+        >
+          {/* Mobile Header for Sidebar */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border md:hidden shrink-0">
+            <span className="text-sm font-semibold text-content-primary">Settings & Operations</span>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary"
+              title="Close"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
           {/* Search input at top of sidebar matching Claude */}
           <div className="p-3.5 pb-2">
             <div className="relative flex items-center">
@@ -335,8 +369,11 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => setActiveTab(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-normal transition-colors border-none bg-transparent cursor-pointer text-left ${
+                        onClick={() => {
+                          setActiveTab(item.id)
+                          setMobileView('content')
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 md:py-1.5 rounded-lg text-xs font-normal transition-colors border-none bg-transparent cursor-pointer text-left ${
                           isActive
                             ? 'bg-elevated text-content-primary font-medium'
                             : 'text-content-secondary hover:bg-elevated/60 hover:text-content-primary'
@@ -361,12 +398,40 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
         </aside>
 
         {/* Right Content Area */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-surface">
-          {/* Top-Right Close Button (Identical to Claude 'X' position) */}
+        <main
+          className={`flex-1 flex flex-col h-full overflow-hidden relative bg-surface ${
+            mobileView === 'menu' ? 'hidden md:flex' : 'flex'
+          }`}
+        >
+          {/* Mobile Top Navigation Header */}
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border bg-surface/95 shrink-0 md:hidden z-30">
+            <button
+              type="button"
+              onClick={() => setMobileView('menu')}
+              className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline active:opacity-70 transition-colors"
+            >
+              <ChevronLeft size={16} />
+              <span>All Settings</span>
+            </button>
+            <span className="text-xs font-semibold text-content-primary truncate max-w-[170px]">
+              {getTabLabel(activeTab)}
+            </span>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary"
+              title="Close"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Desktop Top-Right Close Button */}
           <button
             type="button"
             onClick={handleClose}
-            className="absolute top-5 right-6 z-30 btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary hover:bg-elevated rounded-md transition-colors"
+            className="hidden md:flex absolute top-5 right-6 z-30 btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary hover:bg-elevated rounded-md transition-colors"
             title="Close"
             aria-label="Close"
           >

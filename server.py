@@ -449,8 +449,45 @@ def run_ollama_stream(payload: Dict[str, Any], context: str = "",
         yield f"data: {json.dumps({'type': 'error', 'error': str(exc), 'done': True})}\n\n"
 
 
+def retrieve_context(question: str, top_k: int = 5,
+                     equipment_tag: Optional[str] = None) -> Dict[str, Any]:
+    """Pull the org's own documents from the vector store to ground the answer."""
+    hits = vector_query("documents", question, n_results=max(top_k, 1))
+    if equipment_tag:
+        tag = equipment_tag.upper()
+        preferred = [h for h in hits if tag in str((h.get("metadata") or {}).get("equipment_tags", "")).upper()]
+        hits = preferred + [h for h in hits if h not in preferred]
+
+    blocks, sources, doc_ids = [], [], []
+    for i, hit in enumerate(hits[:top_k], start=1):
+        meta = hit.get("metadata") or {}
+        doc_id = meta.get("doc_id")
+        blocks.append(f"[{i}] {meta.get('filename') or 'document'} "
+                      f"(doc {doc_id}, {meta.get('doc_type') or 'unknown'}, "
+                      f"{meta.get('document_date') or 'undated'}):\n{hit['document'][:1600]}")
+        sources.append({
+            "id": str(hit.get("id")), "doc_id": doc_id,
+            "document": meta.get("filename"), "title": meta.get("filename"),
+            "doc_type": meta.get("doc_type"), "document_date": meta.get("document_date"),
+            "equipment_tags": meta.get("equipment_tags"),
+            "excerpt": hit["document"][:400],
+            "relevanceScore": hit.get("similarity"),
+        })
+        if doc_id is not None:
+            doc_ids.append(doc_id)
+
+    similarities = [s["relevanceScore"] for s in sources if isinstance(s["relevanceScore"], (int, float))]
+    coverage = min(1.0, len(sources) / max(top_k, 1))
+    quality = (sum(similarities) / len(similarities)) if similarities else 0.0
+    confidence = round(0.4 * coverage + 0.6 * quality, 3) if sources else 0.0
+
+    return {"context": "\n\n".join(blocks), "sources": sources,
+            "doc_ids": sorted(set(doc_ids)), "confidence": confidence,
+            "chunks_retrieved": len(sources)}
+
+
 # --------------------------------------------------------------------------------------
-# Retained: OCR + ask (Multi-Node Cluster Gateway)
+# Retained: OCR + ask (Multi-Node Cluster Gateway with Auto-RAG)
 # --------------------------------------------------------------------------------------
 
 @app.post("/process-and-ask/")
@@ -464,6 +501,7 @@ async def process_and_ask(
 ):
     context = ""
     images_b64 = []
+    sources = []
     if file:
         try:
             file_bytes = await file.read()
@@ -480,9 +518,19 @@ async def process_and_ask(
             print(f"--- OCR extracted {len(context)} chars ---")
         except Exception as ocr_err:
             print(f"--- OCR extraction warning: {ocr_err} ---")
+    else:
+        # Automatic RAG retrieval from ChromaDB document store when no file is attached
+        try:
+            retrieval = retrieve_context(user_query, top_k=5)
+            if retrieval.get("context"):
+                context = "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
+                sources = retrieval.get("sources", [])
+                print(f"--- RAG retrieved {len(sources)} chunks from ChromaDB for query: {user_query[:60]!r} ---")
+        except Exception as rag_err:
+            print(f"--- RAG retrieval warning: {rag_err} ---")
 
     cfg = get_effort_config(effort, user_query)
-    full_prompt = (f"Context from Document:\n{context}\n\nUser Query: {user_query}"
+    full_prompt = (f"Context from Documents:\n{context}\n\nUser Query: {user_query}"
                    if context else user_query)
 
     # Dynamic model resolution for distributed multi-node cluster
@@ -516,10 +564,17 @@ async def process_and_ask(
         else:
             target_endpoint = f"{clean_node}/api/generate"
 
+    instruction = cfg["instruction"]
+    if context:
+        instruction += (
+            " Answer using the provided documents where relevant. "
+            "If the documents do not contain the answer, say so honestly based on your knowledge."
+        )
+
     payload = {
         "model": target_model,
         "prompt": full_prompt,
-        "system": cfg["instruction"],
+        "system": instruction,
         "stream": stream,
         "think": cfg["think"],
         "options": cfg["options"],
@@ -535,7 +590,7 @@ async def process_and_ask(
                "model": target_model, "endpoint": target_endpoint})
 
     if stream:
-        return StreamingResponse(run_ollama_stream(payload, context=context, feature="ocr_chat"),
+        return StreamingResponse(run_ollama_stream(payload, context=context, sources=sources, feature="ocr_chat"),
                                  media_type="text/event-stream")
     try:
         try:
@@ -567,6 +622,7 @@ async def process_and_ask(
             "model": target_model,
             "effort": cfg["effort"],
             "endpoint": target_endpoint,
+            "sources": sources,
         }
     except requests.exceptions.RequestException as exc:
         return {"error": f"Node request failed: {exc}"}
@@ -595,44 +651,6 @@ class ChatPayload(BaseModel):
     top_k: int = 5
     effort: Optional[str] = "Fast"
     user: Optional[str] = "engineer"
-
-
-def retrieve_context(question: str, top_k: int = 5,
-                     equipment_tag: Optional[str] = None) -> Dict[str, Any]:
-    """Pull the org's own documents from the vector store to ground the answer."""
-    hits = vector_query("documents", question, n_results=max(top_k, 1))
-    if equipment_tag:
-        tag = equipment_tag.upper()
-        preferred = [h for h in hits if tag in str((h.get("metadata") or {}).get("equipment_tags", "")).upper()]
-        hits = preferred + [h for h in hits if h not in preferred]
-
-    blocks, sources, doc_ids = [], [], []
-    for i, hit in enumerate(hits[:top_k], start=1):
-        meta = hit.get("metadata") or {}
-        doc_id = meta.get("doc_id")
-        blocks.append(f"[{i}] {meta.get('filename') or 'document'} "
-                      f"(doc {doc_id}, {meta.get('doc_type') or 'unknown'}, "
-                      f"{meta.get('document_date') or 'undated'}):\n{hit['document'][:1600]}")
-        sources.append({
-            "id": str(hit.get("id")), "doc_id": doc_id,
-            "document": meta.get("filename"), "title": meta.get("filename"),
-            "doc_type": meta.get("doc_type"), "document_date": meta.get("document_date"),
-            "equipment_tags": meta.get("equipment_tags"),
-            "excerpt": hit["document"][:400],
-            "relevanceScore": hit.get("similarity"),
-        })
-        if doc_id is not None:
-            doc_ids.append(doc_id)
-
-    similarities = [s["relevanceScore"] for s in sources if isinstance(s["relevanceScore"], (int, float))]
-    # Confidence = retrieval coverage: how much grounded material backs the answer.
-    coverage = min(1.0, len(sources) / max(top_k, 1))
-    quality = (sum(similarities) / len(similarities)) if similarities else 0.0
-    confidence = round(0.4 * coverage + 0.6 * quality, 3) if sources else 0.0
-
-    return {"context": "\n\n".join(blocks), "sources": sources,
-            "doc_ids": sorted(set(doc_ids)), "confidence": confidence,
-            "chunks_retrieved": len(sources)}
 
 
 @app.post("/api/chat")

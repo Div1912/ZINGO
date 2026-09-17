@@ -14,28 +14,28 @@ export const ModulePage: React.FC<{
   children: React.ReactNode
 }> = ({ title, subtitle, icon, actions, loading, error, onRefresh, children }) => (
   <div className="flex-1 h-full overflow-y-auto bg-page">
-    <div className="max-w-6xl mx-auto px-5 py-6 md:px-8 md:py-8">
-      <header className="flex flex-wrap items-start justify-between gap-4 mb-6">
-        <div className="flex items-start gap-3 min-w-0">
+    <div className="max-w-6xl mx-auto px-3.5 py-4 sm:px-5 sm:py-6 md:px-8 md:py-8">
+      <header className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4 mb-5 md:mb-6">
+        <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
           {icon && <span className="mt-0.5 text-accent shrink-0">{icon}</span>}
           <div className="min-w-0">
-            <h1 className="text-xl md:text-2xl font-semibold text-content-primary tracking-tight">
+            <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-content-primary tracking-tight truncate">
               {title}
             </h1>
             {subtitle && (
-              <p className="mt-1 text-sm text-content-secondary leading-relaxed max-w-2xl">
+              <p className="mt-1 text-xs sm:text-sm text-content-secondary leading-relaxed max-w-2xl">
                 {subtitle}
               </p>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-start">
           {actions}
           {onRefresh && (
             <button
               onClick={onRefresh}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-content-secondary hover:text-content-primary hover:bg-elevated transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-xs font-medium text-content-secondary hover:text-content-primary hover:bg-elevated transition-colors disabled:opacity-50"
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
               Refresh
@@ -90,10 +90,10 @@ export const StatCard: React.FC<{
       ? 'text-success'
       : 'text-content-primary'
   return (
-    <div className="rounded-lg border border-border bg-surface px-4 py-3.5">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-content-tertiary">{label}</p>
-      <p className={`mt-1.5 text-2xl font-semibold tabular-nums ${toneClass}`}>{value}</p>
-      {hint && <p className="mt-1 text-[11px] text-content-tertiary leading-snug">{hint}</p>}
+    <div className="min-w-0 rounded-lg border border-border bg-surface px-3 py-2.5 sm:px-4 sm:py-3.5">
+      <p className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-content-tertiary truncate">{label}</p>
+      <p className={`mt-1 text-lg sm:text-2xl font-semibold tabular-nums truncate ${toneClass}`}>{value}</p>
+      {hint && <p className="mt-0.5 text-[10px] sm:text-[11px] text-content-tertiary leading-snug truncate">{hint}</p>}
     </div>
   )
 }
