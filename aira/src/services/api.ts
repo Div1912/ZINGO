@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-export const DEFAULT_API_BASE_URL = 'https://oasis-modular-card-symbol.trycloudflare.com'
+export const DEFAULT_API_BASE_URL = 'https://lbs-litigation-really-tap.trycloudflare.com'
 
 // Configured Axios instance connecting to the Qwen cluster tunnel
 export const api = axios.create({

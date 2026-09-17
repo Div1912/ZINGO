@@ -129,7 +129,7 @@ export async function streamChatResponse(
   signal?: AbortSignal
 ): Promise<void> {
   const startTime = Date.now()
-  const cleanUrl = (serverUrl || 'https://oasis-modular-card-symbol.trycloudflare.com').replace(/\/+$/, '')
+  const cleanUrl = (serverUrl || 'https://lbs-litigation-really-tap.trycloudflare.com').replace(/\/+$/, '')
   const modelUsed: ModelId = 'qwen3:8b'
 
   // Extract latest user prompt

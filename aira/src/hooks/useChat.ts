@@ -99,7 +99,7 @@ export function useChat(targetChatId?: string | null) {
         userMsg,
       ].slice(-settings.contextWindow)
 
-      const targetEndpoint = server.g15_1_url || 'https://oasis-modular-card-symbol.trycloudflare.com'
+      const targetEndpoint = server.g15_1_url || 'https://lbs-litigation-really-tap.trycloudflare.com'
 
       await streamChatResponse(
         messagesForContext,
