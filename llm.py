@@ -103,6 +103,7 @@ def generate(prompt: str, system: Optional[str] = None, model: Optional[str] = N
         "stream": False,
         "think": think_flag,
         "options": options,
+        "keep_alive": -1,
     }
     if system:
         payload["system"] = system

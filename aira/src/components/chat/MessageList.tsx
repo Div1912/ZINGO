@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import type { Message } from '../../types'
 import { MessageBubble } from './MessageBubble'
-import { FileSearch, Code, BookOpen, FileCheck } from 'lucide-react'
+import { FileSearch, Code, BookOpen, FileCheck, ArrowDown } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 interface MessageListProps {
@@ -40,12 +40,46 @@ export const MessageList: React.FC<MessageListProps> = ({
   onRegenerateLast,
   onRunCode,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const isNearBottomRef = useRef<boolean>(true)
+  const [showScrollBottom, setShowScrollBottom] = useState(false)
+  const prevMessagesLengthRef = useRef<number>(messages.length)
   const { settings } = useSettingsStore()
 
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+    const nearBottom = distanceFromBottom < 140
+    isNearBottomRef.current = nearBottom
+    setShowScrollBottom(!nearBottom)
+  }, [])
+
+  // Smart auto-scroll: never lock the user if they scrolled up to read
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const isNewMessage = messages.length > prevMessagesLengthRef.current
+    prevMessagesLengthRef.current = messages.length
+
+    // If a new user message was sent, immediately jump to bottom
+    if (isNewMessage && messages[messages.length - 1]?.role === 'user') {
+      isNearBottomRef.current = true
+      setShowScrollBottom(false)
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      return
+    }
+
+    // During streaming chunks: only follow down if user was already at the bottom
+    if (isNearBottomRef.current && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight
+    }
   }, [messages, messages[messages.length - 1]?.content])
+
+  const scrollToBottom = () => {
+    isNearBottomRef.current = true
+    setShowScrollBottom(false)
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   // Claude-style static timeline greeting based on the hour of the day
   const userName = (settings.preferredName || settings.userName || 'Div').trim()
@@ -94,7 +128,11 @@ export const MessageList: React.FC<MessageListProps> = ({
 
   // Active Messages
   return (
-    <div className="flex-1 overflow-y-auto py-4">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="relative flex-1 overflow-y-auto py-4"
+    >
       {messages.map((message) => (
         <MessageBubble
           key={message.id}
@@ -109,6 +147,19 @@ export const MessageList: React.FC<MessageListProps> = ({
         />
       ))}
       <div ref={bottomRef} className="h-4" />
+
+      {/* Floating jump to bottom button when scrolled up */}
+      {showScrollBottom && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          className="fixed bottom-24 right-8 z-30 p-2.5 rounded-full bg-surface-secondary/90 border border-border shadow-xl hover:bg-surface-secondary text-content-primary transition-all duration-200 hover:scale-105 active:scale-95 flex items-center justify-center backdrop-blur-md"
+          title="Scroll to bottom"
+          aria-label="Scroll to bottom"
+        >
+          <ArrowDown size={15} />
+        </button>
+      )}
     </div>
   )
 }

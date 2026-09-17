@@ -38,7 +38,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 }) => {
   const { settings } = useSettingsStore()
   const { addToast } = useToastStore()
-  const { toggleSourcePanel, setActiveSources } = useChatStore()
+  const { toggleSourcePanel, setActiveSources, activePrompt, hasFilesGenerating } = useChatStore()
 
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
@@ -179,6 +179,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     : 'AIRA Cognition'
                 }
                 taskType={message.taskType}
+                currentPrompt={activePrompt || undefined}
+                hasFiles={hasFilesGenerating}
                 showSteps={true}
               />
             ) : (

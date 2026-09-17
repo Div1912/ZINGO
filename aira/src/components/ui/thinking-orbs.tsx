@@ -10,34 +10,60 @@ export interface ThinkingOrbsProps {
   compact?: boolean
   showSteps?: boolean
   taskType?: string
+  currentPrompt?: string
+  hasFiles?: boolean
   steps?: string[]
 }
 
-const TASK_STEPS: Record<string, string[]> = {
-  code: [
-    'Parsing logic requirements & language syntax...',
-    'Evaluating algorithmic structures & edge conditions...',
-    'Verifying type signatures & execution safety...',
-    'Synthesizing optimized implementation...',
-  ],
-  document: [
-    'Accessing engineering documentation & SOP manuals...',
-    'Parsing operating envelopes & equipment specs...',
-    'Verifying process safety & compliance protocols...',
-    'Synthesizing sovereign operational guidance...',
-  ],
-  analysis: [
-    'Extracting technical variables & operational data...',
-    'Computing mass-balance & thermodynamic formulas...',
-    'Correlating parameters against baseline envelopes...',
-    'Synthesizing deep engineering analysis report...',
-  ],
-  default: [
-    'Deconstructing multi-step problem constraints...',
-    'Evaluating reasoning pathways & domain logic...',
-    'Verifying technical consistency & constraints...',
-    'Synthesizing structured analytical response...',
-  ],
+function getDynamicTaskPlan(
+  prompt?: string,
+  taskType?: string,
+  hasFiles?: boolean
+): { currentTaskTitle: string; steps: string[] } {
+  const p = (prompt || '').trim()
+  const cleanPrompt = p ? (p.length > 44 ? `"${p.slice(0, 41)}..."` : `"${p}"`) : 'current prompt'
+
+  if (hasFiles) {
+    return {
+      currentTaskTitle: `Processing document & query: ${cleanPrompt}`,
+      steps: [
+        `Extracting document text via on-premise OCR engine`,
+        `Analyzing context against query: ${cleanPrompt}`,
+        `Synthesizing verified engineering response`,
+      ],
+    }
+  }
+
+  if (taskType === 'code') {
+    return {
+      currentTaskTitle: `Synthesizing code for: ${cleanPrompt}`,
+      steps: [
+        `Parsing algorithmic logic & syntax requirements`,
+        `Evaluating edge constraints & execution performance`,
+        `Formatting executable code output with type signatures`,
+      ],
+    }
+  }
+
+  if (taskType === 'document') {
+    return {
+      currentTaskTitle: `Verifying operational procedure for: ${cleanPrompt}`,
+      steps: [
+        `Retrieving operational SOP documentation & standard envelopes`,
+        `Correlating compliance & engineering parameters for ${cleanPrompt}`,
+        `Formulating structured technical recommendations`,
+      ],
+    }
+  }
+
+  return {
+    currentTaskTitle: `Analyzing task: ${cleanPrompt}`,
+    steps: [
+      `Deconstructing user prompt intent & constraints: ${cleanPrompt}`,
+      `Evaluating reasoning pathway & verifying technical logic`,
+      `Formulating comprehensive verified response`,
+    ],
+  }
 }
 
 export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
@@ -47,9 +73,12 @@ export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
   compact = false,
   showSteps = true,
   taskType,
+  currentPrompt,
+  hasFiles = false,
   steps,
 }) => {
-  const activeSteps = steps || (taskType && TASK_STEPS[taskType]) || TASK_STEPS.default
+  const dynamicPlan = getDynamicTaskPlan(currentPrompt, taskType, hasFiles)
+  const activeSteps = steps || dynamicPlan.steps
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
 
   useEffect(() => {
@@ -178,8 +207,8 @@ export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
                 <span>Thinking</span>
               </span>
             </div>
-            <p className="text-[10px] sm:text-[11px] text-content-tertiary mt-0.5 font-mono">
-              On-premise Neural Cluster Active &bull; Deep Reasoning
+            <p className="text-[10px] sm:text-[11px] text-content-tertiary mt-0.5 font-mono truncate max-w-[280px] sm:max-w-md">
+              {dynamicPlan.currentTaskTitle}
             </p>
           </div>
         </div>
@@ -201,13 +230,17 @@ export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
       <div className="space-y-2 pt-1 border-t border-border/50">
         <div className="flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-ping" />
-          <span className="text-xs font-medium text-content-primary">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-primary font-semibold">Active:</span>
+          <span className="text-xs font-medium text-content-primary truncate">
             {currentAction}
           </span>
         </div>
 
         {showSteps && (
-          <div className="space-y-1 pl-3.5 border-l-2 border-border/70 max-h-[135px] overflow-y-auto">
+          <div className="space-y-1.5 pl-3.5 border-l-2 border-border/70 max-h-[135px] overflow-y-auto pt-0.5">
+            <span className="text-[9.5px] font-mono text-content-tertiary uppercase tracking-wider block mb-1">
+              Planned Steps:
+            </span>
             {activeSteps.map((step, idx) => {
               const isPast = idx < currentStepIndex
               const isCurrent = idx === currentStepIndex
@@ -220,20 +253,22 @@ export const ThinkingOrbs: React.FC<ThinkingOrbsProps> = ({
                       ? 'text-content-primary font-medium'
                       : isPast
                       ? 'text-content-tertiary line-through opacity-70'
-                      : 'text-content-disabled opacity-40'
+                      : 'text-content-tertiary/70 opacity-60'
                   )}
                 >
                   <span
                     className={cn(
                       'w-1.5 h-1.5 rounded-full shrink-0',
                       isCurrent
-                        ? 'bg-[#38bdf8]'
+                        ? 'bg-[#38bdf8] shadow-[0_0_6px_#38bdf8]'
                         : isPast
                         ? 'bg-[#34d399]'
-                        : 'bg-content-disabled'
+                        : 'bg-border'
                     )}
                   />
-                  <span>{step}</span>
+                  <span>
+                    {isCurrent ? step : isPast ? `${step} (Done)` : step}
+                  </span>
                 </div>
               )
             })}

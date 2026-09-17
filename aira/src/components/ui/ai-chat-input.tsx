@@ -323,6 +323,8 @@ export interface PromptInputProps {
   isGenerating?: boolean;
   isComplexTask?: boolean;
   taskType?: string;
+  activePrompt?: string;
+  hasFiles?: boolean;
   onStop?: () => void;
   enableBorderBeam?: boolean;
   thinkingStatus?: string;
@@ -345,6 +347,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       isGenerating = false,
       isComplexTask = false,
       taskType,
+      activePrompt,
+      hasFiles = false,
       onStop,
       enableBorderBeam = true,
       thinkingStatus,
@@ -754,6 +758,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
                 status={thinkingStatus}
                 modelName={selectedModel}
                 taskType={taskType}
+                currentPrompt={activePrompt}
+                hasFiles={hasFiles}
                 compact={false}
                 showSteps={true}
               />

@@ -15,6 +15,8 @@ interface ChatStore {
   isGenerating: boolean
   isComplexGenerating: boolean
   currentTaskType: TaskType | null
+  activePrompt: string | null
+  hasFilesGenerating: boolean
   generatingChatIds: string[]
   activeSources: Source[] | null
   isSourcePanelOpen: boolean
@@ -36,7 +38,12 @@ interface ChatStore {
   searchChats: (query: string) => Chat[]
   stopGeneration: (chatId?: string) => void
   setIsGenerating: (isGenerating: boolean) => void
-  setIsComplexGenerating: (isComplex: boolean, taskType?: TaskType | null) => void
+  setIsComplexGenerating: (
+    isComplex: boolean,
+    taskType?: TaskType | null,
+    activePrompt?: string | null,
+    hasFiles?: boolean
+  ) => void
   startGenerating: (chatId: string, controller?: AbortController) => void
   stopGenerating: (chatId: string) => void
   isChatGenerating: (chatId: string | null) => boolean
@@ -140,6 +147,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   isGenerating: false,
   isComplexGenerating: false,
   currentTaskType: null,
+  activePrompt: null,
+  hasFilesGenerating: false,
   generatingChatIds: [],
   abortControllers: {},
   activeSources: null,
@@ -516,10 +525,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       isGenerating,
       isComplexGenerating: isGenerating ? state.isComplexGenerating : false,
       currentTaskType: isGenerating ? state.currentTaskType : null,
+      activePrompt: isGenerating ? state.activePrompt : null,
+      hasFilesGenerating: isGenerating ? state.hasFilesGenerating : false,
     })),
 
-  setIsComplexGenerating: (isComplex, taskType = null) =>
-    set({ isComplexGenerating: isComplex, currentTaskType: taskType }),
+  setIsComplexGenerating: (isComplex, taskType = null, activePrompt = null, hasFiles = false) =>
+    set({
+      isComplexGenerating: isComplex,
+      currentTaskType: taskType,
+      activePrompt,
+      hasFilesGenerating: hasFiles,
+    }),
 
   setActiveSources: (sources) => set({ activeSources: sources }),
 

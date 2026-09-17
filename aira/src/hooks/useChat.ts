@@ -89,7 +89,7 @@ export function useChat(targetChatId?: string | null) {
     addMessage(sendToChatId, assistantMsg)
 
     const isComplex = isComplexTask(content, files.length, effort)
-    setIsComplexGenerating(isComplex, detectedTask)
+    setIsComplexGenerating(isComplex, detectedTask, content, files.length > 0)
 
     const controller = new AbortController()
     startGenerating(sendToChatId, controller)
@@ -154,7 +154,7 @@ export function useChat(targetChatId?: string | null) {
       }
     } finally {
       stopGenerating(sendToChatId)
-      setIsComplexGenerating(false, null)
+      setIsComplexGenerating(false, null, null, false)
     }
   }
 

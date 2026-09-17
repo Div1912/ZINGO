@@ -21,7 +21,7 @@ export const InputBar: React.FC<InputBarProps> = ({
   isGenerating,
   initialPrompt = '',
 }) => {
-  const { isComplexGenerating, currentTaskType } = useChatStore()
+  const { isComplexGenerating, currentTaskType, activePrompt, hasFilesGenerating } = useChatStore()
   const handleSendMessage = (
     message: string,
     meta: { model: string; effort: string; attachments: File[] }
@@ -66,6 +66,8 @@ export const InputBar: React.FC<InputBarProps> = ({
           isGenerating={isGenerating}
           isComplexTask={isComplexGenerating}
           taskType={currentTaskType || undefined}
+          activePrompt={activePrompt || undefined}
+          hasFiles={hasFilesGenerating}
           onStop={onStop}
           enableBorderBeam={true}
           placeholder="Ask AIRA anything... (Shift+Enter for new line)"

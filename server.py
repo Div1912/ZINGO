@@ -266,28 +266,57 @@ async def root():
 
 
 # --------------------------------------------------------------------------------------
-# Reasoning effort mapper
+# Reasoning effort mapper (query-adaptive & fast)
 # --------------------------------------------------------------------------------------
 
-def get_effort_config(effort: Optional[str] = None) -> Dict[str, Any]:
-    """Map UI reasoning effort to inference parameters, thinking mode, and system guidance."""
+def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dict[str, Any]:
+    """Map UI reasoning effort to inference parameters, thinking mode, and system guidance.
+    Adapts token budgets dynamically based on query complexity to prevent long hangs on simple questions."""
     eff = (effort or "Fast").lower()
+    q = (user_query or "").strip().lower()
+
+    # Detect if query is a brief greeting, conversational question, or short definition
+    is_brief = len(q) < 40 or any(
+        q.startswith(w) for w in [
+            "hi", "hello", "hey", "what is", "who is", "who are", "whats", "what's",
+            "test", "ping", "thanks", "ok", "speed", "top speed", "why", "how are"
+        ]
+    )
+
     if "max" in eff:
+        if is_brief:
+            return {
+                "effort": "Max Effort",
+                "options": {"temperature": 0.3, "num_predict": 1024, "top_p": 0.85},
+                "think": True,
+                "instruction": (
+                    "Operating in MAX EFFORT mode. Answer the user's prompt directly, accurately, and thoroughly. "
+                    "Since the query is brief or conversational, provide a clear, high-quality answer without over-deliberating."
+                ),
+            }
         return {
             "effort": "Max Effort",
-            "options": {"temperature": 0.7, "num_predict": 8192, "top_p": 0.95},
+            "options": {"temperature": 0.6, "num_predict": 3072, "top_p": 0.9},
             "think": True,
             "instruction": (
-                "Operating at MAXIMUM REASONING EFFORT. Conduct an exhaustive, multi-faceted engineering analysis "
-                "with the highest level of rigor. Explore root causes, secondary impacts, relevant standards "
-                "(OISD, API, ASME, ISO), step-by-step calculations or parameters where applicable, "
-                "and structured mitigation checklists."
+                "Operating at MAXIMUM REASONING EFFORT. Conduct an exhaustive, rigorous engineering analysis. "
+                "Explore root causes, secondary plant impacts, relevant industry standards (OISD, API, ASME, ISO), "
+                "formulas/parameters where applicable, and structured mitigation checklists."
             ),
         }
     elif "deep" in eff or "reason" in eff or "research" in eff:
+        if is_brief:
+            return {
+                "effort": "Deep Research",
+                "options": {"temperature": 0.2, "num_predict": 768, "top_p": 0.8},
+                "think": True,
+                "instruction": (
+                    "Operating in DEEP RESEARCH mode. Provide a clear, well-reasoned answer directly addressing the user's prompt."
+                ),
+            }
         return {
             "effort": "Deep Research",
-            "options": {"temperature": 0.6, "num_predict": 4096, "top_p": 0.9},
+            "options": {"temperature": 0.5, "num_predict": 2048, "top_p": 0.9},
             "think": True,
             "instruction": (
                 "Operating in DEEP RESEARCH mode. Conduct systematic, step-by-step reasoning. "
@@ -296,13 +325,13 @@ def get_effort_config(effort: Optional[str] = None) -> Dict[str, Any]:
             ),
         }
     else:
+        # Fast mode: MAXIMUM SPEED, ultra low latency
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.2, "num_predict": 1024, "top_p": 0.8},
+            "options": {"temperature": 0.1, "num_predict": 512, "top_p": 0.7},
             "think": False,
             "instruction": (
-                "Operating in FAST mode. Provide a direct, concise, and immediate engineering answer with minimal "
-                "preamble. Focus strictly on accuracy, clarity, and rapid resolution."
+                "Operating in FAST mode. Provide an immediate, direct, and concise answer with zero unnecessary preamble or filler."
             ),
         }
 
@@ -381,7 +410,7 @@ async def process_and_ask(
         except Exception as ocr_err:
             print(f"--- OCR extraction warning: {ocr_err} ---")
 
-    cfg = get_effort_config(effort)
+    cfg = get_effort_config(effort, user_query)
     full_prompt = (f"Context from Document:\n{context}\n\nUser Query: {user_query}"
                    if context else user_query)
     model = llm.resolve_model("document")
@@ -392,6 +421,7 @@ async def process_and_ask(
         "stream": stream,
         "think": cfg["think"],
         "options": cfg["options"],
+        "keep_alive": -1,
         "_effort": cfg["effort"],
     }
 
@@ -506,7 +536,7 @@ async def api_chat(payload_data: ChatPayload):
         context = (context + "\n\n" if context else "") + \
             "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
 
-    cfg = get_effort_config(payload_data.effort)
+    cfg = get_effort_config(payload_data.effort, question)
 
     system = payload_data.system or (
         f"You are ZINGO, an on-premise engineering assistant for an Indian refinery. {cfg['instruction']} "
@@ -542,6 +572,7 @@ async def api_chat(payload_data: ChatPayload):
         "stream": payload_data.stream,
         "think": cfg["think"],
         "options": cfg["options"],
+        "keep_alive": -1,
         "_effort": cfg["effort"],
     }
 
