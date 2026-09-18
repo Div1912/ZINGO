@@ -18,6 +18,7 @@ import {
   Zap,
   FileDown,
   Mail,
+  Sparkles,
 } from 'lucide-react'
 import type { Message } from '../../types'
 import { ModelBadge } from './ModelBadge'
@@ -43,7 +44,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const { settings } = useSettingsStore()
   const { addToast } = useToastStore()
   const { toggleSourcePanel, setActiveSources } = useChatStore()
-  const { artifacts } = useArtifactStore()
+  const { artifacts, openInSandbox } = useArtifactStore()
 
   // Match artifacts associated with this message
   const matchedArtifacts = React.useMemo(() => {
@@ -341,10 +342,34 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                                 )}
                               </button>
 
+                              {/* Web Sandbox Preview Button (Claude-Style) */}
+                              {(['html', 'htm', 'svg', 'react', 'jsx', 'tsx', 'javascript', 'js'].includes(lang.toLowerCase()) ||
+                                codeText.includes('<!DOCTYPE') ||
+                                codeText.includes('<html') ||
+                                (codeText.includes('<div') && codeText.includes('</div>'))) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    openInSandbox(codeText, lang)
+                                    addToast({
+                                      type: 'info',
+                                      message: 'Opening site in dedicated sandbox...',
+                                    })
+                                  }}
+                                  className="btn-glass !py-1 !px-2.5 !text-[11px] !rounded-md flex items-center gap-1.5 text-violet-300 hover:text-white border-violet-500/30 bg-violet-500/15 hover:bg-violet-500/25 transition-all shadow-xs"
+                                  title="Test and display live site in dedicated sandbox"
+                                >
+                                  <Sparkles size={11} className="text-violet-400" />
+                                  <span>Preview Site ›</span>
+                                </button>
+                              )}
+
                               {onRunCode && (lang === 'python' || lang === 'bash' || lang === 'py') && (
                                 <button
+                                  type="button"
                                   onClick={() => onRunCode(codeText)}
                                   className="btn-glass !py-1 !px-2.5 !text-[11px] !rounded-md flex items-center gap-1 text-content-primary"
+                                  title="Execute script in backend runner"
                                 >
                                   <Play size={11} className="text-success" />
                                   <span>Run ›</span>

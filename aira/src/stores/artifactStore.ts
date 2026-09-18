@@ -16,6 +16,7 @@ interface ArtifactStore {
   closeArtifact: () => void
   bindPlantContext: (id: string, tag: string, context?: any) => void
   saveArtifactState: (id: string, state: any) => void
+  openInSandbox: (content: string, language?: string, title?: string) => string
   extractArtifactsFromMessage: (messageContent: string, chatId?: string) => Artifact[]
 }
 
@@ -466,6 +467,45 @@ export const useArtifactStore = create<ArtifactStore>()(
         }))
       },
 
+      openInSandbox: (content, language, title) => {
+        const lang = (language || 'html').toLowerCase()
+        let type: ArtifactType = 'html'
+        if (['jsx', 'tsx', 'react'].includes(lang)) type = 'react'
+        else if (lang === 'svg') type = 'svg'
+        else if (['markdown', 'md'].includes(lang)) type = 'markdown'
+        else if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<div')) type = 'html'
+        else type = 'code'
+
+        let inferredTitle = title
+        if (!inferredTitle) {
+          const titleMatch = content.match(/<title>([^<]+)<\/title>/i)
+          if (titleMatch) {
+            inferredTitle = titleMatch[1].trim()
+          } else {
+            inferredTitle =
+              type === 'html' || type === 'react'
+                ? 'Interactive Web Application'
+                : 'Live Sandbox Application'
+          }
+        }
+
+        // Check if existing artifact has the exact content
+        const existing = get().artifacts.find((a) => a.content === content)
+        if (existing) {
+          get().openArtifact(existing.id)
+          return existing.id
+        }
+
+        const id = get().addArtifact({
+          title: inferredTitle,
+          type,
+          language: lang,
+          content,
+        })
+        get().openArtifact(id)
+        return id
+      },
+
       extractArtifactsFromMessage: (messageContent, chatId) => {
         const detected: Artifact[] = []
         if (!messageContent) return detected
@@ -494,8 +534,8 @@ export const useArtifactStore = create<ArtifactStore>()(
           if (added) detected.push(added)
         }
 
-        // Regex 2: Substantial fenced code block for html / svg
-        const codeBlockRegex = /```(html|svg)\s*\n([\s\S]{100,}?)\n```/gi
+        // Regex 2: Substantial fenced code block for html / svg / react / jsx / tsx / js
+        const codeBlockRegex = /```(html|htm|svg|jsx|tsx|react|javascript|js)\s*\n([\s\S]{80,}?)\n```/gi
         let codeMatch: RegExpExecArray | null
         while ((codeMatch = codeBlockRegex.exec(messageContent)) !== null) {
           const lang = codeMatch[1].toLowerCase()
@@ -504,11 +544,27 @@ export const useArtifactStore = create<ArtifactStore>()(
           // Check if already extracted
           const alreadyExists = get().artifacts.some((a) => a.content === content)
           if (!alreadyExists) {
-            const title = lang === 'svg' ? 'Interactive SVG Graphic' : 'Live Interactive Application'
+            let type: ArtifactType = 'html'
+            if (lang === 'svg') type = 'svg'
+            else if (['jsx', 'tsx', 'react'].includes(lang)) type = 'react'
+            else if (lang === 'javascript' || lang === 'js') {
+              type = content.includes('<') && content.includes('>') ? 'react' : 'code'
+            }
+
+            let title = 'Live Interactive Application'
+            const titleMatch = content.match(/<title>([^<]+)<\/title>/i)
+            if (titleMatch) {
+              title = titleMatch[1].trim()
+            } else if (lang === 'svg') {
+              title = 'Interactive SVG Graphic'
+            } else if (type === 'react') {
+              title = 'Interactive React Component'
+            }
+
             const id = get().addArtifact({
               chatId,
               title,
-              type: lang === 'svg' ? 'svg' : 'html',
+              type,
               language: lang,
               content,
             })
