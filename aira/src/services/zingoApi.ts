@@ -498,6 +498,7 @@ export const zingoApi = {
   saveConversationMessage: (convId: string, message: any) =>
     req<any>('post', `/api/conversations/${convId}/messages`, { data: message }),
   deleteConversation: (id: string) => req<any>('delete', `/api/conversations/${id}`),
+  clearConversationMessages: (convId: string) => req<any>('delete', `/api/conversations/${convId}/messages`),
   equipmentMemory: (tag: string) => req<{ tag: string; total_facts: number; facts: any[] }>('get', `/api/memory/equipment/${tag}`),
 
   // ZINGO Settings & Identity Integration

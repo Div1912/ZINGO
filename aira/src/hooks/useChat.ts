@@ -164,7 +164,8 @@ export function useChat(chatId?: string | null) {
 
         if (hasFiles) {
           const fd = new FormData()
-          fd.append('user_query', content)
+          const queryText = (content || '').trim() || 'Please analyze the attached document and provide a comprehensive summary and key takeaways.'
+          fd.append('user_query', queryText)
           files?.forEach((f: any) => {
             const fileObj = f.rawFile || f
             if (fileObj instanceof File) {
@@ -177,7 +178,13 @@ export function useChat(chatId?: string | null) {
           fd.append('messages', JSON.stringify(messagesForContext))
 
           body = fd
-          endpoint = `${cleanBaseUrl}/process-and-ask/?stream=true`
+          const qp = new URLSearchParams({
+            stream: 'true',
+            user_query: queryText,
+          })
+          if (selectedModel) qp.set('model', selectedModel)
+          if (effort) qp.set('effort', effort)
+          endpoint = `${cleanBaseUrl}/process-and-ask/?${qp.toString()}`
         } else {
           headers['Content-Type'] = 'application/json'
           body = JSON.stringify({

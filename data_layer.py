@@ -602,8 +602,14 @@ def init_db() -> None:
                     """INSERT INTO user_profile
                        (user_id, full_name, preferred_name, work_role, personal_preferences, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?)""",
-                    ("default_user", "Div", "Div", "Refinery Process Engineer (CDU/VDU)",
+                    ("default_user", "User", "User", "Refinery Process Engineer (CDU/VDU)",
                      "Provide direct, precise, knowledgeable answers. When asked about identity or responsibilities, answer specifically using the profile and memory context.", now)
+                )
+            else:
+                conn.execute(
+                    """UPDATE user_profile
+                       SET full_name = 'User', preferred_name = 'User'
+                       WHERE user_id = 'default_user' AND (full_name = 'Div' OR preferred_name = 'Div')"""
                 )
 
             # Seed default user capabilities if empty
@@ -1652,15 +1658,13 @@ def get_user_profile(user_id: str = "default_user") -> Dict[str, Any]:
     conn = get_db()
     try:
         row = conn.execute("SELECT * FROM user_profile WHERE user_id = ?", (norm_id,)).fetchone()
-        if not row and norm_id != "default_user":
-            row = conn.execute("SELECT * FROM user_profile WHERE user_id = 'default_user'").fetchone()
         if row:
             return dict(row)
-        # Default fallback
+        # Default fallback for new / unprofiled user
         return {
             "user_id": norm_id,
-            "full_name": "Div",
-            "preferred_name": "Div",
+            "full_name": "User",
+            "preferred_name": "User",
             "work_role": "Refinery Process Engineer (CDU/VDU)",
             "personal_preferences": "Provide direct, precise, knowledgeable answers. When asked about identity or responsibilities, answer specifically using the profile and memory context.",
             "updated_at": datetime.now().isoformat(),
@@ -1677,8 +1681,8 @@ def upsert_user_profile(
     personal_preferences: Optional[str] = None,
 ) -> Dict[str, Any]:
     curr = get_user_profile(user_id)
-    new_full = full_name if full_name is not None else curr.get("full_name", "Div")
-    new_pref = preferred_name if preferred_name is not None else curr.get("preferred_name", "Div")
+    new_full = full_name if full_name is not None else curr.get("full_name", "User")
+    new_pref = preferred_name if preferred_name is not None else curr.get("preferred_name", "User")
     new_role = work_role if work_role is not None else curr.get("work_role", "")
     new_prefs = personal_preferences if personal_preferences is not None else curr.get("personal_preferences", "")
     now = datetime.now().isoformat()
@@ -1995,7 +1999,7 @@ def delete_user_account(user_id: str = "default_user") -> bool:
         now = datetime.now().isoformat()
         conn.execute(
             """UPDATE user_profile
-               SET full_name = 'Div', preferred_name = 'Div', work_role = 'Refinery Process Engineer (CDU/VDU)',
+               SET full_name = 'User', preferred_name = 'User', work_role = 'Refinery Process Engineer (CDU/VDU)',
                    personal_preferences = 'Provide direct, precise, knowledgeable answers. When asked about identity or responsibilities, answer specifically using the profile and memory context.', updated_at = ?
                WHERE user_id = ?""",
             (now, user_id)
@@ -2044,7 +2048,7 @@ def build_zingo_identity_prompt(user_id: str = "default_user") -> str:
     )
 
     # 1. User Profile & Personal Preferences
-    full_name = profile.get("full_name") or "Div"
+    full_name = profile.get("full_name") or "User"
     preferred_name = profile.get("preferred_name") or full_name
     work_role = profile.get("work_role") or "Refinery Process Engineer (CDU/VDU)"
     prefs = profile.get("personal_preferences") or "Provide direct, precise, knowledgeable answers."

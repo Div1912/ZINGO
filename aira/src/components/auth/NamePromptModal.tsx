@@ -76,7 +76,7 @@ export const NamePromptModal: React.FC = () => {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Divyanshu Sharma"
+              placeholder="e.g. Alex Morgan"
               autoFocus
               required
               className="input w-full !text-sm !py-2.5"
@@ -92,7 +92,7 @@ export const NamePromptModal: React.FC = () => {
               type="text"
               value={preferredName}
               onChange={(e) => setPreferredName(e.target.value)}
-              placeholder="e.g. Div"
+              placeholder="e.g. Alex"
               className="input w-full !text-sm !py-2"
             />
           </div>

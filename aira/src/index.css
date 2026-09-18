@@ -380,3 +380,43 @@ select option {
   font-size: 0.88em;
   border: 1px solid var(--border-default);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Print Styling Fallback                                                     */
+/* -------------------------------------------------------------------------- */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide app navigation chrome and inputs during print */
+  header,
+  aside,
+  nav,
+  form,
+  button,
+  .no-print,
+  [role="button"],
+  .border-beam,
+  .model-badge-actions {
+    display: none !important;
+  }
+
+  /* Prevent duplicate MathML rendering in KaTeX */
+  .katex-mathml {
+    display: none !important;
+  }
+
+  /* Prevent awkward page breaks */
+  h1, h2, h3, h4 {
+    page-break-after: avoid;
+  }
+
+  table, pre, blockquote, .rounded-2xl {
+    page-break-inside: avoid;
+  }
+}
+

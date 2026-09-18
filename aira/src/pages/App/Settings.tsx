@@ -132,8 +132,8 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   // Real SQLite persistent state
   const [userProfile, setUserProfile] = useState<UserProfile>({
     user_id: 'default_user',
-    full_name: settings.userName || 'Div',
-    preferred_name: settings.preferredName || 'Div',
+    full_name: settings.userName || 'User',
+    preferred_name: settings.preferredName || 'User',
     work_role: settings.workDescription || 'Refinery Process Engineer (CDU/VDU)',
     personal_preferences:
       settings.customInstructions ||
@@ -157,7 +157,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     location_label: 'MRPL Complex, Mangaluru (12.9141° N, 74.8560° E)',
     location_coords: '12.9141,74.8560',
     calendar_permitted: true,
-    calendar_account: 'div.lead@mrpl.co.in',
+    calendar_account: 'lead.engineer@mrpl.co.in',
   })
 
   const [connectors, setConnectors] = useState<UserConnector[]>([])
@@ -514,7 +514,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       const newStatus = !permissions.calendar_permitted
       const res = await zingoApi.updatePermissions({
         calendar_permitted: newStatus,
-        calendar_account: newStatus ? 'div.lead@mrpl.co.in' : undefined,
+        calendar_account: newStatus ? 'lead.engineer@mrpl.co.in' : undefined,
       })
       setPermissions(res)
       addToast({
@@ -957,7 +957,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         setUserProfile((prev) => ({ ...prev, full_name: e.target.value }))
                       }
                       onBlur={handleSaveProfile}
-                      placeholder="Div"
+                      placeholder="User"
                       className="w-56 sm:w-64 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none transition-colors"
                     />
                   </div>
@@ -974,7 +974,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         setUserProfile((prev) => ({ ...prev, preferred_name: e.target.value }))
                       }
                       onBlur={handleSaveProfile}
-                      placeholder="Div"
+                      placeholder="User"
                       className="w-56 sm:w-64 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none transition-colors"
                     />
                   </div>
@@ -1509,7 +1509,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                   <div className="divide-y divide-border/60 text-xs sm:text-sm">
                     <div className="flex items-center justify-between py-3">
                       <span className="text-content-secondary">User Account</span>
-                      <span className="font-mono text-content-primary">default_user (Div)</span>
+                      <span className="font-mono text-content-primary">default_user</span>
                     </div>
                     <div className="flex items-center justify-between py-3">
                       <span className="text-content-secondary">Organization</span>

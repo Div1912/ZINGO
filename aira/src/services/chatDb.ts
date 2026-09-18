@@ -157,18 +157,46 @@ export async function saveMessageToDb(
 }
 
 /**
- * Delete a chat from Supabase (messages cascade delete)
+ * Clear all messages belonging to a chat from Supabase
  */
-export async function deleteChatFromDb(chatId: string, userId: string): Promise<void> {
+export async function clearChatMessagesFromDb(chatId: string, userId?: string): Promise<void> {
   try {
-    const { error } = await supabase
-      .from('chats')
-      .delete()
-      .eq('id', chatId)
-      .eq('user_id', userId)
-
+    let query = supabase.from('messages').delete().eq('chat_id', chatId)
+    if (userId) {
+      query = query.eq('user_id', userId)
+    }
+    const { error } = await query
     if (error) {
-      console.error('Failed to delete chat from Supabase:', error)
+      console.error('Failed to clear messages from Supabase:', error)
+    }
+  } catch (err) {
+    console.error('clearChatMessagesFromDb error:', err)
+  }
+}
+
+/**
+ * Delete a chat from Supabase. Explicitly delete child messages first to avoid foreign key violations.
+ */
+export async function deleteChatFromDb(chatId: string, userId?: string): Promise<void> {
+  try {
+    // 1. First delete child messages
+    let msgQuery = supabase.from('messages').delete().eq('chat_id', chatId)
+    if (userId) {
+      msgQuery = msgQuery.eq('user_id', userId)
+    }
+    const { error: msgErr } = await msgQuery
+    if (msgErr) {
+      console.error('Failed to delete messages for chat from Supabase:', msgErr)
+    }
+
+    // 2. Then delete the chat
+    let chatQuery = supabase.from('chats').delete().eq('id', chatId)
+    if (userId) {
+      chatQuery = chatQuery.eq('user_id', userId)
+    }
+    const { error: chatErr } = await chatQuery
+    if (chatErr) {
+      console.error('Failed to delete chat from Supabase:', chatErr)
     }
   } catch (err) {
     console.error('deleteChatFromDb error:', err)

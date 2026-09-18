@@ -5,7 +5,9 @@ import {
   saveChatToDb,
   saveMessageToDb,
   deleteChatFromDb,
+  clearChatMessagesFromDb,
 } from '../services/chatDb'
+import { zingoApi } from '../services/zingoApi'
 
 interface ChatStore {
   chats: Chat[]
@@ -131,20 +133,37 @@ Ensure all wash effluent is routed to the **Effluent Treatment Plant (ETP-2)** o
   },
 ]
 
-const getLocalUserCacheKey = (userId: string) => `aira-chats-user-${userId}`
+const getLocalUserCacheKey = (userId?: string | null) =>
+  userId ? `aira-chats-user-${userId}` : 'aira-chats-user-local_user'
 
-const persistUserLocalCache = (userId: string, chats: Chat[]) => {
+const persistUserLocalCache = (userId: string | null | undefined, chats: Chat[]) => {
   try {
-    const valid = chats.filter((c) => c.messages.length > 0)
-    localStorage.setItem(getLocalUserCacheKey(userId), JSON.stringify(valid))
+    localStorage.setItem(getLocalUserCacheKey(userId), JSON.stringify(chats))
   } catch (e) {
     console.warn('Could not cache chats locally:', e)
   }
 }
 
+const getInitialChats = (): { chats: Chat[]; activeChatId: string | null } => {
+  try {
+    const cached = localStorage.getItem(getLocalUserCacheKey(null))
+    if (cached) {
+      const parsed = JSON.parse(cached) as Chat[]
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return { chats: parsed, activeChatId: parsed[0]?.id || null }
+      }
+    }
+  } catch {
+    // Ignore cache parse errors
+  }
+  return { chats: [], activeChatId: null }
+}
+
+const initialChatsState = getInitialChats()
+
 export const useChatStore = create<ChatStore>((set, get) => ({
-  chats: [],
-  activeChatId: null,
+  chats: initialChatsState.chats,
+  activeChatId: initialChatsState.activeChatId,
   currentUserId: null,
   isLoadingChats: false,
   isGenerating: false,
@@ -207,6 +226,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         })
         // Save initial empty conversation to DB
         saveChatToDb(initialChat, userId)
+        persistUserLocalCache(userId, [initialChat])
       }
     } catch (err) {
       console.error('Failed to load user chats from Supabase:', err)
@@ -299,16 +319,32 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const userId = get().currentUserId
     if (userId) {
       saveChatToDb(newChat, userId)
-      persistUserLocalCache(userId, updatedChats)
     }
+    persistUserLocalCache(userId, updatedChats)
 
     return newId
   },
 
   deleteChat: (id) => {
     const state = get()
-    const remaining = state.chats.filter((c) => c.id !== id)
-    const nextActive = state.activeChatId === id ? (remaining[0]?.id ?? null) : state.activeChatId
+    let remaining = state.chats.filter((c) => c.id !== id)
+    let nextActive = state.activeChatId === id ? (remaining[0]?.id ?? null) : state.activeChatId
+
+    if (remaining.length === 0) {
+      const freshChat: Chat = {
+        id: 'chat-' + Date.now(),
+        title: 'New conversation',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        model: 'qwen3:8b',
+        messages: [],
+      }
+      remaining = [freshChat]
+      nextActive = freshChat.id
+      if (state.currentUserId) {
+        saveChatToDb(freshChat, state.currentUserId)
+      }
+    }
 
     set({
       chats: remaining,
@@ -320,8 +356,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const userId = state.currentUserId
     if (userId) {
       deleteChatFromDb(id, userId)
-      persistUserLocalCache(userId, remaining)
     }
+    zingoApi.deleteConversation(id).catch(() => {})
+    persistUserLocalCache(userId, remaining)
   },
 
   renameChat: (id, title) => {
@@ -334,8 +371,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (userId) {
       const chat = updatedChats.find((c) => c.id === id)
       if (chat) saveChatToDb(chat, userId)
-      persistUserLocalCache(userId, updatedChats)
     }
+    persistUserLocalCache(userId, updatedChats)
   },
 
   pinChat: (id) => {
@@ -348,21 +385,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (userId) {
       const chat = updatedChats.find((c) => c.id === id)
       if (chat) saveChatToDb(chat, userId)
-      persistUserLocalCache(userId, updatedChats)
     }
+    persistUserLocalCache(userId, updatedChats)
   },
 
   setActiveChat: (id) => {
     set((state) => {
-      const cleaned = state.chats.filter((c) => c.id === id || c.messages.length > 0)
-      const chat = cleaned.find((c) => c.id === id)
+      const chat = state.chats.find((c) => c.id === id)
       const lastAssistantMsg = chat?.messages
         .slice()
         .reverse()
         .find((m) => m.role === 'assistant' && m.sources && m.sources.length > 0)
 
       return {
-        chats: cleaned,
         activeChatId: id,
         activeSources: lastAssistantMsg?.sources ?? null,
       }
@@ -481,8 +516,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (userId) {
       const chat = updatedChats.find((c) => c.id === chatId)
       if (chat) saveChatToDb(chat, userId)
-      persistUserLocalCache(userId, updatedChats)
+      clearChatMessagesFromDb(chatId, userId)
     }
+    zingoApi.clearConversationMessages(chatId).catch(() => {})
+    persistUserLocalCache(userId, updatedChats)
   },
 
   searchChats: (query) => {

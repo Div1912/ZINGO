@@ -22,6 +22,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { useChatStore } from '../../stores/chatStore'
 import { useProjectStore } from '../../stores/projectStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { Dropdown } from '../ui/Dropdown'
 import { zingoApi, type RoleNotification } from '../../services/zingoApi'
@@ -30,6 +31,7 @@ import {
   exportChatToJson,
   copyChatTranscript,
 } from '../../services/storage'
+import { exportChatToPdf } from '../../services/pdfExport'
 import { Modal } from '../ui/Modal'
 
 interface HeaderProps {
@@ -48,6 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
   const { chats, activeChatId, renameChat, clearChat } = useChatStore()
   const { projects, activeProjectId, setActiveProject } = useProjectStore()
   const { addToast } = useToastStore()
+  const { settings } = useSettingsStore()
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
   const currentChat = chats.find((c) => c.id === activeChatId)
@@ -368,8 +371,33 @@ export const Header: React.FC<HeaderProps> = ({
                   id: 'export-pdf',
                   label: 'Print / Export as PDF',
                   icon: <Printer size={13} />,
-                  onClick: () => {
-                    window.print()
+                  onClick: async () => {
+                    if (currentChat && currentChat.messages && currentChat.messages.length > 0) {
+                      addToast({
+                        type: 'info',
+                        message: 'Formatting engineering document for print / PDF...',
+                      })
+                      try {
+                        const success = await exportChatToPdf(currentChat, settings)
+                        if (success) {
+                          addToast({
+                            type: 'success',
+                            message: 'Print dialog opened — select "Save as PDF".',
+                          })
+                        }
+                      } catch (err) {
+                        console.error('PDF export error:', err)
+                        addToast({
+                          type: 'error',
+                          message: 'Failed to format document for export.',
+                        })
+                      }
+                    } else {
+                      addToast({
+                        type: 'warning',
+                        message: 'No messages to export in the current session.',
+                      })
+                    }
                   },
                 },
                 {

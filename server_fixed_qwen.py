@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Query, Request
+from fastapi import FastAPI, UploadFile, File, Query, Request, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -161,21 +161,39 @@ def run_ollama_stream(payload: dict, context: str = ""):
 
 @app.post("/process-and-ask/")
 async def process_and_ask(
-    user_query: str = Query(..., description="User query or prompt"),
+    request: Request,
+    user_query: Optional[str] = Form(None, description="User query or prompt"),
     file: Optional[UploadFile] = File(None),
-    stream: bool = Query(False, description="Stream response via Server-Sent Events (SSE)")
+    stream: Optional[bool] = Query(None, description="Stream response via Server-Sent Events (SSE)")
 ):
+    q = request.query_params
+    resolved_query = (user_query or q.get("user_query") or "").strip()
+    if not resolved_query:
+        resolved_query = "Please analyze the attached document and provide a comprehensive summary and key takeaways."
+    user_query = resolved_query
+
+    if stream is None:
+        raw_stream = q.get("stream")
+        stream = str(raw_stream).lower() in ("true", "1", "yes") if raw_stream is not None else False
+
     context = ""
     
-    # 1. Agar user ne image file bheji hai, to OCR chalega
+    # 1. Extract text from uploaded document (PDF or image)
     if file:
         try:
             file_bytes = await file.read()
-            ocr_result = reader.readtext(file_bytes, detail=0)
-            context = " ".join(ocr_result)
-            print(f"--- OCR Extracted Text Successfully ({len(context)} chars) ---")
+            fname = file.filename or "uploaded_document"
+            try:
+                from routers.ingestion import extract_text
+                extracted = extract_text(fname, file_bytes)
+                context = (extracted.get("text") or "").strip()
+                print(f"--- Document Extracted Text Successfully ({len(context)} chars) ---")
+            except Exception:
+                ocr_result = reader.readtext(file_bytes, detail=0)
+                context = " ".join(ocr_result)
+                print(f"--- OCR Extracted Text Successfully ({len(context)} chars) ---")
         except Exception as ocr_err:
-            print(f"--- OCR extraction warning: {str(ocr_err)} ---")
+            print(f"--- Document extraction warning: {str(ocr_err)} ---")
 
     # 2. Prompt structure builder
     full_prompt = f"Context from Document:\n{context}\n\nUser Query: {user_query}" if context else user_query

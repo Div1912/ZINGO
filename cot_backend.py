@@ -140,8 +140,8 @@ def run_ollama_stream_cot(
             )
             req.raise_for_status()
         except Exception as remote_err:
-            if endpoint != DEFAULT_ENDPOINT:
-                print(f"[cluster] Remote node {endpoint} unreachable: {remote_err}. Falling back to master.")
+            if clean_payload.get("model") != DEFAULT_MODEL or endpoint != DEFAULT_ENDPOINT:
+                print(f"[cluster/model fallback] Error with model {clean_payload.get('model')} at {endpoint}: {remote_err}. Falling back to {DEFAULT_MODEL}.")
                 clean_payload["model"] = DEFAULT_MODEL
                 model_name = DEFAULT_MODEL
                 endpoint = DEFAULT_ENDPOINT
@@ -245,6 +245,12 @@ def run_ollama_stream_cot(
                 for ev in events:
                     yield f"data: {ev}\n\n"
                 yield f"data: {json.dumps({'type': 'thinking_end', 'total_steps': think_step_count})}\n\n"
+
+            # Fast-path: When outside thinking tags and no partial tag match, stream entire token chunk
+            if not in_think_block and open_idx == 0 and OPEN_TAG not in chunk_text and "<" not in chunk_text:
+                answer_buf += chunk_text
+                yield f"data: {json.dumps({'type': 'chunk', 'chunk': chunk_text, 'done': False})}\n\n"
+                continue
 
             # Process character-by-character for inline <think> tags
             for char in chunk_text:

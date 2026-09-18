@@ -175,7 +175,7 @@ export const AuthModal: React.FC = () => {
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="e.g. Divyanshu Sharma"
+                placeholder="e.g. Alex Morgan"
                 className="input w-full !text-sm !py-2"
               />
             </div>

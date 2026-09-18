@@ -82,7 +82,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   }
 
   // Static timeline greeting based on the hour of the day
-  const userName = (settings.preferredName || settings.userName || 'Div').trim()
+  const userName = (settings.preferredName || settings.userName || 'User').trim()
 
   const getTimelineGreeting = () => {
     const hour = new Date().getHours()

@@ -18,6 +18,11 @@ The ONLY network destination in this codebase is 127.0.0.1:11434 (local Ollama).
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+warnings.filterwarnings("ignore", message=".*quantize_per_tensor.*")
+warnings.filterwarnings("ignore", message=".*quant_min and quant_max.*")
 
 import base64
 import json
@@ -341,7 +346,7 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
     if is_greeting:
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.4, "num_predict": 512, "num_ctx": 8192, "top_p": 0.85},
+            "options": {"temperature": 0.4, "num_predict": 512, "num_ctx": 4096, "top_p": 0.85},
             "think": False,
             "instruction": (
                 "The user is sending a friendly greeting or ping. Respond politely, warmly, and concisely as ZINGO, "
@@ -352,7 +357,7 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
     if "max" in eff:
         return {
             "effort": "Max Effort",
-            "options": {"temperature": 0.6, "num_predict": 8192, "num_ctx": 16384, "top_p": 0.95},
+            "options": {"temperature": 0.6, "num_predict": 4096, "num_ctx": 6144, "top_p": 0.95},
             "think": True,
             "instruction": (
                 "Operating at MAXIMUM REASONING EFFORT. Conduct an exhaustive, rigorous engineering analysis. "
@@ -368,7 +373,7 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
     elif "deep" in eff or "reason" in eff or "research" in eff:
         return {
             "effort": "Deep Research",
-            "options": {"temperature": 0.5, "num_predict": 6144, "num_ctx": 16384, "top_p": 0.9},
+            "options": {"temperature": 0.5, "num_predict": 3072, "num_ctx": 4096, "top_p": 0.9},
             "think": True,
             "instruction": (
                 "Operating in DEEP RESEARCH mode. Conduct systematic, deep step-by-step reasoning before formulating your response. "
@@ -383,7 +388,7 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
         # Fast mode: responsive, direct, with room for rich multi-turn conversation memory
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.3, "num_predict": 768, "num_ctx": 4096, "top_p": 0.85},
+            "options": {"temperature": 0.3, "num_predict": 1024, "num_ctx": 4096, "top_p": 0.85},
             "think": False,
             "instruction": (
                 "Operating in FAST mode. Provide an immediate, direct, concise, and accurate answer. "
@@ -458,15 +463,30 @@ def retrieve_context(question: str, top_k: int = 5,
 
 @app.post("/process-and-ask/")
 async def process_and_ask(
-    user_query: str = Query(..., description="User query or prompt"),
+    request: Request,
+    user_query: Optional[str] = Form(None, description="User query or prompt (Form)"),
     file: Optional[UploadFile] = File(None),
     messages: Optional[str] = Form(None, description="JSON array of previous conversation turns"),
     history: Optional[str] = Query(None, description="Fallback query param for conversation history"),
-    stream: bool = Query(False, description="Stream response via Server-Sent Events (SSE)"),
-    effort: str = Query("Fast", description="Reasoning effort: Fast | Deep Research | Max Effort"),
-    model: Optional[str] = Query(None, description="Model ID or 'auto' for smart routing"),
+    stream: Optional[bool] = Query(None, description="Stream response via Server-Sent Events (SSE)"),
+    effort: Optional[str] = Form(None, description="Reasoning effort: Fast | Deep Research | Max Effort"),
+    model: Optional[str] = Form(None, description="Model ID or 'auto' for smart routing"),
     node_url: Optional[str] = Query(None, description="Direct URL of the target node (e.g. http://192.168.1.15:11434)"),
 ):
+    # Resolve parameters: prefer Form data, fallback to Query params, then defaults
+    q = request.query_params
+    resolved_query = (user_query or q.get("user_query") or "").strip()
+    if not resolved_query:
+        resolved_query = "Please analyze the attached document and provide a comprehensive summary and key takeaways."
+    user_query = resolved_query
+
+    effort = effort or q.get("effort") or "Fast"
+    model = model or q.get("model") or None
+    node_url = node_url or q.get("node_url") or None
+    if stream is None:
+        raw_stream = q.get("stream")
+        stream = str(raw_stream).lower() in ("true", "1", "yes") if raw_stream is not None else False
+
     context = ""
     images_b64 = []
     sources = []
@@ -488,19 +508,32 @@ async def process_and_ask(
     if file:
         try:
             file_bytes = await file.read()
-            # If image, prepare base64 for multimodal vision models
+            fname = file.filename or "uploaded_document"
             is_image = bool(file.content_type and file.content_type.startswith("image/"))
-            if not is_image and file.filename:
-                ext = file.filename.lower()
+            if not is_image and fname:
+                ext = fname.lower()
                 is_image = ext.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
             if is_image:
                 images_b64.append(base64.b64encode(file_bytes).decode("utf-8"))
 
-            ocr_result = get_reader().readtext(file_bytes, detail=0)
-            context = " ".join(ocr_result)
-            print(f"--- OCR extracted {len(context)} chars ---")
-        except Exception as ocr_err:
-            print(f"--- OCR extraction warning: {ocr_err} ---")
+            from routers.ingestion import extract_text
+            extracted = extract_text(fname, file_bytes)
+            raw_extracted = (extracted.get("text") or "").strip()
+            if raw_extracted:
+                context = f"[Attached File: {fname}]\n{raw_extracted}"
+            print(f"--- Document extracted {len(raw_extracted)} chars from {fname} using {extracted.get('method')} ---")
+        except Exception as file_err:
+            print(f"--- Document extraction warning: {file_err}, attempting OCR fallback ---")
+            try:
+                from routers.ingestion import get_ocr_reader
+                reader, _ = get_ocr_reader()
+                ocr_result = reader.readtext(file_bytes, detail=0)
+                raw_ocr = " ".join(ocr_result).strip()
+                if raw_ocr:
+                    context = f"[Attached File: {fname}]\n{raw_ocr}"
+                print(f"--- OCR extracted {len(raw_ocr)} chars ---")
+            except Exception as ocr_err:
+                print(f"--- OCR fallback warning: {ocr_err} ---")
     else:
         eff_lower = (effort or "Fast").lower()
         is_fast = "fast" in eff_lower
@@ -526,42 +559,64 @@ async def process_and_ask(
 
     cfg = get_effort_config(effort, user_query)
 
-    # Build full prompt including conversation history turns (filter empty messages, keep up to 20 turns)
+    # Build full prompt including conversation history turns
+    # Ensure document context is attached directly to the current user turn so it is never truncated
+    current_turn_text = f"{context}\n\nUser Question/Request: {user_query}" if context else user_query
+
     if chat_history:
-        valid_history = [m for m in chat_history if m.get("content") and str(m["content"]).strip()]
-        recent_history = valid_history[-20:]
+        # Filter out empty messages and prior error strings (e.g. HTTP 422, 404, etc.)
+        valid_history = [
+            m for m in chat_history
+            if m.get("content") and str(m["content"]).strip()
+            and not str(m["content"]).strip().startswith("[Connection error:")
+            and not str(m["content"]).strip().startswith("[Error:")
+        ]
+        # Keep up to 8 recent turns for fast response and focused context
+        recent_history = valid_history[-8:]
         lines = []
-        if context:
-            lines.append(f"Context from Documents:\n{context}")
         for m in recent_history:
             role_label = "User" if m.get("role") == "user" else "Assistant"
             lines.append(f"{role_label}: {str(m['content']).strip()}")
-        if not recent_history or recent_history[-1].get("content") != user_query:
-            lines.append(f"User: {user_query}")
+
+        # Ensure the current turn with attached document context is the final user prompt
+        if not recent_history or recent_history[-1].get("role") != "user" or recent_history[-1].get("content") != user_query:
+            lines.append(f"User: {current_turn_text}")
+        else:
+            lines[-1] = f"User: {current_turn_text}"
+
         full_prompt = "\n\n".join(lines) + "\n\nAssistant:"
     else:
-        full_prompt = (f"Context from Documents:\n{context}\n\nUser Query: {user_query}"
-                       if context else user_query)
+        full_prompt = current_turn_text
 
-    # Dynamic model resolution for distributed multi-node cluster
+    # Dynamic model resolution with local availability check
+    available_local_models = llm.list_models()
+    has_remote_node = bool(node_url and node_url.strip())
     target_model = (model or "").strip()
+
     if not target_model or target_model == "auto" or target_model == "Auto (Recommended)":
-        if images_b64:
-            target_model = "qwen2.5-vl:7b"
-        elif any(k in user_query.lower() for k in ["code", "python", "script", "def ", "sql", "bug", "error", "function", "class "]):
-            target_model = "qwen2.5-coder:7b"
-        elif "max" in effort.lower():
-            target_model = "deepseek-r1:8b"
+        if has_remote_node:
+            if images_b64:
+                target_model = "qwen2.5-vl:7b"
+            elif any(k in user_query.lower() for k in ["code", "python", "script", "def ", "sql", "bug", "error", "function", "class "]):
+                target_model = "qwen2.5-coder:7b"
+            elif "max" in effort.lower():
+                target_model = "deepseek-r1:8b"
+            else:
+                target_model = llm.DEFAULT_MODEL
         else:
+            # Single local node: use local default
             target_model = llm.DEFAULT_MODEL
     elif "coder" in target_model.lower():
-        target_model = "qwen2.5-coder:7b"
+        target_model = "qwen2.5-coder:7b" if (has_remote_node or "qwen2.5-coder:7b" in available_local_models) else llm.DEFAULT_MODEL
     elif "vl" in target_model.lower() or "vision" in target_model.lower():
-        target_model = "qwen2.5-vl:7b"
+        target_model = "qwen2.5-vl:7b" if (has_remote_node or "qwen2.5-vl:7b" in available_local_models) else llm.DEFAULT_MODEL
     elif "r1" in target_model.lower() or "deepseek" in target_model.lower():
-        target_model = "deepseek-r1:8b"
+        target_model = "deepseek-r1:8b" if (has_remote_node or "deepseek-r1:8b" in available_local_models) else llm.DEFAULT_MODEL
     elif "8b" in target_model.lower() or "qwen3" in target_model.lower():
         target_model = "qwen3:8b"
+    else:
+        if not has_remote_node and target_model not in available_local_models:
+            target_model = llm.DEFAULT_MODEL
 
     # Resolve target endpoint
     target_endpoint = MODEL_ENDPOINT
@@ -577,8 +632,8 @@ async def process_and_ask(
     instruction = cfg["instruction"]
     if context:
         instruction += (
-            " Answer using the provided documents where relevant. "
-            "If the documents do not contain the answer, say so honestly based on your knowledge."
+            " Answer using the provided document context where relevant. "
+            "If the document is provided, thoroughly analyze its text, data, and details to fulfill the user's request."
         )
 
     # Always inject ZINGO User Identity, Profile & Memories into system instruction
@@ -777,20 +832,30 @@ async def api_chat(payload_data: ChatPayload):
     system_blocks.append(base_system)
     system = "\n\n".join(system_blocks)
 
+    current_user_text = f"{context}\n\nUser Question/Request: {question}" if context else question
+
     if payload_data.messages:
-        # Filter out empty or whitespace-only messages so pending assistant placeholders do not corrupt context
-        valid_messages = [m for m in payload_data.messages if m.content and m.content.strip()]
-        # Keep up to 20 recent messages so prior context, notes, and topics are never forgotten
-        recent_messages = valid_messages[-20:]
+        # Filter out empty or error messages so failed turns do not corrupt context
+        valid_messages = [
+            m for m in payload_data.messages
+            if m.content and m.content.strip()
+            and not m.content.strip().startswith("[Connection error:")
+            and not m.content.strip().startswith("[Error:")
+        ]
+        # Keep up to 8 recent messages for responsive conversation speed
+        recent_messages = valid_messages[-8:]
         lines = []
-        if context:
-            lines.append(f"Context from Documents:\n{context}")
         for m in recent_messages:
             lines.append(f"{'User' if m.role == 'user' else 'Assistant'}: {m.content.strip()}")
+
+        if not recent_messages or recent_messages[-1].role != "user" or recent_messages[-1].content != question:
+            lines.append(f"User: {current_user_text}")
+        else:
+            lines[-1] = f"User: {current_user_text}"
+
         full_prompt = "\n\n".join(lines) + "\n\nAssistant:"
     else:
-        full_prompt = (f"Context from Documents:\n{context}\n\nUser Query: {question}"
-                       if context else question)
+        full_prompt = current_user_text
 
 
     model = llm.resolve_model(payload_data.task_type or "chat")

@@ -9,8 +9,8 @@ interface SettingsStore {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  userName: 'Div',
-  preferredName: 'Div',
+  userName: 'User',
+  preferredName: 'User',
   workDescription: 'Refinery Process Engineer (CDU/VDU)',
   customInstructions: 'Keep technical explanations rigorous and precise. Ground calculations in MRPL crude assays and reference relevant OISD safety standards.',
   reducedMotion: false,
@@ -52,6 +52,17 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'aira-settings-v3',
+      migrate: (persistedState: any) => {
+        if (persistedState?.settings) {
+          if (persistedState.settings.userName === 'Div') {
+            persistedState.settings.userName = 'User'
+          }
+          if (persistedState.settings.preferredName === 'Div') {
+            persistedState.settings.preferredName = 'User'
+          }
+        }
+        return persistedState
+      },
     }
   )
 )

@@ -309,6 +309,20 @@ async def delete_conversation(conv_id: str):
         conn.close()
 
 
+@router.delete("/api/conversations/{conv_id}/messages")
+async def clear_conversation_messages(conv_id: str):
+    """Permanently delete all messages belonging to a conversation while keeping the thread."""
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM conversation_messages WHERE conversation_id = ?", (conv_id,))
+        now = datetime.now().isoformat()
+        conn.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, conv_id))
+        conn.commit()
+        return {"id": conv_id, "messages_cleared": True}
+    finally:
+        conn.close()
+
+
 # --------------------------------------------------------------------------------------
 # Episodic Equipment Memory Endpoints
 # --------------------------------------------------------------------------------------

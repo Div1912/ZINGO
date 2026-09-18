@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { BorderBeam } from "@/components/ui/border-beam";
+import { useToastStore } from "@/stores/toastStore";
 
 // ----------------------------------------------------------------------
 // Transition Physics
@@ -356,6 +357,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     },
     ref
   ) => {
+    const { addToast } = useToastStore();
     const [expanded, setExpanded] = useState(false);
     const [isSmoothResize, setIsSmoothResize] = useState(false);
     const [localValue, setLocalValue] = useState(defaultValue);
@@ -435,7 +437,9 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     // --- Voice Recording Logic ---
     const stopRecording = useCallback(() => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch {}
         recognitionRef.current = null;
       }
       if (rafRef.current) {
@@ -447,7 +451,9 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
         streamRef.current = null;
       }
       if (audioContextRef.current) {
-        audioContextRef.current.close();
+        try {
+          audioContextRef.current.close();
+        } catch {}
         audioContextRef.current = null;
       }
       if (demoIntervalRef.current) {
@@ -466,116 +472,161 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       setIsSmoothResize(false);
       setExpanded(true);
 
-      let stream: MediaStream | null = null;
-      try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        }
-      } catch {
-        console.warn("Microphone access denied or unavailable. Falling back to simulated voice mode for demo.");
+      const SpeechRecognition =
+        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+        addToast({
+          type: "warning",
+          message: "Speech recognition is not supported in this browser. Please use Chrome or Safari.",
+        });
+        return;
       }
 
-      setIsRecording(true);
+      const isMobile =
+        typeof navigator !== "undefined" &&
+        (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+          (navigator.maxTouchPoints && navigator.maxTouchPoints > 1));
 
-      // Simulation function for tight sandbox environments
-      function simulateText() {
-        const fakeText = "What are the latest CDU-2 furnace coil outlet temperatures and LOTO steps?";
-        const words = fakeText.split(" ");
-        let i = 0;
-        let currentBase = valueRef.current;
-        demoTextIntervalRef.current = window.setInterval(() => {
-          if (i < words.length) {
-            currentBase = (currentBase ? currentBase + " " : "") + words[i];
-            handleValueChange(currentBase);
-            i++;
-          } else {
-            stopRecording();
-          }
-        }, 300);
-      }
-
-      if (stream) {
-        streamRef.current = stream;
-        
-        // Setup Web Audio API for visualizer
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        const audioCtx = new AudioCtx();
-        audioContextRef.current = audioCtx;
-
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 64; 
-        const source = audioCtx.createMediaStreamSource(stream);
-        source.connect(analyser);
-
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-        const updateVisualizer = () => {
-          analyser.getByteFrequencyData(dataArray);
-          const bands = new Array(5).fill(0);
-          const step = Math.floor(dataArray.length / 5);
-          for (let i = 0; i < 5; i++) {
-            let sum = 0;
-            for (let j = 0; j < step; j++) {
-              sum += dataArray[i * step + j];
-            }
-            bands[i] = sum / step / 255; // normalize to 0-1
-          }
-          setAudioData(bands);
-          rafRef.current = requestAnimationFrame(updateVisualizer);
-        };
-        updateVisualizer();
-
-        // Setup Speech Recognition
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (SpeechRecognition) {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-
-          let baseline = valueRef.current;
-
-          recognition.onresult = (event: any) => {
-            let interimTranscript = "";
-            let finalTranscript = "";
-
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-              if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
-              } else {
-                interimTranscript += event.results[i][0].transcript;
-              }
-            }
-            
-            if (finalTranscript) {
-               baseline += (baseline ? " " : "") + finalTranscript;
-            }
-            
-            handleValueChange((baseline + (interimTranscript ? " " + interimTranscript : "")).trim());
-          };
-
-          recognition.onerror = (e: any) => {
-            console.error("Speech recognition error", e);
-            stopRecording();
-          };
-
-          recognition.onend = () => {
-             stopRecording();
-          };
-
-          recognitionRef.current = recognition;
-          recognition.start();
-        } else {
-          console.warn("Speech Recognition API not supported in this browser. Using simulated text.");
-          simulateText();
-        }
-      } else {
-        // Fallback simulated visualizer
+      // Setup audio visualizer
+      if (isMobile) {
+        // On mobile, DO NOT capture AudioContext createMediaStreamSource because
+        // holding an active audio node locks the hardware mic exclusively in WebKit/Android,
+        // preventing SpeechRecognition from accessing audio input.
         demoIntervalRef.current = window.setInterval(() => {
-          setAudioData(Array.from({ length: 5 }, () => Math.random() * 0.8 + 0.1));
-        }, 100);
-        simulateText();
+          setAudioData([
+            0.2 + Math.random() * 0.6,
+            0.4 + Math.random() * 0.6,
+            0.5 + Math.random() * 0.5,
+            0.3 + Math.random() * 0.7,
+            0.2 + Math.random() * 0.5,
+          ]);
+        }, 90);
+      } else {
+        // On desktop, we can use Web Audio API for frequency visualizer
+        try {
+          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
+
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            if (AudioCtx) {
+              const audioCtx = new AudioCtx();
+              audioContextRef.current = audioCtx;
+
+              const analyser = audioCtx.createAnalyser();
+              analyser.fftSize = 64;
+              const source = audioCtx.createMediaStreamSource(stream);
+              source.connect(analyser);
+
+              const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+              const updateVisualizer = () => {
+                analyser.getByteFrequencyData(dataArray);
+                const bands = new Array(5).fill(0);
+                const step = Math.floor(dataArray.length / 5);
+                for (let i = 0; i < 5; i++) {
+                  let sum = 0;
+                  for (let j = 0; j < step; j++) {
+                    sum += dataArray[i * step + j];
+                  }
+                  bands[i] = sum / step / 255;
+                }
+                setAudioData(bands);
+                rafRef.current = requestAnimationFrame(updateVisualizer);
+              };
+              updateVisualizer();
+            }
+          }
+        } catch {
+          // Desktop mic permission denied for visualizer; use animated pulse
+          demoIntervalRef.current = window.setInterval(() => {
+            setAudioData([
+              0.2 + Math.random() * 0.6,
+              0.3 + Math.random() * 0.7,
+              0.4 + Math.random() * 0.6,
+              0.3 + Math.random() * 0.7,
+              0.2 + Math.random() * 0.5,
+            ]);
+          }, 100);
+        }
       }
-    }, [handleValueChange, stopRecording]);
+
+      // Initialize SpeechRecognition
+      try {
+        const recognition = new SpeechRecognition();
+        // Mobile WebKit does NOT support continuous recognition; setting it to true causes an immediate crash/abort
+        recognition.continuous = !isMobile;
+        recognition.interimResults = true;
+        recognition.lang =
+          typeof navigator !== "undefined" && navigator.language
+            ? navigator.language
+            : "en-US";
+
+        let baseline = valueRef.current;
+
+        recognition.onresult = (event: any) => {
+          let interimTranscript = "";
+          let finalTranscript = "";
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+
+          if (finalTranscript) {
+            baseline += (baseline ? " " : "") + finalTranscript;
+          }
+
+          handleValueChange(
+            (baseline + (interimTranscript ? " " + interimTranscript : "")).trim()
+          );
+        };
+
+        recognition.onerror = (e: any) => {
+          console.warn("Speech recognition status:", e.error);
+          if (e.error === "no-speech") {
+            // User paused briefly — do NOT abort the session
+            return;
+          }
+          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+            addToast({
+              type: "warning",
+              message: "Microphone access denied. Please allow microphone in browser settings.",
+            });
+            stopRecording();
+            return;
+          }
+          if (e.error === "network") {
+            addToast({
+              type: "warning",
+              message: "Network error during speech recognition.",
+            });
+            stopRecording();
+            return;
+          }
+          stopRecording();
+        };
+
+        recognition.onend = () => {
+          stopRecording();
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+        setIsRecording(true);
+      } catch (err) {
+        console.error("Failed to start speech recognition:", err);
+        stopRecording();
+        addToast({
+          type: "error",
+          message: "Could not activate microphone. Please check permissions.",
+        });
+      }
+    }, [handleValueChange, stopRecording, addToast]);
 
     // Keep textarea auto-scrolled to bottom while recording
     useEffect(() => {
@@ -681,7 +732,14 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     };
 
     const handleFilesChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/") || f.name.endsWith(".pdf") || f.name.endsWith(".xlsx"));
+      const files = Array.from(e.target.files ?? []).filter((f) =>
+        f.type.startsWith("image/") ||
+        f.name.endsWith(".pdf") ||
+        f.name.endsWith(".xlsx") ||
+        f.name.endsWith(".docx") ||
+        f.name.endsWith(".txt") ||
+        f.name.endsWith(".csv")
+      );
       e.target.value = ""; 
 
       if (files.length === 0) return;
@@ -716,17 +774,21 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     };
 
     // Calculate action button states
-    const showArrow = hasValue && !isRecording && !isGenerating;
+    const canSubmit = (hasValue || hasAttachments) && !isRecording && !isGenerating;
+    const showArrow = canSubmit;
     const showStop = isRecording || isGenerating;
-    const showMic = !hasValue && !isRecording && !isGenerating;
+    const showMic = !canSubmit && !isRecording && !isGenerating;
 
-    const onActionButtonClick = (e: React.MouseEvent) => {
-      e.preventDefault();
+    const onActionButtonClick = (e?: React.MouseEvent | React.TouchEvent) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       if (isGenerating) {
         onStop?.();
       } else if (isRecording) {
         stopRecording();
-      } else if (hasValue) {
+      } else if (hasValue || hasAttachments) {
         handleSubmit();
       } else {
         startRecording();
@@ -1000,12 +1062,11 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
 
             <button
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }} 
               onClick={onActionButtonClick}
               aria-label={showArrow ? "Send prompt" : showStop ? "Stop generation / recording" : "Use voice input"}
-              style={{ borderRadius: 9999 }}
+              style={{ borderRadius: 9999, touchAction: "manipulation" }}
               className={cn(
-                "absolute right-2 bottom-2 z-[10] flex h-8 w-8 items-center justify-center text-primary-foreground transition-all duration-300 hover:opacity-90 outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-default",
+                "absolute right-2 bottom-2 z-[10] flex h-8 w-8 items-center justify-center text-primary-foreground transition-all duration-300 hover:opacity-90 active:scale-95 outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer select-none",
                 isGenerating ? "bg-danger hover:bg-danger/90" : "bg-primary"
               )}
             >
