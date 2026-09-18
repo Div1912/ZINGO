@@ -92,6 +92,15 @@ export function useChat(chatId?: string | null) {
 
       // 2. Add Assistant Message placeholder
       const assistantId = 'ast-' + Date.now()
+      const effUpper = (effort || 'Fast').toUpperCase()
+      const isReasoningEffort =
+        effUpper === 'MAX' ||
+        effUpper === 'DEEP' ||
+        effUpper === 'REASONING' ||
+        (Boolean(selectedModel) &&
+          (selectedModel.toLowerCase().includes('r1') ||
+           selectedModel.toLowerCase().includes('qwen3')))
+
       const assistantMsg: Message = {
         id: assistantId,
         role: 'assistant',
@@ -99,7 +108,7 @@ export function useChat(chatId?: string | null) {
         timestamp: new Date().toISOString(),
         thinkSteps: [],
         rawThinking: '',
-        isThinkingPhase: false,
+        isThinkingPhase: isReasoningEffort,
         isStreaming: true,
         modelUsed: selectedModel,
         taskType: detectedTask,

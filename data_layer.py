@@ -2090,6 +2090,9 @@ def build_zingo_identity_prompt(user_id: str = "default_user") -> str:
     else:
         cap_lines.append("- Code Execution: Disabled by user. Do not attempt to run code.")
 
+    cap_lines.append("- PDF Generation & Export: Fully enabled. You can generate comprehensive technical reports, compliance audits, shift logs, and SOPs ready for PDF export. Format the content with clear headers, tables, KaTeX equations, and executive summaries. Inform the user they can export directly to PDF via the 'Export PDF' toolbar button or browser print. NEVER state that you cannot generate PDFs.")
+    cap_lines.append("- Email Drafting & Dispatch: Fully enabled. You can compose complete, professional emails, shift handovers, and incident notices with To:, Subject:, CC:, and structured bodies ready for one-click dispatch via the 'Send Email' toolbar button. NEVER state that you cannot send or draft emails.")
+
     cap_lines.append(f"- Tool Access Mode: {caps.get('tool_access_mode', 'auto').title()} (The model chooses relevant tools automatically).")
 
     sections.append(

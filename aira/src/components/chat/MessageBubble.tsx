@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -16,10 +16,11 @@ import {
   AlertCircle,
   Clock,
   Zap,
+  FileDown,
+  Mail,
 } from 'lucide-react'
 import type { Message } from '../../types'
 import { ModelBadge } from './ModelBadge'
-import { ThinkingOrbs } from '../ui/thinking-orbs'
 import { ThinkingBlock } from './ThinkingBlock'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
@@ -40,7 +41,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 }) => {
   const { settings } = useSettingsStore()
   const { addToast } = useToastStore()
-  const { toggleSourcePanel, setActiveSources, activePrompt, hasFilesGenerating } = useChatStore()
+  const { toggleSourcePanel, setActiveSources } = useChatStore()
   const { artifacts } = useArtifactStore()
 
   // Match artifacts associated with this message
@@ -57,6 +58,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
   const [copiedCodeIndex, setCopiedCodeIndex] = useState<number | null>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   // Parse <think>...</think> reasoning blocks if present
   let thinkingText = ''
@@ -109,10 +111,143 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const isUser = message.role === 'user'
 
   const copyMessageContent = async () => {
-    await navigator.clipboard.writeText(message.content)
+    await navigator.clipboard.writeText(finalContent || message.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
     addToast({ type: 'info', message: 'Message copied to clipboard' })
+  }
+
+  const handleExportPdf = () => {
+    const contentEl = contentRef.current
+    if (!contentEl) return
+
+    const printWindow = window.open('', '_blank', 'width=900,height=800')
+    if (!printWindow) {
+      addToast({ type: 'warning', message: 'Popup blocked. Please allow popups to export PDF.' })
+      return
+    }
+
+    const title = `ZINGO_Report_${new Date().toISOString().slice(0, 10)}`
+    const htmlContent = contentEl.innerHTML
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            @page { margin: 18mm 15mm; size: A4; }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              color: #0f172a;
+              line-height: 1.6;
+              margin: 0;
+              padding: 24px;
+              font-size: 13px;
+            }
+            .report-header {
+              border-bottom: 2px solid #6366f1;
+              padding-bottom: 12px;
+              margin-bottom: 20px;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+            }
+            .report-brand {
+              font-size: 20px;
+              font-weight: 700;
+              color: #4f46e5;
+              letter-spacing: -0.5px;
+            }
+            .report-sub {
+              font-size: 11px;
+              color: #64748b;
+              margin-top: 2px;
+            }
+            .report-meta {
+              text-align: right;
+              font-size: 10px;
+              color: #64748b;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            }
+            h1, h2, h3, h4 { color: #1e1b4b; margin-top: 1.4em; margin-bottom: 0.6em; }
+            h1 { font-size: 20px; }
+            h2 { font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+            h3 { font-size: 14px; }
+            p { margin: 0.8em 0; }
+            table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 12px; }
+            th, td { border: 1px solid #cbd5e1; padding: 7px 10px; text-align: left; }
+            th { background: #f8fafc; font-weight: 600; color: #334155; }
+            tr:nth-child(even) td { background: #fcfdfe; }
+            code { font-family: ui-monospace, monospace; background: #f1f5f9; padding: 2px 4px; border-radius: 4px; font-size: 11px; }
+            pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; overflow-x: auto; }
+            pre code { background: none; padding: 0; }
+            blockquote { border-left: 3px solid #6366f1; margin: 12px 0; padding-left: 12px; color: #475569; font-style: italic; }
+            .report-footer {
+              margin-top: 32px;
+              padding-top: 12px;
+              border-top: 1px solid #e2e8f0;
+              font-size: 10px;
+              color: #94a3b8;
+              display: flex;
+              justify-content: space-between;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="report-header">
+            <div>
+              <div class="report-brand">ZINGO Sovereign AI</div>
+              <div class="report-sub">Autonomous Refinery Engineering & Process Intelligence</div>
+            </div>
+            <div class="report-meta">
+              <div>Engineer: ${settings.userName || 'Process Engineer'}</div>
+              <div>Generated: ${new Date().toLocaleString()}</div>
+              <div>Model: ${message.modelUsed || 'Qwen3 / DeepSeek'}</div>
+            </div>
+          </div>
+          <div class="report-body">
+            ${htmlContent}
+          </div>
+          <div class="report-footer">
+            <span>AIRA Industrial Operating System · On-Premise Sovereign Execution</span>
+            <span>Confidential — MRPL Internal Engineering Use Only</span>
+          </div>
+        </body>
+      </html>
+    `)
+
+    printWindow.document.close()
+    printWindow.focus()
+    setTimeout(() => {
+      printWindow.print()
+    }, 400)
+    addToast({ type: 'success', message: 'Print dialog opened — select "Save as PDF"' })
+  }
+
+  const handleSendEmail = () => {
+    const text = finalContent || message.content || ''
+    if (!text) return
+
+    const toMatch = text.match(/(?:to|recipient):\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i)
+    const to = toMatch ? toMatch[1] : 'div.engineer@mrpl.co.in'
+
+    const subjectMatch = text.match(/(?:subject|re):\s*([^\n\r]+)/i)
+    const defaultSubject = `ZINGO Engineering Summary - ${new Date().toLocaleDateString()}`
+    const subject = subjectMatch ? subjectMatch[1].trim() : defaultSubject
+
+    let body = text
+    if (subjectMatch) {
+      body = body.replace(/(?:subject|re):\s*[^\n\r]+/i, '').trim()
+    }
+    if (toMatch) {
+      body = body.replace(/(?:to|recipient):\s*[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i, '').trim()
+    }
+
+    const mailtoUrl = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    window.open(mailtoUrl, '_blank')
+    addToast({ type: 'success', message: 'Opened email client with pre-filled draft' })
   }
 
   const handleFeedback = (type: 'up' | 'down') => {
@@ -202,26 +337,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
         {/* Content Body / Streaming Indicator / Error */}
         {message.isStreaming && !message.content && !hasAnyThinking ? (
-          <div className="py-2 animate-in fade-in duration-300">
-            {message.taskType && message.taskType !== 'general' ? (
-              <ThinkingOrbs
-                modelName={
-                  message.modelUsed === 'qwen3:8b'
-                    ? 'Qwen3-8B'
-                    : message.modelUsed === 'qwen2.5-coder-7b'
-                    ? 'Qwen2.5-Coder-7B'
-                    : message.modelUsed === 'qwen2.5-7b'
-                    ? 'Qwen2.5-7B'
-                    : 'AIRA Cognition'
-                }
-                taskType={message.taskType}
-                currentPrompt={activePrompt || undefined}
-                hasFiles={hasFilesGenerating}
-                showSteps={true}
-              />
-            ) : (
-              <ThinkingOrbs compact status="Synthesizing response..." />
-            )}
+          <div className="flex items-center gap-2.5 py-3 text-content-secondary animate-in fade-in duration-200">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+            </span>
+            <span className="text-xs font-mono text-content-secondary">
+              Initiating sovereign cognition...
+            </span>
           </div>
         ) : message.error ? (
           <div className="p-3.5 rounded-lg bg-danger/10 border border-danger/30 text-danger text-xs flex items-center justify-between gap-3">
@@ -239,7 +362,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             )}
           </div>
         ) : (
-          <div className="markdown-body select-text">
+          <div ref={contentRef} className="markdown-body select-text">
             {hasAnyThinking && (
               <div className="mb-3">
                 <ThinkingBlock
@@ -369,11 +492,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               ) : null
             )}
 
-            {message.isStreaming && !hasAnyThinking && (
-              <div className="pt-2">
-                <ThinkingOrbs compact status="Synthesizing response stream..." />
-              </div>
-            )}
           </div>
         )}
 
@@ -413,6 +531,26 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             >
               {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
               <span>{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+
+            {/* Export PDF */}
+            <button
+              onClick={handleExportPdf}
+              className="btn-ghost !py-1 !px-2 !text-xs flex items-center gap-1.5 hover:text-content-primary"
+              title="Export message as printable PDF"
+            >
+              <FileDown size={12} className="text-sky-400" />
+              <span>Export PDF</span>
+            </button>
+
+            {/* Send / Draft Email */}
+            <button
+              onClick={handleSendEmail}
+              className="btn-ghost !py-1 !px-2 !text-xs flex items-center gap-1.5 hover:text-content-primary"
+              title="Prepare and dispatch via Email"
+            >
+              <Mail size={12} className="text-violet-400" />
+              <span>Send Email</span>
             </button>
 
             {/* Thumbs up / down feedback */}

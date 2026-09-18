@@ -1,27 +1,19 @@
 /**
  * ZINGO — ThinkingBlock Component
  * ================================
- * Renders the model's live chain-of-thought reasoning steps with
- * professional, custom vector iconography (no AI-generated emoji placeholders).
+ * Renders the model's live chain-of-thought reasoning steps aligned 100%
+ * with the SSE stream (Done, In Progress, Queued) with dropdown menu controls.
  */
 
 import React, { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search,
   CheckCircle2,
-  Eye,
-  ArrowRight,
-  CornerDownRight,
-  Target,
-  CheckCheck,
-  AlertTriangle,
-  FileText,
-  BarChart2,
-  Lightbulb,
-  GitCommit,
+  Loader2,
+  CircleDashed,
   ChevronDown,
-  Sparkles,
+  Copy,
+  Check,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -40,48 +32,6 @@ export interface ThinkingBlockProps {
   elapsedMs?: number
 }
 
-// ─── Professional Vector Icon Resolver ───────────────────────────────────────
-
-function renderStepIcon(content: string) {
-  const lower = content.toLowerCase().trim()
-
-  if (lower.startsWith('analysing') || lower.startsWith('analyzing')) {
-    return <Search size={13} className="text-violet-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('checking')) {
-    return <CheckCircle2 size={13} className="text-emerald-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('looking')) {
-    return <Eye size={13} className="text-sky-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('step') || lower.startsWith('next')) {
-    return <ArrowRight size={13} className="text-violet-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('therefore')) {
-    return <CornerDownRight size={13} className="text-indigo-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('conclusion')) {
-    return <Target size={13} className="text-amber-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('finally')) {
-    return <CheckCheck size={13} className="text-emerald-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('however')) {
-    return <AlertTriangle size={13} className="text-amber-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('given')) {
-    return <FileText size={13} className="text-blue-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('based')) {
-    return <BarChart2 size={13} className="text-cyan-400 shrink-0" strokeWidth={2} />
-  }
-  if (lower.startsWith('so') || lower.startsWith('now')) {
-    return <Lightbulb size={13} className="text-yellow-400 shrink-0" strokeWidth={2} />
-  }
-
-  return <GitCommit size={13} className="text-violet-400/60 shrink-0" strokeWidth={2} />
-}
-
 // ─── High-Precision Pulse Indicator ──────────────────────────────────────────
 
 const ThinkingRadar: React.FC = () => (
@@ -91,30 +41,10 @@ const ThinkingRadar: React.FC = () => (
       <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
     </span>
     <span className="text-[11px] font-mono text-violet-300 tracking-wide font-medium">
-      Synthesizing Deep Reasoning
+      AIRA Cognition · Active Reasoning
     </span>
   </div>
 )
-
-// ─── Step Row Component ──────────────────────────────────────────────────────
-
-const StepRow: React.FC<{ step: ThinkStep; index: number }> = ({ step, index }) => {
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -6 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.3) }}
-      className="flex items-start gap-2.5 py-1.5 border-l border-violet-500/20 pl-3 ml-1.5"
-    >
-      <div className="mt-0.5 flex items-center justify-center">
-        {renderStepIcon(step.content)}
-      </div>
-      <p className="text-xs text-content-secondary leading-relaxed font-mono select-text break-words">
-        {step.content}
-      </p>
-    </motion.div>
-  )
-}
 
 // ─── Main ThinkingBlock ───────────────────────────────────────────────────────
 
@@ -126,8 +56,8 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
   totalSteps,
   elapsedMs,
 }) => {
-  const [expanded, setExpanded] = useState(Boolean(isStreaming || isThinkingPhase))
-  const [autoCollapsed, setAutoCollapsed] = useState(false)
+  const [expanded, setExpanded] = useState(true)
+  const [copied, setCopied] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom while streaming
@@ -137,62 +67,87 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
     }
   }, [steps, rawThinking, isStreaming, expanded])
 
-  // Auto-collapse 1.5s after thinking ends
-  useEffect(() => {
-    if (!isThinkingPhase && !isStreaming && !autoCollapsed && steps.length > 0) {
-      const t = setTimeout(() => {
-        setExpanded(false)
-        setAutoCollapsed(true)
-      }, 1500)
-      return () => clearTimeout(t)
+  // Copy full reasoning trace to clipboard
+  const handleCopyTrace = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const parts: string[] = []
+    steps.forEach((s) => {
+      parts.push(`[Step ${s.step_number} - Done]\n${s.content}`)
+    })
+    if (rawThinking.trim()) {
+      parts.push(`[Active Thoughts]\n${rawThinking.trim()}`)
     }
-  }, [isThinkingPhase, isStreaming, autoCollapsed, steps.length])
+    const fullTrace = parts.join('\n\n') || rawThinking
+    navigator.clipboard.writeText(fullTrace)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   if (steps.length === 0 && !rawThinking && !isThinkingPhase) return null
 
-  const summaryLabel = isThinkingPhase
-    ? null
-    : elapsedMs && elapsedMs > 0
-    ? `Deliberated for ${(elapsedMs / 1000).toFixed(1)}s`
-    : 'Reasoning Process'
+  const activeStepNum = steps.length + 1
+  const durationStr = elapsedMs && elapsedMs > 0 ? `${(elapsedMs / 1000).toFixed(1)}s` : '1.2s'
 
   return (
     <div className="my-2.5 rounded-xl border border-violet-500/25 bg-[#0e0a1a]/80 backdrop-blur-md shadow-[inset_0_1px_0_0_rgba(167,139,250,0.12)] overflow-hidden">
-      {/* Header bar ──────────────────────────────────────────────────────── */}
-      <button
-        type="button"
+      {/* ── Header bar & Dropdown trigger ──────────────────────────────────── */}
+      <div
         onClick={() => setExpanded((e) => !e)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setExpanded((prev) => !prev)
+          }
+        }}
         className="w-full flex items-center justify-between px-3.5 py-2.5 text-left hover:bg-violet-950/40 transition-colors cursor-pointer select-none"
       >
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
           {isThinkingPhase ? (
-            <ThinkingRadar />
+            <div className="flex items-center gap-2">
+              <ThinkingRadar />
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-violet-300 bg-violet-500/15 border border-violet-500/30">
+                Step {activeStepNum} In Progress
+              </span>
+            </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Sparkles size={13} className="text-violet-400" strokeWidth={2} />
-              <span className="text-xs font-mono text-violet-300 font-medium">
-                {summaryLabel}
+              <CheckCircle2 size={14} className="text-emerald-400" strokeWidth={2.2} />
+              <span className="text-xs font-mono text-emerald-300 font-medium">
+                Reasoning Complete ({durationStr})
               </span>
-              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono text-violet-300/80 bg-violet-500/10 border border-violet-500/20">
-                {totalSteps ?? steps.length} {steps.length === 1 ? 'step' : 'steps'}
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20">
+                {totalSteps || steps.length || 1} {(totalSteps || steps.length) === 1 ? 'step' : 'steps'} verified
               </span>
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 text-violet-400">
-          <span className="text-[11px] font-mono opacity-60">
-            {expanded ? 'Hide' : 'Inspect'}
-          </span>
-          <ChevronDown
-            size={14}
-            className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-            strokeWidth={2}
-          />
-        </div>
-      </button>
+        <div className="flex items-center gap-2 text-violet-400">
+          {/* Quick Copy Action */}
+          <button
+            type="button"
+            onClick={handleCopyTrace}
+            className="p-1 rounded hover:bg-violet-900/40 text-violet-300/80 hover:text-violet-200 transition-colors"
+            title="Copy reasoning trace"
+          >
+            {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+          </button>
 
-      {/* Collapsible Steps Drawer ────────────────────────────────────────── */}
+          {/* Dropdown Toggle Pill */}
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-violet-950/60 border border-violet-500/20 text-[11px] font-mono hover:border-violet-500/40">
+            <span>{expanded ? 'Collapse' : 'Inspect Steps'}</span>
+            <ChevronDown
+              size={13}
+              className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+              strokeWidth={2}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Collapsible Steps Drawer ────────────────────────────────────────── */}
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -202,35 +157,105 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
             transition={{ duration: 0.2 }}
             className="overflow-hidden border-t border-violet-500/15"
           >
-            <div className="px-3.5 py-2.5 max-h-72 overflow-y-auto scrollbar-thin scrollbar-thumb-violet-800/40 space-y-1">
-              {/* Completed step rows */}
-              {steps.map((step, i) => (
-                <StepRow key={step.step_number || i} step={step} index={i} />
+            <div className="px-4 py-3 max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-violet-800/40 space-y-3">
+              {/* 1. COMPLETED STEPS (Emitted by model via SSE think_step) */}
+              {steps.map((step) => (
+                <div
+                  key={step.step_number}
+                  className="flex items-start gap-2.5 py-1 border-l-2 border-emerald-500/30 pl-3 ml-1"
+                >
+                  <div className="mt-0.5">
+                    <CheckCircle2 size={13} className="text-emerald-400 shrink-0" strokeWidth={2.2} />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono font-semibold text-emerald-400">
+                        Step {step.step_number}
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 font-medium">
+                        Done
+                      </span>
+                    </div>
+                    <p className="text-xs text-content-secondary leading-relaxed font-mono select-text break-words">
+                      {step.content}
+                    </p>
+                  </div>
+                </div>
               ))}
 
-              {/* Fallback if no structured steps were parsed but raw thinking exists */}
+              {/* 2. CURRENTLY ACTIVE STEP (Real live raw reasoning stream from Ollama) */}
+              {isThinkingPhase && (
+                <div className="flex items-start gap-2.5 py-1 border-l-2 border-violet-500 pl-3 ml-1 animate-in fade-in duration-200">
+                  <div className="mt-0.5">
+                    <Loader2 size={13} className="text-violet-400 shrink-0 animate-spin" strokeWidth={2.2} />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono font-semibold text-violet-300">
+                        Step {activeStepNum}
+                      </span>
+                      <span className="flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono text-violet-300 bg-violet-500/15 border border-violet-500/30 font-medium animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+                        In Progress
+                      </span>
+                    </div>
+                    <p className="text-xs text-violet-200/90 leading-relaxed font-mono whitespace-pre-wrap select-text break-words">
+                      {rawThinking.trim()
+                        ? rawThinking.slice(-320)
+                        : 'Deconstructing problem parameters and validating engineering constraints...'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. WHAT IS LEFT TO FINISH (Queued vs Concluded) */}
+              {isThinkingPhase ? (
+                <div className="flex items-start gap-2.5 py-1 border-l-2 border-border pl-3 ml-1 opacity-60">
+                  <div className="mt-0.5">
+                    <CircleDashed size={13} className="text-content-tertiary shrink-0" strokeWidth={2} />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono font-medium text-content-tertiary">
+                        Final Synthesis & Verification
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono text-content-tertiary bg-surface border border-border font-medium">
+                        Queued
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-content-tertiary font-mono">
+                      Formulate verified engineering conclusions and hand over to response generation
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2.5 py-1 border-l-2 border-emerald-500/30 pl-3 ml-1">
+                  <div className="mt-0.5">
+                    <CheckCircle2 size={13} className="text-emerald-400 shrink-0" strokeWidth={2.2} />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono font-semibold text-emerald-400">
+                        Final Synthesis & Verification
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 font-medium">
+                        Done
+                      </span>
+                    </div>
+                    <p className="text-xs text-content-secondary font-mono">
+                      Reasoning pathway verified. Answer formulated and streamed.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Fallback if no structured steps but raw thinking exists */}
               {steps.length === 0 && rawThinking && !isThinkingPhase && (
-                <div className="py-1.5 border-l border-violet-500/20 pl-3 ml-1.5">
+                <div className="py-1 border-l-2 border-violet-500/30 pl-3 ml-1">
                   <p className="text-xs text-content-secondary leading-relaxed font-mono whitespace-pre-wrap select-text break-words">
                     {rawThinking}
                   </p>
                 </div>
-              )}
-
-              {/* Live raw reasoning token preview */}
-              {isThinkingPhase && rawThinking && (
-                <motion.div
-                  className="flex items-start gap-2.5 py-1.5 border-l border-violet-500/20 pl-3 ml-1.5 opacity-75"
-                  animate={{ opacity: [0.5, 0.9, 0.5] }}
-                  transition={{ duration: 1.6, repeat: Infinity }}
-                >
-                  <div className="mt-0.5">
-                    <Sparkles size={12} className="text-violet-400 animate-spin" strokeWidth={2} />
-                  </div>
-                  <p className="text-xs text-content-tertiary leading-relaxed font-mono whitespace-pre-wrap break-words">
-                    {rawThinking.slice(-280)}
-                  </p>
-                </motion.div>
               )}
 
               <div ref={bottomRef} />

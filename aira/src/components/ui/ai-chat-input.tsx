@@ -4,7 +4,6 @@ import * as React from "react";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { BorderBeam } from "@/components/ui/border-beam";
-import { ThinkingOrbs } from "@/components/ui/thinking-orbs";
 
 // ----------------------------------------------------------------------
 // Transition Physics
@@ -345,13 +344,13 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       onChange,
       maxAttachments = 6,
       isGenerating = false,
-      isComplexTask = false,
-      taskType,
-      activePrompt,
-      hasFiles = false,
+      isComplexTask: _isComplexTask = false,
+      taskType: _taskType,
+      activePrompt: _activePrompt,
+      hasFiles: _hasFiles = false,
       onStop,
       enableBorderBeam = true,
-      thinkingStatus,
+      thinkingStatus: _thinkingStatus,
       maxWidthCollapsed = 540,
       maxWidthExpanded = 780,
     },
@@ -751,21 +750,6 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
             transition: isSmoothResize ? "max-width 0.15s ease-out" : "max-width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
           }}
         >
-          {/* Active Thinking Orbs ONLY when Generating a Complex Task */}
-          {isGenerating && isComplexTask && (
-            <div className="mb-2 w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <ThinkingOrbs
-                status={thinkingStatus}
-                modelName={selectedModel}
-                taskType={taskType}
-                currentPrompt={activePrompt}
-                hasFiles={hasFiles}
-                compact={false}
-                showSteps={true}
-              />
-            </div>
-          )}
-
           <input
             ref={fileInputRef}
             type="file"
