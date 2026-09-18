@@ -288,6 +288,15 @@ export function useChat(chatId?: string | null) {
               case 'thinking_end':
                 isThinkingPhase = false
                 thinkElapsedMs = thinkStartTime ? Date.now() - thinkStartTime : 0
+                if (rawThinking.trim()) {
+                  thinkSteps = [
+                    ...thinkSteps,
+                    {
+                      step_number: thinkSteps.length + 1,
+                      content: rawThinking.trim(),
+                    },
+                  ]
+                }
                 rawThinking = ''
                 flush()
                 break
@@ -309,6 +318,15 @@ export function useChat(chatId?: string | null) {
                   : evt.elapsed_ms ?? thinkElapsedMs
                 evalCount = evt.eval_count ?? evalCount
                 isThinkingPhase = false
+                if (rawThinking.trim()) {
+                  thinkSteps = [
+                    ...thinkSteps,
+                    {
+                      step_number: thinkSteps.length + 1,
+                      content: rawThinking.trim(),
+                    },
+                  ]
+                }
                 rawThinking = ''
                 flush(false)
                 break

@@ -126,7 +126,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
   totalSteps,
   elapsedMs,
 }) => {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(Boolean(isStreaming || isThinkingPhase))
   const [autoCollapsed, setAutoCollapsed] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -152,7 +152,9 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
 
   const summaryLabel = isThinkingPhase
     ? null
-    : `Deliberated for ${elapsedMs ? (elapsedMs / 1000).toFixed(1) + 's' : `${totalSteps ?? steps.length} steps`}`
+    : elapsedMs && elapsedMs > 0
+    ? `Deliberated for ${(elapsedMs / 1000).toFixed(1)}s`
+    : 'Reasoning Process'
 
   return (
     <div className="my-2.5 rounded-xl border border-violet-500/25 bg-[#0e0a1a]/80 backdrop-blur-md shadow-[inset_0_1px_0_0_rgba(167,139,250,0.12)] overflow-hidden">
@@ -205,6 +207,15 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
               {steps.map((step, i) => (
                 <StepRow key={step.step_number || i} step={step} index={i} />
               ))}
+
+              {/* Fallback if no structured steps were parsed but raw thinking exists */}
+              {steps.length === 0 && rawThinking && !isThinkingPhase && (
+                <div className="py-1.5 border-l border-violet-500/20 pl-3 ml-1.5">
+                  <p className="text-xs text-content-secondary leading-relaxed font-mono whitespace-pre-wrap select-text break-words">
+                    {rawThinking}
+                  </p>
+                </div>
+              )}
 
               {/* Live raw reasoning token preview */}
               {isThinkingPhase && rawThinking && (

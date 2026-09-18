@@ -16,10 +16,7 @@ import {
   AlertCircle,
   Clock,
   Zap,
-  ChevronDown,
-  Sparkles,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import type { Message } from '../../types'
 import { ModelBadge } from './ModelBadge'
 import { ThinkingOrbs } from '../ui/thinking-orbs'
@@ -60,21 +57,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
   const [copiedCodeIndex, setCopiedCodeIndex] = useState<number | null>(null)
-  const [showThinking, setShowThinking] = useState(true)
 
   // Parse <think>...</think> reasoning blocks if present
   let thinkingText = ''
   let finalContent = message.content || ''
   let isThinkingComplete = false
-  const hasCoT = Boolean(
-    (message.thinkSteps && message.thinkSteps.length > 0) ||
-    message.rawThinking ||
-    message.isThinkingPhase
-  )
 
-  let hasThinking = false
   if (message.content && message.content.includes('<think>')) {
-    hasThinking = true
     const thinkEndIndex = message.content.indexOf('</think>')
     if (thinkEndIndex !== -1) {
       thinkingText = message.content.substring(
@@ -91,6 +80,31 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       isThinkingComplete = false
     }
   }
+
+  // Unified think steps: use message.thinkSteps if available, or parse thinkingText
+  const displaySteps = React.useMemo(() => {
+    if (message.thinkSteps && message.thinkSteps.length > 0) {
+      return message.thinkSteps
+    }
+    if (thinkingText) {
+      const parts = thinkingText
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+      if (parts.length > 0) {
+        return parts.map((content, idx) => ({ step_number: idx + 1, content }))
+      }
+      return [{ step_number: 1, content: thinkingText }]
+    }
+    return []
+  }, [message.thinkSteps, thinkingText])
+
+  const hasAnyThinking = Boolean(
+    displaySteps.length > 0 ||
+    message.rawThinking ||
+    message.isThinkingPhase ||
+    (!isThinkingComplete && Boolean(thinkingText))
+  )
 
   const isUser = message.role === 'user'
 
@@ -187,7 +201,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </div>
 
         {/* Content Body / Streaming Indicator / Error */}
-        {message.isStreaming && !message.content && !hasCoT ? (
+        {message.isStreaming && !message.content && !hasAnyThinking ? (
           <div className="py-2 animate-in fade-in duration-300">
             {message.taskType && message.taskType !== 'general' ? (
               <ThinkingOrbs
@@ -226,52 +240,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         ) : (
           <div className="markdown-body select-text">
-            {hasCoT ? (
+            {hasAnyThinking && (
               <div className="mb-3">
                 <ThinkingBlock
-                  steps={message.thinkSteps ?? []}
-                  rawThinking={message.rawThinking}
+                  steps={displaySteps}
+                  rawThinking={message.rawThinking || (!isThinkingComplete ? thinkingText : '')}
                   isStreaming={Boolean(message.isStreaming)}
-                  isThinkingPhase={message.isThinkingPhase}
-                  totalSteps={message.thinkTotalSteps}
+                  isThinkingPhase={Boolean(message.isThinkingPhase || (!isThinkingComplete && Boolean(thinkingText)))}
+                  totalSteps={message.thinkTotalSteps || (displaySteps.length > 0 ? displaySteps.length : undefined)}
                   elapsedMs={message.thinkElapsedMs}
                 />
               </div>
-            ) : hasThinking ? (
-              <div className="mb-3 rounded-lg border border-border/70 bg-surface-secondary/40 backdrop-blur-sm overflow-hidden text-xs">
-                <button
-                  type="button"
-                  onClick={() => setShowThinking(!showThinking)}
-                  className="w-full flex items-center justify-between px-3 py-2 bg-surface-secondary/60 hover:bg-surface-secondary/90 transition-colors select-none text-content-secondary"
-                >
-                  <div className="flex items-center gap-2">
-                    <Sparkles size={13} className={!isThinkingComplete ? "text-primary animate-pulse" : "text-content-tertiary"} />
-                    <span className="font-semibold text-content-primary">
-                      {!isThinkingComplete ? 'Reasoning & Researching...' : 'Thought Process'}
-                    </span>
-                    {message.effort && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-primary/10 text-primary border border-primary/20">
-                        {message.effort}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-content-tertiary">
-                    <span className="text-[11px] font-mono">
-                      {showThinking ? 'Hide' : 'Show'}
-                    </span>
-                    <ChevronDown size={13} className={cn("transition-transform duration-200", showThinking ? "rotate-180" : "")} />
-                  </div>
-                </button>
-                {showThinking && (
-                  <div className="p-3 border-t border-border/50 font-mono text-[11.5px] leading-relaxed text-content-secondary bg-surface-primary/50 max-h-64 overflow-y-auto whitespace-pre-wrap select-text">
-                    {thinkingText || 'Deconstructing problem constraints & evaluating operational parameters...'}
-                    {!isThinkingComplete && (
-                      <span className="inline-block w-1.5 h-3 ml-1 bg-primary/70 animate-pulse" />
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : null}
+            )}
 
             {/* Artifact Cards: Interactive Applications & Visualizations */}
             {matchedArtifacts.length > 0 && (
@@ -381,22 +361,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 {finalContent}
               </Markdown>
             ) : (
-              hasCoT && message.isThinkingPhase ? (
+              hasAnyThinking && (message.isThinkingPhase || !isThinkingComplete) ? (
                 <div className="flex items-center gap-2 text-content-tertiary text-xs font-mono py-1">
                   <span className="inline-block w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
                   <span>Composing answer...</span>
                 </div>
-              ) : hasThinking && !isThinkingComplete ? (
-                <div className="text-xs text-content-tertiary font-mono italic flex items-center gap-2 py-1">
-                  <span className="inline-block w-2 h-2 rounded-full bg-primary animate-ping" />
-                  <span>Formulating verified engineering answer...</span>
-                </div>
               ) : null
             )}
 
-            {message.isStreaming && !hasCoT && (
+            {message.isStreaming && !hasAnyThinking && (
               <div className="pt-2">
-                <ThinkingOrbs compact status={hasThinking && !isThinkingComplete ? "Synthesizing deep reasoning tokens..." : "Synthesizing response stream..."} />
+                <ThinkingOrbs compact status="Synthesizing response stream..." />
               </div>
             )}
           </div>
