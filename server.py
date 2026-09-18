@@ -558,8 +558,8 @@ async def process_and_ask(
         )
 
     try:
-        from data_layer import build_claude_identity_prompt
-        user_identity = build_claude_identity_prompt("default_user")
+        from data_layer import build_zingo_identity_prompt
+        user_identity = build_zingo_identity_prompt("default_user")
         if user_identity:
             instruction = f"{user_identity}\n\n{instruction}"
     except Exception as id_err:
@@ -689,10 +689,10 @@ async def api_chat(payload_data: ChatPayload):
 
     cfg = get_effort_config(payload_data.effort, question)
 
-    # 1. Claude-Grade User Identity, Profile, Capabilities, Memory, Permissions & Connectors
+    # 1. ZINGO User Identity, Profile, Capabilities, Memory, Permissions & Connectors
     try:
-        from data_layer import build_claude_identity_prompt, add_user_memory_file, get_user_capabilities
-        user_identity = build_claude_identity_prompt(payload_data.user or "default_user")
+        from data_layer import build_zingo_identity_prompt, add_user_memory_file, get_user_capabilities
+        user_identity = build_zingo_identity_prompt(payload_data.user or "default_user")
 
         # Dynamic Memory Extraction if user says "Remember that..." or "Please remember: "
         if question:
@@ -710,7 +710,7 @@ async def api_chat(payload_data: ChatPayload):
                                 category="preference",
                             )
                             # Re-generate identity prompt with the newly learned fact
-                            user_identity = build_claude_identity_prompt(payload_data.user or "default_user")
+                            user_identity = build_zingo_identity_prompt(payload_data.user or "default_user")
                     break
     except Exception as id_err:
         print(f"[chat] identity context build failed: {id_err}")

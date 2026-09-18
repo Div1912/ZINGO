@@ -500,7 +500,7 @@ export const zingoApi = {
   deleteConversation: (id: string) => req<any>('delete', `/api/conversations/${id}`),
   equipmentMemory: (tag: string) => req<{ tag: string; total_facts: number; facts: any[] }>('get', `/api/memory/equipment/${tag}`),
 
-  // Claude Settings & Identity Integration
+  // ZINGO Settings & Identity Integration
   getProfile: (userId?: string) =>
     req<UserProfile>('get', '/api/settings/profile', { params: userId ? { user_id: userId } : {} }),
   updateProfile: (data: Partial<UserProfile>) =>
@@ -517,6 +517,8 @@ export const zingoApi = {
     req<{ total: number; connectors: UserConnector[] }>('get', '/api/settings/connectors', { params: userId ? { user_id: userId } : {} }),
   toggleConnector: (connectorKey: string, data: { status?: string; account_email?: string; config?: any } = {}) =>
     req<UserConnector>('post', `/api/settings/connectors/${encodeURIComponent(connectorKey)}/toggle`, { data }),
+  testConnector: (connectorKey: string, data: { endpoint: string; connector_type?: string; api_key?: string; timeout_ms?: number }) =>
+    req<{ reachable: boolean; latency_ms: number; error: string | null; status_code?: number }>('post', `/api/settings/connectors/${encodeURIComponent(connectorKey)}/test`, { data }),
   getMemoryFiles: (userId?: string, category?: string) =>
     req<{ total: number; memories: UserMemoryFile[] }>('get', '/api/settings/memory', { params: { user_id: userId, category } }),
   addMemoryFile: (data: { title: string; content: string; category?: string; is_sensitive?: boolean }) =>

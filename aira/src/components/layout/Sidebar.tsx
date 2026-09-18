@@ -72,7 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingChatId, setEditingChatId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
 
-  // Filter chats: ONLY chats with messages appear in the history list (matching Claude)
+  // Filter chats: ONLY chats with messages appear in the history list
   const validChats = useMemo(() => {
     return chats.filter((c) => c.messages && c.messages.length > 0)
   }, [chats])
@@ -331,7 +331,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Desktop Collapse Toggle (Collapses completely to 0px like Claude) */}
+          {/* Desktop Collapse Toggle */}
           <button
             type="button"
             onClick={() => setIsCollapsed(true)}
@@ -353,7 +353,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* CLAUDE REPLICA TOP NAVIGATION SECTION (media_1789277735806.png) */}
+        {/* TOP NAVIGATION SECTION */}
         <div className="p-3 pb-2 space-y-1 shrink-0">
           {(!isCollapsed || isMobileOpen) ? (
             <>

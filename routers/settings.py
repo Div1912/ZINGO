@@ -1,14 +1,18 @@
 """
-ZINGO — Claude-Grade User Settings & Identity Router
-===================================================
+ZINGO — Production-Grade User Settings & Identity Router
+=========================================================
 Exposes endpoints for Profile, Capabilities, Permissions, Memory Files,
-and Connectors. Synchronizes with local SQLite and powers real-time
-LLM system prompt injection.
+Connectors, and real connectivity tests for industrial data sources.
+Synchronizes with local SQLite and powers real-time LLM system prompt injection.
 """
 
 from __future__ import annotations
 
+import socket
+import time
 from typing import Any, Dict, List, Optional
+
+import requests as http_requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -27,7 +31,7 @@ from data_layer import (
     get_user_connectors,
     toggle_user_connector,
     delete_user_account,
-    build_claude_identity_prompt,
+    build_zingo_identity_prompt,
 )
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -78,6 +82,14 @@ class ConnectorTogglePayload(BaseModel):
     status: Optional[str] = None
     account_email: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+
+
+class ConnectorTestPayload(BaseModel):
+    user_id: Optional[str] = "default_user"
+    endpoint: str
+    connector_type: Optional[str] = "http"   # "http" | "tcp" | "opc_ua"
+    api_key: Optional[str] = None
+    timeout_ms: Optional[int] = 3000
 
 
 # --------------------------------------------------------------------------------------
@@ -146,6 +158,14 @@ async def get_connectors(user_id: str = "default_user"):
 @router.post("/connectors/{connector_key}/toggle")
 async def toggle_connector(connector_key: str, payload: ConnectorTogglePayload):
     user_id = payload.user_id or "default_user"
+    # Block toggling built-in connectors — they are always active
+    conns = get_user_connectors(user_id)
+    for c in conns:
+        if c.get("connector_key") == connector_key:
+            cfg = c.get("config") or {}
+            if isinstance(cfg, dict) and cfg.get("builtin"):
+                raise HTTPException(status_code=400, detail="Built-in connectors cannot be toggled — they are always active.")
+            break
     res = toggle_user_connector(
         connector_key=connector_key,
         status=payload.status,
@@ -154,6 +174,59 @@ async def toggle_connector(connector_key: str, payload: ConnectorTogglePayload):
         config=payload.config,
     )
     return res
+
+
+@router.post("/connectors/{connector_key}/test")
+async def test_connector(connector_key: str, payload: ConnectorTestPayload):
+    """
+    Real connectivity test for an industrial data connector.
+    - For HTTP/REST endpoints (Aspen IP21, SAP OData): sends a lightweight GET request.
+    - For TCP/OPC UA endpoints (Honeywell DCS): opens a raw TCP socket connection.
+    Returns {reachable, latency_ms, error}.
+    """
+    endpoint = (payload.endpoint or "").strip()
+    if not endpoint:
+        return {"reachable": False, "latency_ms": 0, "error": "No endpoint configured."}
+
+    timeout_s = max(1, (payload.timeout_ms or 3000)) / 1000.0
+    t0 = time.monotonic()
+
+    try:
+        if payload.connector_type in ("tcp", "opc_ua"):
+            # TCP socket test (OPC UA, Modbus, raw TCP)
+            clean = endpoint.replace("opc.tcp://", "").replace("tcp://", "")
+            parts = clean.split(":")
+            host = parts[0]
+            port_str = parts[1].split("/")[0] if len(parts) > 1 else "4840"
+            port = int(port_str) if port_str.isdigit() else 4840
+            with socket.create_connection((host, port), timeout=timeout_s):
+                pass
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            return {"reachable": True, "latency_ms": latency_ms, "error": None}
+        else:
+            # HTTP REST test
+            url = endpoint if endpoint.startswith("http") else f"http://{endpoint}"
+            headers: Dict[str, str] = {"Accept": "application/json"}
+            if payload.api_key:
+                headers["Authorization"] = f"Bearer {payload.api_key}"
+            resp = http_requests.get(url, headers=headers, timeout=timeout_s, allow_redirects=True)
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            if resp.status_code < 500:
+                return {"reachable": True, "latency_ms": latency_ms, "error": None, "status_code": resp.status_code}
+            return {
+                "reachable": False, "latency_ms": latency_ms,
+                "error": f"Server returned HTTP {resp.status_code}",
+                "status_code": resp.status_code,
+            }
+
+    except socket.timeout:
+        return {"reachable": False, "latency_ms": int((time.monotonic() - t0) * 1000),
+                "error": "Connection timed out — endpoint unreachable on local network."}
+    except ConnectionRefusedError:
+        return {"reachable": False, "latency_ms": int((time.monotonic() - t0) * 1000),
+                "error": "Connection refused — service may not be running on that port."}
+    except Exception as e:
+        return {"reachable": False, "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)}
 
 
 # --------------------------------------------------------------------------------------
@@ -218,5 +291,5 @@ async def delete_account(user_id: str = "default_user"):
 
 @router.get("/model-identity")
 async def get_model_identity_prompt(user_id: str = "default_user"):
-    prompt = build_claude_identity_prompt(user_id)
+    prompt = build_zingo_identity_prompt(user_id)
     return {"user_id": user_id, "prompt": prompt}

@@ -655,21 +655,23 @@ def init_db() -> None:
                        (connector_key, user_id, name, description, status, account_email, config_json, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     [
-                        ("gmail", "default_user", "Gmail",
-                         "Search and summarize operational correspondence and vendor technical notices",
-                         "connected", "div.engineer@mrpl.co.in", json.dumps({"read": True, "draft": True}), now),
-                        ("google_calendar", "default_user", "Google Calendar",
-                         "Shift schedules, turnaround milestones, and maintenance inspections",
-                         "connected", "div.engineer@mrpl.co.in", json.dumps({"sync": True}), now),
-                        ("google_drive", "default_user", "Google Drive",
-                         "Refinery manuals, P&IDs, crude assay sheets, and standard operating procedures",
-                         "connected", "div.engineer@mrpl.co.in", json.dumps({"folder": "MRPL_Engineering"}), now),
-                        ("honeywell_dcs", "default_user", "Honeywell Experion PKS DCS",
-                         "OPC UA real-time telemetry gateway (192.168.1.100:4840)",
-                         "connected", None, json.dumps({"port": 4840, "protocol": "opc.tcp"}), now),
+                        # Built-in connectors — always active, not user-togglable
+                        ("document_library", "default_user", "Document Library",
+                         "Core ZINGO knowledge base. Ingest PDFs, reports, SOPs and P&IDs via the Upload interface. All ingested documents are auto-indexed for RAG.",
+                         "active", None, json.dumps({"builtin": True, "endpoint": "/api/ingest"}), now),
+                        ("local_file_upload", "default_user", "Local File Upload",
+                         "Upload raw files (PDF, DOCX, XLSX, images) directly into ZINGO's secure local indexing pipeline. Files never leave the local network.",
+                         "active", None, json.dumps({"builtin": True, "endpoint": "/api/ingest"}), now),
+                        # Industrial connectors — require configuration to connect
                         ("aspen_ip21", "default_user", "Aspen InfoPlus.21 Historian",
-                         "Process historian REST API for 1-minute historical trends (192.168.1.110:8080)",
-                         "connected", None, json.dumps({"port": 8080}), now),
+                         "Connect ZINGO to your process historian for real-time and historical trend data. Requires REST API endpoint URL and API key.",
+                         "disconnected", None, json.dumps({"endpoint": "", "api_key": "", "port": 8080}), now),
+                        ("honeywell_dcs", "default_user", "Honeywell Experion PKS DCS",
+                         "Connect ZINGO to your DCS via OPC UA gateway for live telemetry. Requires OPC UA server endpoint (opc.tcp://...) on your plant LAN.",
+                         "disconnected", None, json.dumps({"endpoint": "", "port": 4840, "protocol": "opc.tcp", "security_mode": "None"}), now),
+                        ("sap_pm", "default_user", "SAP Plant Maintenance (PM)",
+                         "Connect to SAP PM module for equipment maintenance orders, inspection lots, and functional location hierarchy. Requires SAP OData service URL.",
+                         "disconnected", None, json.dumps({"endpoint": "", "client": "", "api_key": ""}), now),
                     ]
                 )
 
@@ -1635,7 +1637,7 @@ def get_equipment_temporal_events(tag: str) -> List[Dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------------------
-# Claude-Grade User Identity, Profile, Capabilities, Memory, Permissions & Connectors
+# ZINGO User Identity, Profile, Capabilities, Memory, Permissions & Connectors
 # --------------------------------------------------------------------------------------
 
 def get_user_profile(user_id: str = "default_user") -> Dict[str, Any]:
@@ -1991,8 +1993,8 @@ def delete_user_account(user_id: str = "default_user") -> bool:
         conn.close()
 
 
-def build_claude_identity_prompt(user_id: str = "default_user") -> str:
-    """Builds Claude-spec system prompt injection from user profile, capabilities, memory, permissions, and connectors."""
+def build_zingo_identity_prompt(user_id: str = "default_user") -> str:
+    """Builds ZINGO system prompt injection from user profile, capabilities, memory, permissions, and connectors."""
     profile = get_user_profile(user_id)
     caps = get_user_capabilities(user_id)
     perms = get_user_permissions(user_id)
@@ -2001,20 +2003,20 @@ def build_claude_identity_prompt(user_id: str = "default_user") -> str:
 
     sections = []
 
-    # 0. Identity Instructions (prepended first — highest priority)
+    # 0. Identity Instructions (prepended first -- highest priority)
     sections.append(
         "<identity_instructions>\n"
         "You know who the user is. You have their full profile, role, and memory files available.\n"
         "When the user asks 'Who am I?', 'What's my responsibility?', 'Do you know me?', "
         "'What do I do?', or any variant about their identity, role, plant, equipment, or background:\n"
-        "→ Answer directly and specifically using the <user_profile> and <user_memory> below.\n"
-        "→ Mention their name, role, plant unit (CDU-2, VDU-1), and key responsibilities.\n"
-        "→ NEVER respond with generic deflections like 'How can I assist you today?' or 'I'm not sure'.\n"
-        "→ NEVER ask them who they are — you already know.\n"
+        "- Answer directly and specifically using the <user_profile> and <user_memory> below.\n"
+        "- Mention their name, role, plant unit (CDU-2, VDU-1), and key responsibilities.\n"
+        "- NEVER respond with generic deflections like 'How can I assist you today?' or 'I'm not sure'.\n"
+        "- NEVER ask them who they are -- you already know.\n"
         "For math, chemical equations, and scientific notation, use proper LaTeX:\n"
-        "→ Inline: $...$ or \\(...\\)  |  Display block: $$...$$ or \\[...\\]\n"
-        "→ Use \\text{} for chemical element names in subscripts, e.g.: $\\text{CO}_2$\n"
-        "→ Use \\mathrm{} for molecular formulae, e.g.: $\\mathrm{C_6H_{12}O_6}$\n"
+        "- Inline: $...$ or \\(...\\)  |  Display block: $$...$$ or \\[...\\]\n"
+        "- Use \\text{} for chemical element names in subscripts, e.g.: $\\text{CO}_2$\n"
+        "- Use \\mathrm{} for molecular formulae, e.g.: $\\mathrm{C_6H_{12}O_6}$\n"
         "</identity_instructions>"
     )
 
@@ -2057,9 +2059,13 @@ def build_claude_identity_prompt(user_id: str = "default_user") -> str:
 
     if caps.get("inline_visualizations", True):
         cap_lines.append("- Inline Visualizations: Enabled. Generate interactive charts, SVG diagrams, and KaTeX equations directly in chat.")
+    else:
+        cap_lines.append("- Inline Visualizations: Disabled by user. Do not render inline SVG diagrams; use formatted text or markdown tables.")
 
     if caps.get("code_execution", True):
         cap_lines.append("- Code Execution: Enabled. You have access to the local sandboxed Python scientific execution runtime.")
+    else:
+        cap_lines.append("- Code Execution: Disabled by user. Do not attempt to run code.")
 
     cap_lines.append(f"- Tool Access Mode: {caps.get('tool_access_mode', 'auto').title()} (The model chooses relevant tools automatically).")
 
@@ -2087,12 +2093,13 @@ def build_claude_identity_prompt(user_id: str = "default_user") -> str:
     )
 
     # 5. Connected Services & Integrations
-    active_conns = [c for c in connectors if c.get("status") == "connected"]
+    active_conns = [c for c in connectors if c.get("status") in ("connected", "active")]
     if active_conns:
         conn_lines = []
         for c in active_conns:
             acc_str = f" [Account: {c['account_email']}]" if c.get("account_email") else ""
-            conn_lines.append(f"- {c['name']}{acc_str}: {c.get('description', 'Connected')}")
+            status_str = " (Built-in Active)" if c.get("status") == "active" else " (Connected)"
+            conn_lines.append(f"- {c['name']}{status_str}{acc_str}: {c.get('description', 'Connected')}")
         sections.append(
             f"<connected_services>\n"
             f"The user has actively authorized the following connectors and services:\n"

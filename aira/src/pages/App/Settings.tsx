@@ -39,6 +39,10 @@ import {
   Database,
   Building,
   Radio,
+  Lock,
+  HardDrive,
+  Activity,
+  Cpu,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -181,6 +185,13 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const [customConnName, setCustomConnName] = useState('')
   const [customConnDesc, setCustomConnDesc] = useState('')
   const [customConnKey, setCustomConnKey] = useState('')
+
+  // Industrial connector configuration & live testing state
+  const [configConnector, setConfigConnector] = useState<UserConnector | null>(null)
+  const [configEndpoint, setConfigEndpoint] = useState('')
+  const [configApiKey, setConfigApiKey] = useState('')
+  const [isTestingConn, setIsTestingConn] = useState(false)
+  const [testResult, setTestResult] = useState<{ reachable: boolean; latency_ms: number; error: string | null } | null>(null)
 
   // Server state
   const [g15Primary, setG15Primary] = useState(server.g15_1_url)
@@ -327,7 +338,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     }
   }
 
-  // Connector Toggle
+  // Connector Actions
   const handleToggleConnector = async (connectorKey: string, currentStatus: string) => {
     const newStatus = currentStatus === 'connected' ? 'disconnected' : 'connected'
     try {
@@ -337,15 +348,99 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       )
       addToast({
         type: 'success',
-        title: updated.status === 'connected' ? 'Connector Active' : 'Connector Disconnected',
-        message: `${updated.name} is now ${updated.status}. System prompt updated.`,
+        title: updated.status === 'connected' ? 'Connector Connected' : 'Connector Disconnected',
+        message: `${updated.name} is now ${updated.status}.`,
       })
-    } catch (err) {
+    } catch (err: any) {
       addToast({
         type: 'error',
-        title: 'Connector Toggle Failed',
-        message: 'Unable to update connector status in database.',
+        title: 'Action Failed',
+        message: err.message || 'Unable to update connector status.',
       })
+    }
+  }
+
+  const handleOpenConfigureConnector = (conn: UserConnector) => {
+    setConfigConnector(conn)
+    const cfg = conn.config || {}
+    const defaultEndpoint =
+      conn.connector_key === 'aspen_ip21'
+        ? 'http://192.168.1.110:8080'
+        : conn.connector_key === 'honeywell_dcs'
+        ? 'opc.tcp://192.168.1.100:4840'
+        : conn.connector_key === 'sap_pm'
+        ? 'https://sap-gateway.mrpl.local/sap/opu/odata/sap/PM_ORDERS'
+        : ''
+    setConfigEndpoint(cfg.endpoint || defaultEndpoint)
+    setConfigApiKey(cfg.api_key || '')
+    setTestResult(null)
+  }
+
+  const handleTestConnector = async () => {
+    if (!configConnector || !configEndpoint.trim()) {
+      addToast({ type: 'warning', message: 'Endpoint URL is required to test connectivity.' })
+      return
+    }
+    setIsTestingConn(true)
+    setTestResult(null)
+    try {
+      const connType = configConnector.connector_key.includes('honeywell') ? 'opc_ua' : 'http'
+      const res = await zingoApi.testConnector(configConnector.connector_key, {
+        endpoint: configEndpoint.trim(),
+        connector_type: connType,
+        api_key: configApiKey.trim() || undefined,
+        timeout_ms: 3000,
+      })
+      setTestResult(res)
+      if (res.reachable) {
+        addToast({
+          type: 'success',
+          title: 'Host Reachable',
+          message: `Connected successfully (${res.latency_ms}ms latency).`,
+        })
+      } else {
+        addToast({
+          type: 'error',
+          title: 'Connection Test Failed',
+          message: res.error || 'Host unreachable on local network.',
+        })
+      }
+    } catch (err: any) {
+      setTestResult({ reachable: false, latency_ms: 0, error: err.message || 'Request failed' })
+      addToast({ type: 'error', title: 'Test Failed', message: err.message || 'Connection test failed.' })
+    } finally {
+      setIsTestingConn(false)
+    }
+  }
+
+  const handleSaveConnectorConfig = async (desiredStatus: 'connected' | 'disconnected') => {
+    if (!configConnector) return
+    try {
+      const cfg = {
+        ...(configConnector.config || {}),
+        endpoint: configEndpoint.trim(),
+        api_key: configApiKey.trim(),
+        last_configured: new Date().toISOString(),
+      }
+      const updated = await zingoApi.toggleConnector(configConnector.connector_key, {
+        status: desiredStatus,
+        config: cfg,
+      })
+      setConnectors((prev) =>
+        prev.map((c) =>
+          c.connector_key === configConnector.connector_key
+            ? { ...c, status: updated.status, config: updated.config }
+            : c
+        )
+      )
+      addToast({
+        type: 'success',
+        title: desiredStatus === 'connected' ? 'Connector Active' : 'Configuration Saved',
+        message: `${updated.name} settings saved.`,
+      })
+      setConfigConnector(null)
+    } catch (err: any) {
+      addToast({ type: 'error', message: err.message || 'Failed to save configuration.' })
     }
   }
 
@@ -456,7 +551,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
           is_sensitive: memoryIsSensitive,
         })
         setMemoryFiles((prev) => [created, ...prev])
-        addToast({ type: 'success', message: 'New memory file added to Claude identity.' })
+        addToast({ type: 'success', message: 'Memory saved to ZINGO context.' })
       }
       setEditingMemoryId(null)
       setMemoryTitle('')
@@ -589,10 +684,10 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     }
   }
 
-  // Sidebar navigation sections matching Claude screenshot
+  // Sidebar navigation sections
   const NAV_SECTIONS = [
     {
-      group: 'Claude Settings',
+      group: 'User Settings',
       items: [
         { id: 'profile' as const, label: 'Profile', icon: <User size={15} /> },
         { id: 'account' as const, label: 'Account', icon: <Building size={15} /> },
@@ -697,7 +792,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
             </button>
           </div>
 
-          {/* Search input at top of sidebar matching Claude */}
+          {/* Search input at top of sidebar */}
           <div className="p-3.5 pb-2">
             <div className="relative flex items-center">
               <Search size={13} className="absolute left-2.5 text-content-tertiary pointer-events-none" />
@@ -867,10 +962,10 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                     />
                   </div>
 
-                  {/* What should Claude call you? Row */}
+                  {/* What should ZINGO call you? Row */}
                   <div className="flex items-center justify-between py-3.5 border-b border-border">
                     <span className="text-xs sm:text-sm font-normal text-content-primary">
-                      What should Claude call you?
+                      What should ZINGO call you?
                     </span>
                     <input
                       type="text"
@@ -919,10 +1014,10 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Personal Preferences Textarea (Exact Claude Screenshot text & layout) */}
+                  {/* Personal Preferences Textarea */}
                   <div className="py-2 space-y-2">
                     <span className="text-xs sm:text-sm font-normal text-content-primary block">
-                      What personal preferences should Claude consider in responses?
+                      What personal preferences should ZINGO consider in responses?
                     </span>
                     <p className="text-xs text-content-secondary leading-relaxed max-w-xl">
                       These will apply across all your conversations and Projects, unless overridden
@@ -1001,7 +1096,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Delete Account Section (Exact Claude Screenshot red outline button) */}
+                  {/* Delete Account Section */}
                   <div className="pt-6 border-t border-border space-y-2">
                     <h3 className="text-xs sm:text-sm font-semibold text-content-primary">
                       Delete Account
@@ -1041,8 +1136,8 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                           Artifacts
                         </span>
                         <p className="text-xs text-content-secondary leading-relaxed">
-                          Generate and view standalone content alongside your conversations. Claude
-                          can show code, SVGs, documents, websites, and more.
+                          Generate and view standalone engineering content alongside conversations. ZINGO
+                          can generate calculation sheets, P&ID visualizers, equipment run-sheets, and code.
                         </p>
                       </div>
                       <Toggle
@@ -1058,7 +1153,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                           Inline visualizations <span className="text-[10px] text-accent font-semibold px-1.5 py-0.2 rounded bg-accent/10 border border-accent/20 uppercase tracking-wider ml-1">BETA</span>
                         </span>
                         <p className="text-xs text-content-secondary leading-relaxed">
-                          View interactive charts, SVGs, and diagrams directly in conversations without opening the Artifacts window.
+                          View interactive charts, SVGs, and KaTeX mathematical equations directly in conversations.
                         </p>
                       </div>
                       <Toggle
@@ -1074,7 +1169,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                           Code execution and file creation
                         </span>
                         <p className="text-xs text-content-secondary leading-relaxed">
-                          Claude can write and run code to solve problems and create downloadable files. Available only for Claude 3.7 Sonnet.
+                          ZINGO can write and run Python code to solve engineering problems, evaluate thermodynamic equations, and create downloadable files.
                         </p>
                       </div>
                       <Toggle
@@ -1087,10 +1182,10 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                     <div className="py-3.5 flex items-center justify-between gap-4">
                       <div className="pr-4 space-y-0.5">
                         <span className="text-xs sm:text-sm font-medium text-content-primary block">
-                          Switch models on flagged messages
+                          Dynamic model routing
                         </span>
                         <p className="text-xs text-content-secondary leading-relaxed">
-                          Choose the response that gives you the best experience by automatically switching to other models if Claude flags your message.
+                          Automatically route engineering queries to specialized models (e.g. Qwen2.5-Coder for calculations, DeepSeek for complex logic) based on task intent.
                         </p>
                       </div>
                       <Toggle
@@ -1113,7 +1208,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                             Generate memory from chats
                           </span>
                           <p className="text-xs text-content-secondary leading-relaxed">
-                            Claude can remember details across conversations to make your chats more relevant.
+                            ZINGO automatically extracts operational facts and preferences from your conversations into persistent memory.
                           </p>
                         </div>
                         <Toggle
@@ -1129,7 +1224,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                             Include sensitive topics in memory
                           </span>
                           <p className="text-xs text-content-secondary leading-relaxed">
-                            Claude can remember information related to health, finances, politics, religion, or interpersonal relationships.
+                            ZINGO can remember sensitive operational observations, audit findings, and plant operating boundaries.
                           </p>
                         </div>
                         <Toggle
@@ -1154,7 +1249,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                             </span>
                           </div>
                           <p className="text-xs text-content-secondary leading-relaxed">
-                            Review what Claude has remembered about you
+                            Review what ZINGO has remembered about you and your plant units
                           </p>
                         </div>
                         <ChevronRight size={16} className="text-content-tertiary shrink-0" />
@@ -1173,7 +1268,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                           Auto
                         </span>
                         <p className="text-xs text-content-secondary leading-relaxed">
-                          Claude decides when to use tools based on your request and context.
+                          ZINGO autonomously selects engineering tools and calculators based on your request and plant context.
                         </p>
                       </div>
                       <span className="inline-flex items-center gap-1 text-xs text-accent font-medium px-2.5 py-1 rounded-full bg-accent/10 border border-accent/25">
@@ -1195,7 +1290,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       Permissions
                     </h2>
                     <p className="text-xs text-content-secondary mt-1 leading-relaxed">
-                      Claude can ask your device for permissions. These can be revoked at any time.
+                      ZINGO can ask your device for permissions. These can be revoked at any time.
                     </p>
                   </div>
 
@@ -1208,7 +1303,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                             Location
                           </span>
                           <p className="text-xs text-content-secondary leading-relaxed">
-                            Give Claude temporary access to your location for more relevant responses.
+                            Give ZINGO access to your plant location for geographically-grounded refinery data and weather contexts.
                           </p>
                           {permissions.location_permitted && (
                             <div className="inline-flex items-center gap-1.5 text-[11px] text-success font-mono bg-success/10 px-2 py-0.5 rounded border border-success/20 mt-1">
@@ -1242,15 +1337,15 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-1 pr-4">
                           <span className="text-xs sm:text-sm font-medium text-content-primary block">
-                            Calendar
+                            Plant Schedule & Turnaround Calendar
                           </span>
                           <p className="text-xs text-content-secondary leading-relaxed">
-                            Give Claude access to read and update your calendar to keep track of events.
+                            Give ZINGO access to shift handovers, maintenance schedules, and plant turnaround milestones.
                           </p>
                           {permissions.calendar_permitted && (
                             <div className="inline-flex items-center gap-1.5 text-[11px] text-success font-mono bg-success/10 px-2 py-0.5 rounded border border-success/20 mt-1">
                               <Calendar size={12} />
-                              <span>Synced: {permissions.calendar_account || 'Google Calendar'}</span>
+                              <span>Synced: {permissions.calendar_account || 'Shift Handover Roster'}</span>
                             </div>
                           )}
                         </div>
@@ -1259,7 +1354,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                           onClick={handleToggleCalendar}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-elevated hover:bg-elevated/80 text-xs font-medium text-content-primary transition-colors shrink-0"
                         >
-                          <span>{permissions.calendar_permitted ? 'Disconnect Calendar' : 'Manage Google Calendar connector'}</span>
+                          <span>{permissions.calendar_permitted ? 'Disconnect Calendar' : 'Sync Shift Calendar'}</span>
                           <ExternalLink size={12} className="text-content-tertiary" />
                         </button>
                       </div>
@@ -1279,15 +1374,15 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         Connectors
                       </h2>
                       <p className="text-xs text-content-secondary mt-1 leading-relaxed">
-                        Allow Claude to search for information and take action in other tools.
+                        Allow ZINGO to search for information and access live process telemetry from plant systems.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setIsAddConnectorModalOpen(true)}
                       className="btn-icon !w-8 !h-8 text-content-secondary hover:text-content-primary border border-border rounded-lg"
-                      title="Add connector"
-                      aria-label="Add connector"
+                      title="Add custom connector"
+                      aria-label="Add custom connector"
                     >
                       <Plus size={16} />
                     </button>
@@ -1300,7 +1395,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         Connector discovery
                       </span>
                       <p className="text-xs text-content-secondary leading-relaxed">
-                        Allow Claude to search and recommend relevant connectors for your prompt in chat.
+                        Allow ZINGO to recommend relevant plant data sources for your prompt in chat.
                       </p>
                     </div>
                     <Toggle
@@ -1313,36 +1408,26 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                   <div className="divide-y divide-border/60">
                     {connectors.map((conn) => {
                       const isConn = conn.status === 'connected'
+                      const isBuiltin =
+                        conn.connector_key === 'document_library' ||
+                        conn.connector_key === 'local_file_upload' ||
+                        Boolean(conn.config?.builtin)
+
                       return (
                         <div key={conn.connector_key} className="py-3.5 flex items-center justify-between gap-4">
                           <div className="flex items-center gap-3 min-w-0">
-                            {/* Premium Pure SVG Connector Icons */}
+                            {/* Premium Icon */}
                             <div className="w-9 h-9 rounded-xl bg-elevated border border-border flex items-center justify-center shrink-0">
-                              {conn.connector_key.includes('google') ? (
-                                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                                  <path
-                                    fill="#4285F4"
-                                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                                  />
-                                  <path
-                                    fill="#34A853"
-                                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                                  />
-                                  <path
-                                    fill="#FBBC05"
-                                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                                  />
-                                  <path
-                                    fill="#EA4335"
-                                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                                  />
-                                </svg>
+                              {conn.connector_key === 'document_library' ? (
+                                <Database size={18} className="text-accent" />
+                              ) : conn.connector_key === 'local_file_upload' ? (
+                                <HardDrive size={18} className="text-emerald-400" />
                               ) : conn.connector_key.includes('honeywell') ? (
                                 <Radio size={18} className="text-amber-500" />
                               ) : conn.connector_key.includes('aspen') ? (
-                                <Database size={18} className="text-blue-400" />
-                              ) : conn.connector_key.includes('yokogawa') ? (
-                                <Network size={18} className="text-emerald-400" />
+                                <Activity size={18} className="text-blue-400" />
+                              ) : conn.connector_key.includes('sap') ? (
+                                <Cpu size={18} className="text-purple-400" />
                               ) : (
                                 <Cable size={18} className="text-accent" />
                               )}
@@ -1352,28 +1437,57 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                                 <span className="text-xs sm:text-sm font-medium text-content-primary">
                                   {conn.name}
                                 </span>
-                                <span
-                                  className={`w-2 h-2 rounded-full ${
-                                    isConn ? 'bg-success' : 'bg-content-tertiary'
-                                  }`}
-                                />
+                                {isBuiltin ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-success font-medium px-1.5 py-0.2 rounded bg-success/10 border border-success/20">
+                                    <Lock size={10} />
+                                    <span>Core</span>
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={`w-2 h-2 rounded-full ${
+                                      isConn ? 'bg-success' : 'bg-content-tertiary'
+                                    }`}
+                                    title={isConn ? 'Connected' : 'Disconnected'}
+                                  />
+                                )}
                               </div>
                               <p className="text-xs text-content-secondary truncate max-w-sm">
                                 {conn.description}
                               </p>
                             </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleConnector(conn.connector_key, conn.status)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
-                              isConn
-                                ? 'bg-elevated border border-border text-content-secondary hover:text-content-primary'
-                                : 'btn-primary !py-1.5 !px-3'
-                            }`}
-                          >
-                            {isConn ? 'Disconnect' : 'Connect'}
-                          </button>
+
+                          {isBuiltin ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-content-secondary font-medium px-2.5 py-1 rounded-lg bg-elevated border border-border shrink-0">
+                              <Check size={12} className="text-success" />
+                              <span>Active</span>
+                            </span>
+                          ) : isConn ? (
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenConfigureConnector(conn)}
+                                className="px-2.5 py-1 rounded-lg border border-border bg-elevated hover:bg-elevated/80 text-xs font-medium text-content-secondary hover:text-content-primary transition-colors"
+                              >
+                                Configure
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleConnector(conn.connector_key, conn.status)}
+                                className="px-2.5 py-1 rounded-lg border border-border bg-elevated hover:bg-danger/10 hover:border-danger/30 hover:text-danger text-xs font-medium text-content-secondary transition-colors"
+                              >
+                                Disconnect
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenConfigureConnector(conn)}
+                              className="btn-primary !py-1.5 !px-3 !text-xs shrink-0"
+                            >
+                              Configure & Connect
+                            </button>
+                          )}
                         </div>
                       )
                     })}
@@ -1932,7 +2046,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
           setMemoryContent('')
         }}
         title="Memory files"
-        description="Review and manage what Claude has remembered about you across conversations."
+        description="Review and manage what ZINGO has remembered about you and your plant across conversations."
         maxWidth="xl"
       >
         <div className="space-y-4 pt-2">
@@ -1981,7 +2095,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
             />
             <textarea
               rows={3}
-              placeholder="Memory content (details Claude will remember in prompt context)..."
+              placeholder="Memory content (operating boundaries, equipment notes, focus areas ZINGO will remember)..."
               value={memoryContent}
               onChange={(e) => setMemoryContent(e.target.value)}
               className="w-full p-2.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none resize-none"
@@ -2099,7 +2213,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
         isOpen={isIdentityPromptModalOpen}
         onClose={() => setIsIdentityPromptModalOpen(false)}
         title="Active Model Identity Injection"
-        description="This exact structured context is injected into Qwen3/Claude system prompt on every chat turn."
+        description="This exact structured context is injected into the model's system prompt on every chat turn."
         maxWidth="2xl"
       >
         <div className="space-y-3 pt-2">
@@ -2173,7 +2287,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
         isOpen={isAddConnectorModalOpen}
         onClose={() => setIsAddConnectorModalOpen(false)}
         title="Add Custom Connector"
-        description="Connect Claude to a custom internal API, OPC UA gateway, or data service."
+        description="Connect ZINGO to a custom internal API, process historian, or plant data service."
         maxWidth="md"
       >
         <div className="space-y-3 pt-2">
@@ -2222,6 +2336,120 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
             >
               Add Connector
             </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* SUB-MODAL: CONFIGURE & TEST INDUSTRIAL CONNECTOR                          */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={Boolean(configConnector)}
+        onClose={() => setConfigConnector(null)}
+        title={`Configure ${configConnector?.name || 'Connector'}`}
+        description="Configure endpoint URL and authentication for live data ingestion and telemetry."
+        maxWidth="md"
+      >
+        <div className="space-y-4 pt-2">
+          <div>
+            <label className="text-xs text-content-secondary mb-1 block">
+              {configConnector?.connector_key.includes('honeywell')
+                ? 'OPC UA Server Endpoint (TCP)'
+                : 'REST API Base URL'}
+            </label>
+            <input
+              type="text"
+              placeholder={
+                configConnector?.connector_key === 'aspen_ip21'
+                  ? 'http://192.168.1.110:8080'
+                  : configConnector?.connector_key === 'honeywell_dcs'
+                  ? 'opc.tcp://192.168.1.100:4840'
+                  : 'http://localhost:8080'
+              }
+              value={configEndpoint}
+              onChange={(e) => setConfigEndpoint(e.target.value)}
+              className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary font-mono outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-content-secondary mb-1 block">
+              API Key / Auth Token (Optional)
+            </label>
+            <input
+              type="password"
+              placeholder="Leave blank if using open LAN / Windows Integrated Auth"
+              value={configApiKey}
+              onChange={(e) => setConfigApiKey(e.target.value)}
+              className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none"
+            />
+          </div>
+
+          {/* Test Connection Button & Live Result Banner */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={handleTestConnector}
+              disabled={isTestingConn}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border border-border bg-elevated hover:bg-elevated/80 text-xs font-medium text-content-primary transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {isTestingConn ? <Spinner size="sm" /> : <RefreshCw size={13} />}
+              <span>{isTestingConn ? 'Probing host & port...' : 'Test Connection'}</span>
+            </button>
+
+            {testResult && (
+              <div
+                className={`mt-2.5 p-2.5 rounded-lg border text-xs flex items-start gap-2 ${
+                  testResult.reachable
+                    ? 'bg-success/10 border-success/30 text-success'
+                    : 'bg-danger/10 border-danger/30 text-danger'
+                }`}
+              >
+                {testResult.reachable ? (
+                  <CheckCircle2 size={15} className="shrink-0 mt-0.5" />
+                ) : (
+                  <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <span className="font-semibold block">
+                    {testResult.reachable ? 'Host Reachable' : 'Connection Failed'}
+                  </span>
+                  <span className="text-[11px] opacity-90 block">
+                    {testResult.reachable
+                      ? `Latency: ${testResult.latency_ms}ms — verified ready for live telemetry.`
+                      : testResult.error}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-3 border-t border-border">
+            <button
+              type="button"
+              onClick={() => setConfigConnector(null)}
+              className="btn-ghost !py-1.5 !px-3 !text-xs"
+            >
+              Cancel
+            </button>
+            <div className="flex items-center gap-2">
+              {configConnector?.status === 'connected' && (
+                <button
+                  type="button"
+                  onClick={() => handleSaveConnectorConfig('disconnected')}
+                  className="px-3 py-1.5 rounded-lg border border-danger/30 bg-danger/10 text-danger hover:bg-danger/20 text-xs font-medium transition-colors"
+                >
+                  Disconnect
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleSaveConnectorConfig('connected')}
+                className="btn-primary !py-1.5 !px-3.5 !text-xs"
+              >
+                Save & Connect
+              </button>
+            </div>
           </div>
         </div>
       </Modal>

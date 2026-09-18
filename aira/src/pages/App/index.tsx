@@ -220,7 +220,7 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
       {/* Live Interactive Artifact Side Panel / Viewer */}
       <ArtifactViewer />
 
-      {/* Settings Modal (Claude Replica) */}
+      {/* User Settings Modal */}
       <SettingsPage
         isOpen={isSettingsRoute || isSettingsOpen}
         initialTab={settingsTab}

@@ -81,7 +81,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  // Claude-style static timeline greeting based on the hour of the day
+  // Static timeline greeting based on the hour of the day
   const userName = (settings.preferredName || settings.userName || 'Div').trim()
 
   const getTimelineGreeting = () => {
@@ -101,7 +101,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-xl mx-auto my-auto select-none">
-        {/* Claude editorial serif static greeting */}
+        {/* Editorial serif static greeting */}
         <h2 className="text-3xl sm:text-4xl lg:text-[42px] font-serif font-normal text-content-primary tracking-tight mb-3 select-none leading-tight">
           {greeting}
         </h2>
