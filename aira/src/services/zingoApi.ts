@@ -535,6 +535,24 @@ export const zingoApi = {
     req<{ user_id: string; prompt: string }>('get', '/api/settings/model-identity', { params: userId ? { user_id: userId } : {} }),
 }
 
+export interface CodeExecutionResult {
+  success: boolean
+  exit_code: number
+  stdout: string
+  stderr: string
+  execution_time_ms: number
+  runtime: string
+  environment: string
+  error?: string
+}
+
+export const sandboxApi = {
+  executeCode: (code: string, language: string = 'python', timeoutSeconds: number = 15) =>
+    req<CodeExecutionResult>('post', '/api/sandbox/execute', {
+      data: { code, language, timeout_seconds: timeoutSeconds },
+    }),
+}
+
 export const tagList = (tags: string[] | string | undefined): string[] => {
   if (!tags) return []
   if (Array.isArray(tags)) return tags

@@ -89,6 +89,7 @@ from routers.artifacts import router as artifacts_router          # noqa: E402
 from routers.learning import router as learning_router            # noqa: E402
 from routers.temporal import router as temporal_router            # noqa: E402
 from routers.settings import router as settings_router            # noqa: E402
+from routers.sandbox import router as sandbox_router              # noqa: E402
 
 app.include_router(ingestion_router)
 app.include_router(monitoring_router)
@@ -102,6 +103,7 @@ app.include_router(artifacts_router)
 app.include_router(learning_router)
 app.include_router(temporal_router)
 app.include_router(settings_router)
+app.include_router(sandbox_router)
 
 
 # --------------------------------------------------------------------------------------
