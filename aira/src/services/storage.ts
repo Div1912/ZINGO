@@ -17,7 +17,7 @@ export function exportChatToMarkdown(chat: Chat): void {
   md += `---\n\n`
 
   chat.messages.forEach((msg, idx) => {
-    const roleLabel = msg.role === 'user' ? '👤 User' : '⚡ AIRA Assistant'
+    const roleLabel = msg.role === 'user' ? 'User' : 'AIRA Assistant'
     const timestamp = new Date(msg.timestamp).toLocaleTimeString()
     md += `### ${roleLabel} (${timestamp})\n\n`
     md += `${msg.content}\n\n`

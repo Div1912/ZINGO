@@ -14,10 +14,17 @@ import {
   FileJson,
   Check,
   Plus,
+  FolderKanban,
+  ChevronDown,
+  Bell,
+  CheckCheck,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useChatStore } from '../../stores/chatStore'
+import { useProjectStore } from '../../stores/projectStore'
 import { useToastStore } from '../../stores/toastStore'
 import { Dropdown } from '../ui/Dropdown'
+import { zingoApi, type RoleNotification } from '../../services/zingoApi'
 import {
   exportChatToMarkdown,
   exportChatToJson,
@@ -39,8 +46,10 @@ export const Header: React.FC<HeaderProps> = ({
   onNewChat,
 }) => {
   const { chats, activeChatId, renameChat, clearChat } = useChatStore()
+  const { projects, activeProjectId, setActiveProject } = useProjectStore()
   const { addToast } = useToastStore()
 
+  const activeProject = projects.find((p) => p.id === activeProjectId)
   const currentChat = chats.find((c) => c.id === activeChatId)
   const hasMessages = Boolean(currentChat && currentChat.messages && currentChat.messages.length > 0)
 
@@ -48,6 +57,36 @@ export const Header: React.FC<HeaderProps> = ({
   const [titleInput, setTitleInput] = useState('')
   const [isRawJsonOpen, setIsRawJsonOpen] = useState(false)
   const [isCopied, setIsCopied] = useState(false)
+  const [notifications, setNotifications] = useState<RoleNotification[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [isNotifOpen, setIsNotifOpen] = useState(false)
+  const navigate = useNavigate()
+
+  const fetchNotifs = async () => {
+    try {
+      const res = await zingoApi.notifications({ limit: 10 })
+      setNotifications(res.notifications || [])
+      setUnreadCount(res.unread || 0)
+    } catch {
+      // ignore
+    }
+  }
+
+  React.useEffect(() => {
+    fetchNotifs()
+    const interval = setInterval(fetchNotifs, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const handleMarkAllRead = async () => {
+    try {
+      await zingoApi.markAllNotificationsRead()
+      setUnreadCount(0)
+      fetchNotifs()
+    } catch {
+      // ignore
+    }
+  }
 
   const handleStartRename = () => {
     if (!currentChat) return
@@ -162,7 +201,47 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right Actions */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Active Project Workspace Dropdown Selector */}
+          <Dropdown
+            trigger={
+              <button
+                type="button"
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition ${
+                  activeProject
+                    ? 'bg-accent/15 text-accent border border-accent/30'
+                    : 'bg-surface text-content-secondary hover:text-content-primary border border-border'
+                }`}
+                title="Switch Active Project Context"
+              >
+                <FolderKanban size={13} className={activeProject ? 'text-accent' : 'text-content-tertiary'} />
+                <span className="max-w-[120px] sm:max-w-[150px] truncate hidden xs:inline">
+                  {activeProject ? activeProject.title : 'General Workspace'}
+                </span>
+                <ChevronDown size={11} className="opacity-70" />
+              </button>
+            }
+            items={[
+              {
+                id: 'general',
+                label: 'General Workspace (No Project)',
+                icon: <FolderKanban size={13} />,
+                onClick: () => {
+                  setActiveProject(null)
+                  addToast({ type: 'info', message: 'Switched to General Workspace' })
+                },
+              },
+              ...projects.map((p) => ({
+                id: p.id,
+                label: p.title,
+                icon: <FolderKanban size={13} />,
+                onClick: () => {
+                  setActiveProject(p.id)
+                  addToast({ type: 'success', message: `Active workspace: ${p.title}` })
+                },
+              })),
+            ]}
+          />
           {/* Quick Mobile New Chat Button */}
           {onNewChat && (
             <button
@@ -175,6 +254,80 @@ export const Header: React.FC<HeaderProps> = ({
               <Plus size={16} />
             </button>
           )}
+
+          {/* Role Notification Dispatch Bell */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsNotifOpen(!isNotifOpen)}
+              className="btn-icon !w-8 !h-8 text-content-secondary hover:text-content-primary relative"
+              title="Engineer Role Notifications"
+            >
+              <Bell size={16} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-danger text-white text-[9px] font-bold flex items-center justify-center animate-pulse">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {isNotifOpen && (
+              <div className="absolute right-0 top-10 z-50 w-80 sm:w-96 rounded-2xl bg-surface border border-border p-3 space-y-2 shadow-2xl animate-in fade-in">
+                <div className="flex items-center justify-between pb-2 border-b border-border text-xs">
+                  <div className="flex items-center gap-1.5 font-semibold text-content-primary">
+                    <Bell size={13} className="text-accent" />
+                    <span>Role Notifications ({unreadCount} unread)</span>
+                  </div>
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleMarkAllRead}
+                      className="text-[11px] text-content-tertiary hover:text-accent flex items-center gap-1"
+                    >
+                      <CheckCheck size={12} />
+                      <span>Mark all read</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-72 overflow-y-auto space-y-2">
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-content-tertiary">
+                      No notifications dispatched.
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        onClick={async () => {
+                          await zingoApi.markNotificationRead(n.id)
+                          setIsNotifOpen(false)
+                          if (n.action_note_id) {
+                            navigate('/app/action-notes')
+                          } else {
+                            navigate('/app/alerts')
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border transition-all cursor-pointer text-xs space-y-1 ${
+                          n.status === 'UNREAD'
+                            ? 'bg-accent/10 border-accent/30'
+                            : 'bg-elevated/40 border-border/50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-content-primary truncate">{n.title}</span>
+                          <span className="text-[10px] font-mono uppercase text-accent shrink-0">
+                            {n.recipient_role}
+                          </span>
+                        </div>
+                        <p className="text-xs text-content-secondary line-clamp-2">{n.message}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {hasMessages && (
             <>

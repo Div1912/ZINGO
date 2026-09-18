@@ -55,3 +55,8 @@ sample_docs/
 vector_store.jsonl
 cloudflared.exe
 ngrok.exe
+
+# Integration context & reference materials
+context/
+scratch/
+

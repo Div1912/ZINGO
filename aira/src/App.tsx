@@ -15,6 +15,7 @@ const ShiftHandover = lazy(() => import('./components/zingo/ShiftHandover'))
 const ComplianceMatrix = lazy(() => import('./components/zingo/ComplianceMatrix'))
 const KnowledgeGraph = lazy(() => import('./components/zingo/KnowledgeGraph'))
 const AuditTrail = lazy(() => import('./components/zingo/AuditTrail'))
+const ActionNotesPanel = lazy(() => import('./components/zingo/ActionNotesPanel').then((m) => ({ default: m.ActionNotesPanel })))
 
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 
@@ -49,6 +50,7 @@ export const App: React.FC = () => {
             <Route index element={<ChatPage />} />
             <Route path="chat/:id" element={<ChatPage />} />
             <Route path="settings" element={<ChatPage />} />
+            <Route path="action-notes" element={<ActionNotesPanel />} />
             <Route path="alerts" element={<AlertsPanel />} />
             <Route path="health" element={<PlantHealthMap />} />
             <Route path="documents" element={<DocumentTimeline />} />

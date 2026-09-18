@@ -11,6 +11,7 @@ import { SettingsPage, type TabKey } from './Settings'
 import { CodeRunnerModal } from '../../components/chat/CodeRunnerModal'
 import { ProjectsModal } from '../../components/layout/ProjectsModal'
 import { ArtifactsModal } from '../../components/layout/ArtifactsModal'
+import { ArtifactViewer } from '../../components/artifacts/ArtifactViewer'
 import { GradientWave } from '../../components/ui/gradient-wave'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -215,6 +216,9 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
         onClose={() => setIsArtifactsOpen(false)}
         onOpenCodeRunner={handleOpenCodeRunner}
       />
+
+      {/* Live Interactive Artifact Side Panel / Viewer */}
+      <ArtifactViewer />
 
       {/* Settings Modal (Claude Replica) */}
       <SettingsPage

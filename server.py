@@ -84,6 +84,11 @@ from routers.contradiction import router as contradiction_router  # noqa: E402
 from routers.shift import router as shift_router                  # noqa: E402
 from routers.graph import router as graph_router                  # noqa: E402
 from routers.audit import router as audit_router                  # noqa: E402
+from routers.conversations import router as conversations_router  # noqa: E402
+from routers.artifacts import router as artifacts_router          # noqa: E402
+from routers.learning import router as learning_router            # noqa: E402
+from routers.temporal import router as temporal_router            # noqa: E402
+from routers.settings import router as settings_router            # noqa: E402
 
 app.include_router(ingestion_router)
 app.include_router(monitoring_router)
@@ -92,6 +97,11 @@ app.include_router(contradiction_router)
 app.include_router(shift_router)
 app.include_router(graph_router)
 app.include_router(audit_router)
+app.include_router(conversations_router)
+app.include_router(artifacts_router)
+app.include_router(learning_router)
+app.include_router(temporal_router)
+app.include_router(settings_router)
 
 
 # --------------------------------------------------------------------------------------
@@ -379,74 +389,9 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
 
 
 # --------------------------------------------------------------------------------------
-# Streaming helper (retained from the original backend)
+# Chain of Thought streaming engine
 # --------------------------------------------------------------------------------------
-
-def run_ollama_stream(payload: Dict[str, Any], context: str = "",
-                      sources: Optional[List[Dict[str, Any]]] = None,
-                      feature: str = "chat"):
-    """Yield Server-Sent Events from the local model or remote cluster node, then log the call."""
-    started = datetime.now()
-    collected = 0
-    endpoint = payload.get("_endpoint", MODEL_ENDPOINT)
-    model_name = payload.get("model", MODEL_NAME)
-    try:
-        meta = {
-            "type": "meta",
-            "ocr_context_found": bool(context),
-            "context_length": len(context),
-            "model": model_name,
-            "sources": sources or [],
-            "effort": payload.get("_effort", "Fast"),
-            "node_endpoint": endpoint,
-        }
-        yield f"data: {json.dumps(meta)}\n\n"
-        if context:
-            yield f"data: {json.dumps({'type': 'context', 'context_length': len(context), 'sources': sources or []})}\n\n"
-
-        req = None
-        try:
-            req = requests.post(endpoint,
-                                json={k: v for k, v in payload.items() if not k.startswith("_")},
-                                stream=True, timeout=10 if endpoint != MODEL_ENDPOINT else 600)
-            req.raise_for_status()
-        except Exception as remote_err:
-            if endpoint != MODEL_ENDPOINT:
-                print(f"[cluster] Remote node {endpoint} unreachable: {remote_err}. Falling back to master node.")
-                payload["model"] = llm.DEFAULT_MODEL
-                endpoint = MODEL_ENDPOINT
-                req = requests.post(endpoint,
-                                    json={k: v for k, v in payload.items() if not k.startswith("_")},
-                                    stream=True, timeout=600)
-                req.raise_for_status()
-            else:
-                raise remote_err
-
-        with req as response:
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line.decode("utf-8") if isinstance(line, (bytes, bytearray)) else line)
-                    chunk = data.get("response", "")
-                    done = bool(data.get("done"))
-                    eval_count = data.get("eval_count", 0)
-                    collected += len(chunk)
-                    yield f"data: {json.dumps({'type': 'chunk', 'chunk': chunk, 'done': done, 'eval_count': eval_count})}\n\n"
-                    if done:
-                        if sources:
-                            yield f"data: {json.dumps({'type': 'sources', 'sources': sources, 'done': True})}\n\n"
-                        break
-                except Exception:
-                    continue
-        log_ollama_call(endpoint, payload.get("model", MODEL_NAME), feature,
-                        len(payload.get("prompt", "")), collected,
-                        int((datetime.now() - started).total_seconds() * 1000), True)
-    except Exception as exc:
-        log_ollama_call(endpoint, payload.get("model", MODEL_NAME), feature,
-                        len(payload.get("prompt", "")), collected,
-                        int((datetime.now() - started).total_seconds() * 1000), False)
-        yield f"data: {json.dumps({'type': 'error', 'error': str(exc), 'done': True})}\n\n"
+from cot_backend import run_ollama_stream_cot as run_ollama_stream
 
 
 def retrieve_context(question: str, top_k: int = 5,
@@ -610,6 +555,14 @@ async def process_and_ask(
             "If the documents do not contain the answer, say so honestly based on your knowledge."
         )
 
+    try:
+        from data_layer import build_claude_identity_prompt
+        user_identity = build_claude_identity_prompt("default_user")
+        if user_identity:
+            instruction = f"{user_identity}\n\n{instruction}"
+    except Exception as id_err:
+        print(f"[process_and_ask] identity context build failed: {id_err}")
+
     payload = {
         "model": target_model,
         "prompt": full_prompt,
@@ -714,14 +667,74 @@ async def api_chat(payload_data: ChatPayload):
         context = (context + "\n\n" if context else "") + \
             "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
 
+    # Temporal Cross-Session Continuity Context
+    target_tag = payload_data.equipment_tag
+    if not target_tag and question:
+        # Detect common equipment tags mentioned in the query
+        for possible_tag in ["HE-301", "V-102", "P-101", "C-101", "K-101", "E-101"]:
+            if possible_tag.lower() in question.lower():
+                target_tag = possible_tag
+                break
+
+    if target_tag:
+        try:
+            from temporal_reasoning import build_temporal_chat_context
+            temporal_text = build_temporal_chat_context(target_tag)
+            if temporal_text:
+                context = (context + "\n\n" if context else "") + temporal_text
+        except Exception as t_err:
+            print(f"[chat] temporal context retrieval failed: {t_err}")
+
     cfg = get_effort_config(payload_data.effort, question)
 
-    system = payload_data.system or (
+    # 1. Claude-Grade User Identity, Profile, Capabilities, Memory, Permissions & Connectors
+    try:
+        from data_layer import build_claude_identity_prompt, add_user_memory_file, get_user_capabilities
+        user_identity = build_claude_identity_prompt(payload_data.user or "default_user")
+
+        # Dynamic Memory Extraction if user says "Remember that..." or "Please remember: "
+        if question:
+            q_lower = question.lower()
+            for trig in ["remember that ", "remember: ", "note that i ", "please remember "]:
+                if trig in q_lower:
+                    caps = get_user_capabilities(payload_data.user or "default_user")
+                    if caps.get("generate_memory_from_chats", True):
+                        fact = question[q_lower.index(trig) + len(trig):].strip()
+                        if len(fact) > 4:
+                            add_user_memory_file(
+                                user_id=payload_data.user or "default_user",
+                                title="Chat-Derived Preference",
+                                content=fact,
+                                category="preference",
+                            )
+                            # Re-generate identity prompt with the newly learned fact
+                            user_identity = build_claude_identity_prompt(payload_data.user or "default_user")
+                    break
+    except Exception as id_err:
+        print(f"[chat] identity context build failed: {id_err}")
+        user_identity = ""
+
+    # In-Context Learned Preferences injection
+    try:
+        from behavior_learning import format_learned_preferences_for_prompt
+        learned_guidelines = format_learned_preferences_for_prompt()
+    except Exception:
+        learned_guidelines = ""
+
+    base_system = payload_data.system or (
         f"You are ZINGO, an on-premise engineering assistant for an Indian refinery. {cfg['instruction']} "
         "Answer using the retrieved organisation documents where they are relevant, and cite them "
         "by their bracket number, e.g. [1]. If the documents do not contain the answer, say so "
         "plainly instead of speculating."
     )
+
+    system_blocks = []
+    if user_identity:
+        system_blocks.append(user_identity)
+    if learned_guidelines:
+        system_blocks.append(learned_guidelines)
+    system_blocks.append(base_system)
+    system = "\n\n".join(system_blocks)
 
     if payload_data.messages:
         lines = [f"System: {system}"]

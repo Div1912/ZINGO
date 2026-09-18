@@ -557,12 +557,15 @@ async def upload_document(
         "entities_found": entity_rows, "processing_time_ms": elapsed,
     })
 
-    # ---------- STEP 6: background passive analysis ----------
-    from routers.monitoring import analyze_document_task
-    background_tasks.add_task(analyze_document_task, doc_id)
+    # ---------- STEP 6: 10-Step Autonomous Agent Pipeline Execution ----------
+    pipeline_id = f"pipe-{int(time.time()*1000)}-{doc_id}"
+    from autonomous_pipeline import AutonomousPipelineCoordinator
+    coordinator = AutonomousPipelineCoordinator(doc_id, pipeline_id=pipeline_id)
+    background_tasks.add_task(coordinator.run)
 
     return {
         "doc_id": doc_id,
+        "pipeline_id": pipeline_id,
         "filename": safe_name,
         "doc_type": resolved_type,
         "extraction_method": extracted.get("method"),
@@ -579,7 +582,7 @@ async def upload_document(
         "chunks_indexed": len(chunks),
         "text_length": len(raw_text),
         "processing_time_ms": elapsed,
-        "monitoring": "queued",
+        "autonomous_pipeline": "executing",
     }
 
 
@@ -695,3 +698,22 @@ async def ingestion_stats():
         }
     finally:
         conn.close()
+
+
+@router.get("/pipeline/{pipeline_id}")
+async def get_pipeline_status(pipeline_id: str):
+    """Real-time progress and verdict of the 10-step autonomous pipeline."""
+    from autonomous_pipeline import get_pipeline_run
+    run = get_pipeline_run(pipeline_id)
+    if not run:
+        raise HTTPException(404, f"Pipeline run '{pipeline_id}' not found.")
+    return run
+
+
+@router.post("/run_pipeline/{doc_id}")
+async def trigger_pipeline(doc_id: int):
+    """Trigger or re-execute the 10-step autonomous pipeline on an ingested document."""
+    from autonomous_pipeline import AutonomousPipelineCoordinator
+    coordinator = AutonomousPipelineCoordinator(doc_id)
+    return coordinator.run()
+

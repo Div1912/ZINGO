@@ -30,6 +30,7 @@ from pydantic import BaseModel
 import llm
 from data_layer import (
     add_alert, get_db, get_plant_graph, log_audit, parse_tags, rows_to_dicts, vector_query,
+    get_action_notes, get_action_note, sign_action_note, acknowledge_action_note, get_role_notifications, mark_notification_read,
 )
 
 router = APIRouter(prefix="/api/monitor", tags=["monitoring"])
@@ -941,3 +942,191 @@ async def monitoring_summary():
         }
     finally:
         conn.close()
+
+
+class SignActionNotePayload(BaseModel):
+    approved_by: str
+    approval_notes: Optional[str] = None
+    edited_title: Optional[str] = None
+    edited_anomaly_summary: Optional[str] = None
+    edited_recommended_action: Optional[str] = None
+    edited_raw_markdown: Optional[str] = None
+    project_id: Optional[str] = None
+
+
+class AcknowledgeNotePayload(BaseModel):
+    engineer_id: str
+    notes: Optional[str] = None
+
+
+@router.get("/action_notes")
+async def list_action_notes(
+    equipment_tag: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    limit: int = Query(100, le=500),
+):
+    """List all auto-generated and persistent engineering action notes."""
+    notes = get_action_notes(equipment_tag=equipment_tag, status=status, severity=severity, limit=limit)
+    return {"total": len(notes), "action_notes": notes}
+
+
+@router.get("/action_notes/{note_id}")
+async def get_single_action_note(note_id: int):
+    note = get_action_note(note_id)
+    if not note:
+        raise HTTPException(404, f"Action note {note_id} not found.")
+    return note
+
+
+@router.post("/action_notes/{note_id}/acknowledge")
+async def acknowledge_single_action_note(note_id: int, payload: AcknowledgeNotePayload):
+    """Acknowledge action note receipt, logging acknowledgment time and starting response SLA clock."""
+    existing = get_action_note(note_id)
+    if not existing:
+        raise HTTPException(404, f"Action note {note_id} not found.")
+    return acknowledge_action_note(note_id, engineer_id=payload.engineer_id, notes=payload.notes)
+
+
+@router.post("/action_notes/{note_id}/sign")
+async def sign_single_action_note(note_id: int, payload: SignActionNotePayload):
+    """Sign and approve an engineering action note with digital hash audit, learning from any diffs."""
+    existing = get_action_note(note_id)
+    if not existing:
+        raise HTTPException(404, f"Action note {note_id} not found.")
+
+    from behavior_learning import record_engineer_edit_and_learn
+
+    original_text = existing.get("original_draft") or existing.get("raw_markdown") or (
+        f"{existing.get('title')}\n\n{existing.get('anomaly_summary')}\n\n{existing.get('recommended_action')}"
+    )
+    edited_text = payload.edited_raw_markdown or (
+        f"{payload.edited_title or existing.get('title')}\n\n"
+        f"{payload.edited_anomaly_summary or existing.get('anomaly_summary')}\n\n"
+        f"{payload.edited_recommended_action or existing.get('recommended_action')}"
+    )
+
+    if (
+        payload.edited_title
+        or payload.edited_anomaly_summary
+        or payload.edited_recommended_action
+        or payload.edited_raw_markdown
+    ):
+        record_engineer_edit_and_learn(
+            item_type="action_note",
+            item_id=note_id,
+            engineer_id=payload.approved_by,
+            original_text=original_text,
+            edited_text=edited_text,
+            project_id=payload.project_id,
+        )
+
+    return sign_action_note(
+        note_id,
+        approved_by=payload.approved_by,
+        approval_notes=payload.approval_notes,
+        edited_title=payload.edited_title,
+        edited_anomaly_summary=payload.edited_anomaly_summary,
+        edited_recommended_action=payload.edited_recommended_action,
+        edited_raw_markdown=payload.edited_raw_markdown,
+    )
+
+
+@router.get("/action_notes/{note_id}/docx")
+async def export_action_note_docx(note_id: int):
+    """Export action note as a formal .docx document."""
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt, RGBColor
+
+    note = get_action_note(note_id)
+    if not note:
+        raise HTTPException(404, f"Action note {note_id} not found.")
+
+    doc = Document()
+    header = doc.add_paragraph()
+    header.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = header.add_run("ZINGO — SOVEREIGN AI WORKBENCH")
+    run.bold = True
+    run.font.size = Pt(16)
+    run.font.color.rgb = RGBColor(0x0F, 0x3C, 0x6E)
+
+    sub = doc.add_paragraph()
+    sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sub_run = sub.add_run(f"ENGINEERING ACTION NOTE — {note['ref_number']}")
+    sub_run.font.size = Pt(10)
+    sub_run.bold = True
+
+    doc.add_heading("1. Equipment Details", level=2)
+    meta = doc.add_table(rows=0, cols=2)
+    meta.style = "Light Grid Accent 1"
+    for label, value in [
+        ("Reference Number", note["ref_number"]),
+        ("Equipment Tag", note["equipment_tag"]),
+        ("Severity", note["severity"]),
+        ("Target Authority", note["target_role"]),
+        ("Status", note["status"]),
+        ("Created On", str(note["created_at"])[:19].replace("T", " ")),
+        ("Approved By", note.get("approved_by") or "PENDING REVIEW"),
+        ("Approved On", str(note.get("approved_at") or "—")[:19].replace("T", " ")),
+        ("Signature Hash", note.get("signature_hash") or "UNSIGNED"),
+    ]:
+        cells = meta.add_row().cells
+        cells[0].paragraphs[0].add_run(label).bold = True
+        cells[1].text = str(value)
+
+    doc.add_heading("2. Observation & Failure Analysis", level=2)
+    doc.add_paragraph(note.get("anomaly_summary") or "")
+
+    doc.add_heading("3. Recommended Engineering Action", level=2)
+    doc.add_paragraph(note.get("recommended_action") or "")
+
+    if note.get("raw_markdown"):
+        doc.add_heading("4. Action Note Content", level=2)
+        doc.add_paragraph(note["raw_markdown"])
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    filename = f"{note['ref_number']}_{note['equipment_tag']}.docx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/notifications")
+async def list_role_notifications(
+    role: Optional[str] = Query(None),
+    unread_only: bool = Query(False),
+    limit: int = Query(50, le=200),
+):
+    """Retrieve notifications dispatched to engineering roles."""
+    notifs = get_role_notifications(role=role, unread_only=unread_only, limit=limit)
+    unread_count = len([n for n in notifs if n.get("status") == "UNREAD"])
+    return {"total": len(notifs), "unread": unread_count, "notifications": notifs}
+
+
+@router.post("/notifications/{notif_id}/read")
+async def mark_single_notification_read(notif_id: int):
+    success = mark_notification_read(notif_id)
+    return {"id": notif_id, "read": success}
+
+
+@router.post("/notifications/mark_all_read")
+async def mark_all_notifications_read(role: Optional[str] = Query(None)):
+    conn = get_db()
+    try:
+        where = " WHERE status = 'UNREAD'"
+        params = [datetime.now().isoformat()]
+        if role:
+            where += " AND UPPER(recipient_role) = ?"
+            params.append(role.upper())
+        conn.execute(f"UPDATE role_notifications SET status = 'READ', read_at = ?{where}", params)
+        conn.commit()
+        return {"status": "all_read"}
+    finally:
+        conn.close()
+

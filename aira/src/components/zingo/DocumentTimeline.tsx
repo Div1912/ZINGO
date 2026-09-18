@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { FileText, Upload, Trash2, ShieldCheck, ShieldAlert, Search } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { FileText, Upload, Trash2, ShieldCheck, ShieldAlert, Search, Zap, Activity } from 'lucide-react'
 import { Badge } from '../ui/Badge'
 import { Spinner } from '../ui/Spinner'
 import { zingoApi, tagList, type DocumentRecord } from '../../services/zingoApi'
 import { useZingoStore } from '../../stores/zingoStore'
 import { ModulePage, StatCard, EmptyState, Section, formatDate, formatDateTime } from './shared'
+import { AutonomousPipelineModal } from './AutonomousPipelineModal'
 
 const DOC_TYPES = [
   'inspection_report',
@@ -17,6 +19,7 @@ const DOC_TYPES = [
 ]
 
 export const DocumentTimeline: React.FC = () => {
+  const navigate = useNavigate()
   const refreshGlobal = useZingoStore((s) => s.refresh)
   const [docs, setDocs] = useState<DocumentRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -28,6 +31,9 @@ export const DocumentTimeline: React.FC = () => {
   const [query, setQuery] = useState('')
   const [gate, setGate] = useState<Record<string, any> | null>(null)
   const [selected, setSelected] = useState<DocumentRecord | null>(null)
+  const [activePipelineId, setActivePipelineId] = useState<string | null>(null)
+  const [isPipelineModalOpen, setIsPipelineModalOpen] = useState(false)
+  const [triggeringDocId, setTriggeringDocId] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -57,6 +63,10 @@ export const DocumentTimeline: React.FC = () => {
         equipment_tag: equipmentTag.trim() || undefined,
       })
       setUploadResult(res)
+      if (res.pipeline_id) {
+        setActivePipelineId(res.pipeline_id)
+        setIsPipelineModalOpen(true)
+      }
       await load()
       await refreshGlobal()
     } catch (err: any) {
@@ -173,7 +183,21 @@ export const DocumentTimeline: React.FC = () => {
 
           {uploadResult && (
             <div className="mt-3 rounded-md border border-success/25 bg-success/5 px-3.5 py-3 text-xs text-content-secondary">
-              <p className="font-medium text-success">Ingested {uploadResult.filename}</p>
+              <div className="flex items-center justify-between">
+                <p className="font-medium text-success">Ingested {uploadResult.filename}</p>
+                {uploadResult.pipeline_id && (
+                  <button
+                    onClick={() => {
+                      setActivePipelineId(uploadResult.pipeline_id)
+                      setIsPipelineModalOpen(true)
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded border border-accent/40 bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/20 transition-colors"
+                  >
+                    <Activity size={12} />
+                    View Autonomous Pipeline
+                  </button>
+                )}
+              </div>
               <p className="mt-1">
                 {uploadResult.measurements_found ?? 0} measurements ·{' '}
                 {uploadResult.chunks_indexed ?? 0} chunks indexed ·{' '}
@@ -181,7 +205,7 @@ export const DocumentTimeline: React.FC = () => {
                 {uploadResult.extraction_method ? ` · read via ${uploadResult.extraction_method}` : ''}
               </p>
               <p className="mt-1 text-content-tertiary">
-                Passive monitoring queued — new findings appear under Alerts.
+                Autonomous 10-step agent pipeline initiated — topology matching, pattern analysis, SOP checks, and draft action notes run automatically.
               </p>
             </div>
           )}
@@ -241,6 +265,28 @@ export const DocumentTimeline: React.FC = () => {
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        onClick={async () => {
+                          try {
+                            setTriggeringDocId(doc.id)
+                            const res = await zingoApi.runPipeline(doc.id)
+                            if (res.pipeline_id) {
+                              setActivePipelineId(res.pipeline_id)
+                              setIsPipelineModalOpen(true)
+                            }
+                          } catch (err: any) {
+                            setError(err?.message || 'Failed to start autonomous pipeline')
+                          } finally {
+                            setTriggeringDocId(null)
+                          }
+                        }}
+                        disabled={triggeringDocId === doc.id}
+                        title="Trigger 10-step autonomous agent pipeline for this document"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11px] font-medium text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                      >
+                        {triggeringDocId === doc.id ? <Spinner size="sm" /> : <Zap size={12} />}
+                        Autonomous Pipeline
+                      </button>
                       <button
                         onClick={() => checkGate(doc.id)}
                         className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-content-secondary hover:bg-elevated hover:text-content-primary transition-colors"
@@ -324,6 +370,16 @@ export const DocumentTimeline: React.FC = () => {
           </div>
         </div>
       )}
+
+      <AutonomousPipelineModal
+        pipelineId={activePipelineId}
+        isOpen={isPipelineModalOpen}
+        onClose={() => setIsPipelineModalOpen(false)}
+        onOpenActionNote={(_noteId) => {
+          setIsPipelineModalOpen(false)
+          navigate('/app/action-notes')
+        }}
+      />
     </ModulePage>
   )
 }

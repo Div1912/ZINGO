@@ -21,9 +21,12 @@ import { cn } from '@/lib/utils'
 import type { Message } from '../../types'
 import { ModelBadge } from './ModelBadge'
 import { ThinkingOrbs } from '../ui/thinking-orbs'
+import { ThinkingBlock } from './ThinkingBlock'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { useChatStore } from '../../stores/chatStore'
+import { useArtifactStore } from '../../stores/artifactStore'
+import { ArtifactCard } from '../artifacts/ArtifactCard'
 
 interface MessageBubbleProps {
   message: Message
@@ -39,6 +42,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const { settings } = useSettingsStore()
   const { addToast } = useToastStore()
   const { toggleSourcePanel, setActiveSources, activePrompt, hasFilesGenerating } = useChatStore()
+  const { artifacts } = useArtifactStore()
+
+  // Match artifacts associated with this message
+  const matchedArtifacts = React.useMemo(() => {
+    if (message.artifactIds && message.artifactIds.length > 0) {
+      return artifacts.filter((a) => message.artifactIds?.includes(a.id))
+    }
+    if (!message.content) return []
+    return artifacts.filter(
+      (a) => a.content && a.content.length > 30 && message.content.includes(a.content.slice(0, 50))
+    )
+  }, [artifacts, message.artifactIds, message.content])
 
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
@@ -49,8 +64,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   let thinkingText = ''
   let finalContent = message.content || ''
   let isThinkingComplete = false
-  let hasThinking = false
+  const hasCoT = Boolean(
+    (message.thinkSteps && message.thinkSteps.length > 0) ||
+    message.rawThinking ||
+    message.isThinkingPhase
+  )
 
+  let hasThinking = false
   if (message.content && message.content.includes('<think>')) {
     hasThinking = true
     const thinkEndIndex = message.content.indexOf('</think>')
@@ -165,7 +185,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </div>
 
         {/* Content Body / Streaming Indicator / Error */}
-        {message.isStreaming && !message.content ? (
+        {message.isStreaming && !message.content && !hasCoT ? (
           <div className="py-2 animate-in fade-in duration-300">
             {message.taskType && message.taskType !== 'general' ? (
               <ThinkingOrbs
@@ -204,7 +224,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         ) : (
           <div className="markdown-body select-text">
-            {hasThinking && (
+            {hasCoT ? (
+              <div className="mb-3">
+                <ThinkingBlock
+                  steps={message.thinkSteps ?? []}
+                  rawThinking={message.rawThinking}
+                  isStreaming={Boolean(message.isStreaming)}
+                  isThinkingPhase={message.isThinkingPhase}
+                  totalSteps={message.thinkTotalSteps}
+                  elapsedMs={message.thinkElapsedMs}
+                />
+              </div>
+            ) : hasThinking ? (
               <div className="mb-3 rounded-lg border border-border/70 bg-surface-secondary/40 backdrop-blur-sm overflow-hidden text-xs">
                 <button
                   type="button"
@@ -237,6 +268,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     )}
                   </div>
                 )}
+              </div>
+            ) : null}
+
+            {/* Artifact Cards: Interactive Applications & Visualizations */}
+            {matchedArtifacts.length > 0 && (
+              <div className="space-y-2.5 mb-3">
+                {matchedArtifacts.map((art) => (
+                  <ArtifactCard key={art.id} artifact={art} />
+                ))}
               </div>
             )}
 
@@ -338,15 +378,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 {finalContent}
               </Markdown>
             ) : (
-              hasThinking && !isThinkingComplete && (
+              hasCoT && message.isThinkingPhase ? (
+                <div className="flex items-center gap-2 text-content-tertiary text-xs font-mono py-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+                  <span>Composing answer...</span>
+                </div>
+              ) : hasThinking && !isThinkingComplete ? (
                 <div className="text-xs text-content-tertiary font-mono italic flex items-center gap-2 py-1">
                   <span className="inline-block w-2 h-2 rounded-full bg-primary animate-ping" />
                   <span>Formulating verified engineering answer...</span>
                 </div>
-              )
+              ) : null
             )}
 
-            {message.isStreaming && (
+            {message.isStreaming && !hasCoT && (
               <div className="pt-2">
                 <ThinkingOrbs compact status={hasThinking && !isThinkingComplete ? "Synthesizing deep reasoning tokens..." : "Synthesizing response stream..."} />
               </div>

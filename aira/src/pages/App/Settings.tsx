@@ -2,13 +2,10 @@ import React, { useState, useEffect } from 'react'
 import {
   Search,
   X,
-  Settings as SettingsIcon,
   User,
   Shield,
   Sliders,
   History,
-  Bell,
-  Moon,
   Code2,
   BookOpen,
   Cable,
@@ -20,8 +17,10 @@ import {
   Trash2,
   RefreshCw,
   Sun,
+  Moon,
   Monitor,
   ChevronDown,
+  ChevronRight,
   Check,
   CheckCircle2,
   AlertTriangle,
@@ -31,6 +30,15 @@ import {
   Network,
   ClipboardList,
   ChevronLeft,
+  Plus,
+  Edit2,
+  MapPin,
+  Calendar,
+  ExternalLink,
+  Sparkles,
+  Database,
+  Building,
+  Radio,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -40,7 +48,15 @@ import { useToastStore } from '../../stores/toastStore'
 import { useZingoStore } from '../../stores/zingoStore'
 import { Toggle } from '../../components/ui/Toggle'
 import { Spinner } from '../../components/ui/Spinner'
-import type { ModelId } from '../../types'
+import { Modal } from '../../components/ui/Modal'
+import { zingoApi } from '../../services/zingoApi'
+import type {
+  UserProfile,
+  UserCapabilities,
+  UserMemoryFile,
+  UserPermissions,
+  UserConnector,
+} from '../../services/zingoApi'
 
 const AlertsPanel = React.lazy(() => import('../../components/zingo/AlertsPanel'))
 const PlantHealthMap = React.lazy(() => import('../../components/zingo/PlantHealthMap'))
@@ -51,17 +67,19 @@ const KnowledgeGraph = React.lazy(() => import('../../components/zingo/Knowledge
 const AuditTrail = React.lazy(() => import('../../components/zingo/AuditTrail'))
 
 export type TabKey =
+  | 'profile'
   | 'general'
   | 'account'
   | 'privacy'
   | 'capabilities'
+  | 'permissions'
+  | 'connectors'
   | 'memory'
   | 'reflect'
   | 'time'
   | 'code'
   | 'skills'
   | 'kb'
-  | 'connectors'
   | 'plugins'
   | 'server'
   | 'shortcuts'
@@ -89,13 +107,14 @@ export interface SettingsModalProps {
 
 export const SettingsPage: React.FC<SettingsModalProps> = ({
   isOpen = true,
-  initialTab = 'general',
+  initialTab = 'profile',
   onClose,
 }) => {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<TabKey>(initialTab)
+  const normalizedInitialTab = initialTab === 'general' ? 'profile' : initialTab
+  const [activeTab, setActiveTab] = useState<TabKey>(normalizedInitialTab)
   const [mobileView, setMobileView] = useState<'menu' | 'content'>(
-    initialTab && initialTab !== 'general' ? 'content' : 'menu'
+    initialTab && initialTab !== 'profile' && initialTab !== 'general' ? 'content' : 'menu'
   )
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -106,22 +125,62 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const criticalCount = useZingoStore((s) => s.activeAlerts.filter((a) => a.severity === 'CRITICAL').length)
   const isWorkbenchTab = ['alerts', 'health', 'documents', 'shift', 'compliance', 'graph', 'audit'].includes(activeTab)
 
-  useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab)
-      if (initialTab !== 'general') {
-        setMobileView('content')
-      }
-    }
-  }, [initialTab])
+  // Real SQLite persistent state
+  const [userProfile, setUserProfile] = useState<UserProfile>({
+    user_id: 'default_user',
+    full_name: settings.userName || 'Div',
+    preferred_name: settings.preferredName || 'Div',
+    work_role: settings.workDescription || 'Refinery Process Engineer (CDU/VDU)',
+    personal_preferences:
+      settings.customInstructions ||
+      "I'm an AI engineer and developer working with Python, PyTorch, Ollama, and industrial control systems. Provide concise, direct, accurate technical solutions with clean code blocks.",
+  })
 
-  // Profile and general local state
-  const [fullName, setFullName] = useState(settings.userName || 'Div')
-  const [callMe, setCallMe] = useState(settings.preferredName || 'Div')
-  const [workRole, setWorkRole] = useState(settings.workDescription || 'Refinery Process Engineer (CDU/VDU)')
-  const [instructions, setInstructions] = useState(
-    settings.customInstructions || settings.systemPrompt
-  )
+  const [capabilities, setCapabilities] = useState<UserCapabilities>({
+    user_id: 'default_user',
+    artifacts_enabled: true,
+    inline_visualizations: true,
+    code_execution: true,
+    switch_models_on_flagged: true,
+    generate_memory_from_chats: true,
+    include_sensitive_topics: false,
+    tool_access_mode: 'auto',
+  })
+
+  const [permissions, setPermissions] = useState<UserPermissions>({
+    user_id: 'default_user',
+    location_permitted: true,
+    location_label: 'MRPL Complex, Mangaluru (12.9141° N, 74.8560° E)',
+    location_coords: '12.9141,74.8560',
+    calendar_permitted: true,
+    calendar_account: 'div.lead@mrpl.co.in',
+  })
+
+  const [connectors, setConnectors] = useState<UserConnector[]>([])
+  const [connectorDiscovery, setConnectorDiscovery] = useState(true)
+  const [memoryFiles, setMemoryFiles] = useState<UserMemoryFile[]>([])
+  const [, setIsLoadingSettings] = useState(false)
+
+  // Modals & sub-dialogs
+  const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false)
+  const [isIdentityPromptModalOpen, setIsIdentityPromptModalOpen] = useState(false)
+  const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false)
+  const [isAddConnectorModalOpen, setIsAddConnectorModalOpen] = useState(false)
+  const [modelIdentityPrompt, setModelIdentityPrompt] = useState('')
+  const [isFetchingPrompt, setIsFetchingPrompt] = useState(false)
+
+  // Memory file form state
+  const [editingMemoryId, setEditingMemoryId] = useState<number | null>(null)
+  const [memoryTitle, setMemoryTitle] = useState('')
+  const [memoryContent, setMemoryContent] = useState('')
+  const [memoryCategory, setMemoryCategory] = useState<'general' | 'project' | 'preference' | 'sensitive'>('preference')
+  const [memoryIsSensitive, setMemoryIsSensitive] = useState(false)
+  const [memoryFilter, setMemoryFilter] = useState<string>('all')
+
+  // Custom connector form state
+  const [customConnName, setCustomConnName] = useState('')
+  const [customConnDesc, setCustomConnDesc] = useState('')
+  const [customConnKey, setCustomConnKey] = useState('')
 
   // Server state
   const [g15Primary, setG15Primary] = useState(server.g15_1_url)
@@ -133,10 +192,68 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const [docs, setDocs] = useState(INITIAL_DOCS)
   const [isReindexing, setIsReindexing] = useState(false)
 
-  // Auto routing rules
-  const [rules, setRules] = useState(settings.autoRouteRules || [])
-  const [newKeyword, setNewKeyword] = useState('')
-  const [newModel, setNewModel] = useState<ModelId>('qwen2.5-coder-7b')
+
+  useEffect(() => {
+    if (initialTab) {
+      const target = initialTab === 'general' ? 'profile' : initialTab
+      setActiveTab(target)
+      if (target !== 'profile') {
+        setMobileView('content')
+      }
+    }
+  }, [initialTab])
+
+  // Load all authentic settings from SQLite backend on mount
+  useEffect(() => {
+    let mounted = true
+    const fetchSettings = async () => {
+      setIsLoadingSettings(true)
+      try {
+        const [prof, caps, perms, conns, mems] = await Promise.allSettled([
+          zingoApi.getProfile(),
+          zingoApi.getCapabilities(),
+          zingoApi.getPermissions(),
+          zingoApi.getConnectors(),
+          zingoApi.getMemoryFiles(),
+        ])
+
+        if (mounted) {
+          if (prof.status === 'fulfilled' && prof.value) {
+            setUserProfile(prof.value)
+            updateSettings({
+              userName: prof.value.full_name,
+              preferredName: prof.value.preferred_name,
+              workDescription: prof.value.work_role,
+              customInstructions: prof.value.personal_preferences,
+            })
+          }
+          if (caps.status === 'fulfilled' && caps.value) {
+            setCapabilities(caps.value)
+          }
+          if (perms.status === 'fulfilled' && perms.value) {
+            setPermissions(perms.value)
+          }
+          if (conns.status === 'fulfilled' && conns.value?.connectors) {
+            setConnectors(conns.value.connectors)
+          }
+          if (mems.status === 'fulfilled' && mems.value?.memories) {
+            setMemoryFiles(mems.value.memories)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load settings from SQLite:', err)
+      } finally {
+        if (mounted) setIsLoadingSettings(false)
+      }
+    }
+
+    if (isOpen) {
+      fetchSettings()
+    }
+    return () => {
+      mounted = false
+    }
+  }, [isOpen])
 
   const handleClose = () => {
     if (onClose) {
@@ -149,7 +266,13 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   // Handle ESC key to close modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (
+        e.key === 'Escape' &&
+        !isMemoryModalOpen &&
+        !isIdentityPromptModalOpen &&
+        !isDeleteAccountModalOpen &&
+        !isAddConnectorModalOpen
+      ) {
         handleClose()
       }
     }
@@ -157,20 +280,267 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       window.addEventListener('keydown', handleKeyDown)
       return () => window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen])
+  }, [isOpen, isMemoryModalOpen, isIdentityPromptModalOpen, isDeleteAccountModalOpen, isAddConnectorModalOpen])
 
-  const handleSaveProfile = () => {
-    updateSettings({
-      userName: fullName,
-      preferredName: callMe,
-      workDescription: workRole,
-      customInstructions: instructions,
-    })
-    addToast({
-      type: 'success',
-      title: 'Profile Updated',
-      message: 'Custom persona instructions updated for AIRA.',
-    })
+  // Profile Save
+  const handleSaveProfile = async () => {
+    try {
+      const updated = await zingoApi.updateProfile({
+        full_name: userProfile.full_name,
+        preferred_name: userProfile.preferred_name,
+        work_role: userProfile.work_role,
+        personal_preferences: userProfile.personal_preferences,
+      })
+      setUserProfile(updated)
+      updateSettings({
+        userName: updated.full_name,
+        preferredName: updated.preferred_name,
+        workDescription: updated.work_role,
+        customInstructions: updated.personal_preferences,
+      })
+      addToast({
+        type: 'success',
+        title: 'Preferences Saved',
+        message: 'Personal preferences updated and persisted across conversations.',
+      })
+    } catch (err) {
+      addToast({
+        type: 'error',
+        title: 'Failed to Save Profile',
+        message: 'Could not write updates to SQLite database.',
+      })
+    }
+  }
+
+  // Capability Toggle
+  const handleToggleCapability = async (field: keyof UserCapabilities, val: boolean) => {
+    try {
+      const newCaps = { ...capabilities, [field]: val }
+      setCapabilities(newCaps)
+      await zingoApi.updateCapabilities({ [field]: val })
+      addToast({
+        type: 'success',
+        message: `Capability updated: ${String(field).replace(/_/g, ' ')}`,
+      })
+    } catch (err) {
+      console.error('Failed to update capability:', err)
+    }
+  }
+
+  // Connector Toggle
+  const handleToggleConnector = async (connectorKey: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'connected' ? 'disconnected' : 'connected'
+    try {
+      const updated = await zingoApi.toggleConnector(connectorKey, { status: newStatus })
+      setConnectors((prev) =>
+        prev.map((c) => (c.connector_key === connectorKey ? { ...c, status: updated.status } : c))
+      )
+      addToast({
+        type: 'success',
+        title: updated.status === 'connected' ? 'Connector Active' : 'Connector Disconnected',
+        message: `${updated.name} is now ${updated.status}. System prompt updated.`,
+      })
+    } catch (err) {
+      addToast({
+        type: 'error',
+        title: 'Connector Toggle Failed',
+        message: 'Unable to update connector status in database.',
+      })
+    }
+  }
+
+  // Geolocation Request (Real browser API)
+  const handleRequestLocation = () => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude.toFixed(4)
+          const lon = position.coords.longitude.toFixed(4)
+          const coords = `${lat}° N, ${lon}° E`
+          const label = `Current Device Location (${coords})`
+          try {
+            const res = await zingoApi.updatePermissions({
+              location_permitted: true,
+              location_label: label,
+              location_coords: coords,
+            })
+            setPermissions(res)
+            addToast({
+              type: 'success',
+              title: 'Location Permitted',
+              message: `Live location coordinates saved: ${coords}`,
+            })
+          } catch (err) {
+            console.error(err)
+          }
+        },
+        async () => {
+          const defaultLabel = 'MRPL Refinery Complex, Mangaluru (12.9141° N, 74.8560° E)'
+          const res = await zingoApi.updatePermissions({
+            location_permitted: true,
+            location_label: defaultLabel,
+            location_coords: '12.9141,74.8560',
+          })
+          setPermissions(res)
+          addToast({
+            type: 'info',
+            title: 'Sovereign Location Active',
+            message: defaultLabel,
+          })
+        }
+      )
+    } else {
+      addToast({
+        type: 'warning',
+        message: 'Geolocation API not supported on this device. Using default refinery location.',
+      })
+    }
+  }
+
+  const handleRevokeLocation = async () => {
+    try {
+      const res = await zingoApi.updatePermissions({
+        location_permitted: false,
+      })
+      setPermissions(res)
+      addToast({
+        type: 'info',
+        title: 'Location Revoked',
+        message: 'Location access disabled for the AI model.',
+      })
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  // Calendar permission toggle
+  const handleToggleCalendar = async () => {
+    try {
+      const newStatus = !permissions.calendar_permitted
+      const res = await zingoApi.updatePermissions({
+        calendar_permitted: newStatus,
+        calendar_account: newStatus ? 'div.lead@mrpl.co.in' : undefined,
+      })
+      setPermissions(res)
+      addToast({
+        type: 'success',
+        title: newStatus ? 'Calendar Connected' : 'Calendar Revoked',
+        message: newStatus ? 'Google Calendar integration enabled.' : 'Calendar access removed.',
+      })
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  // Memory Files Actions
+  const handleSaveMemoryFile = async () => {
+    if (!memoryTitle.trim() || !memoryContent.trim()) {
+      addToast({ type: 'warning', message: 'Title and content are required for memory files.' })
+      return
+    }
+    try {
+      if (editingMemoryId) {
+        const updated = await zingoApi.updateMemoryFile(editingMemoryId, {
+          title: memoryTitle.trim(),
+          content: memoryContent.trim(),
+          category: memoryCategory,
+          is_sensitive: memoryIsSensitive,
+        })
+        setMemoryFiles((prev) => prev.map((m) => (m.id === editingMemoryId ? updated : m)))
+        addToast({ type: 'success', message: 'Memory file updated successfully.' })
+      } else {
+        const created = await zingoApi.addMemoryFile({
+          title: memoryTitle.trim(),
+          content: memoryContent.trim(),
+          category: memoryCategory,
+          is_sensitive: memoryIsSensitive,
+        })
+        setMemoryFiles((prev) => [created, ...prev])
+        addToast({ type: 'success', message: 'New memory file added to Claude identity.' })
+      }
+      setEditingMemoryId(null)
+      setMemoryTitle('')
+      setMemoryContent('')
+      setMemoryCategory('preference')
+      setMemoryIsSensitive(false)
+    } catch (err) {
+      addToast({ type: 'error', message: 'Failed to save memory file.' })
+    }
+  }
+
+  const handleDeleteMemoryFile = async (id: number) => {
+    try {
+      await zingoApi.deleteMemoryFile(id)
+      setMemoryFiles((prev) => prev.filter((m) => m.id !== id))
+      addToast({ type: 'success', message: 'Memory file removed.' })
+    } catch (err) {
+      addToast({ type: 'error', message: 'Failed to delete memory file.' })
+    }
+  }
+
+  const handleClearAllMemories = async () => {
+    if (!window.confirm('Are you sure you want to delete all remembered memory files?')) return
+    try {
+      await zingoApi.clearMemoryFiles()
+      setMemoryFiles([])
+      addToast({ type: 'info', message: 'All remembered files cleared.' })
+    } catch (err) {
+      addToast({ type: 'error', message: 'Failed to clear memories.' })
+    }
+  }
+
+  // Delete Account
+  const handleConfirmDeleteAccount = async () => {
+    try {
+      await zingoApi.deleteAccount()
+      setIsDeleteAccountModalOpen(false)
+      addToast({
+        type: 'error',
+        title: 'Account Reset',
+        message: 'Account data and memory have been wiped from local database.',
+      })
+      setTimeout(() => {
+        window.location.reload()
+      }, 1000)
+    } catch (err) {
+      addToast({ type: 'error', message: 'Failed to delete account.' })
+    }
+  }
+
+  // Add Custom Connector
+  const handleAddCustomConnector = async () => {
+    if (!customConnName.trim() || !customConnKey.trim()) {
+      addToast({ type: 'warning', message: 'Connector name and key are required.' })
+      return
+    }
+    try {
+      const res = await zingoApi.toggleConnector(customConnKey.trim().toLowerCase(), {
+        status: 'connected',
+        config: { custom: true, description: customConnDesc },
+      })
+      setConnectors((prev) => [...prev, res])
+      setIsAddConnectorModalOpen(false)
+      setCustomConnName('')
+      setCustomConnKey('')
+      setCustomConnDesc('')
+      addToast({ type: 'success', message: `Custom connector ${res.name} added.` })
+    } catch (err) {
+      addToast({ type: 'error', message: 'Failed to register custom connector.' })
+    }
+  }
+
+  // Model Identity Prompt Inspector
+  const handleInspectIdentityPrompt = async () => {
+    setIsFetchingPrompt(true)
+    setIsIdentityPromptModalOpen(true)
+    try {
+      const res = await zingoApi.getModelIdentityPrompt()
+      setModelIdentityPrompt(res.prompt)
+    } catch (err) {
+      setModelIdentityPrompt('Error fetching model identity prompt from backend.')
+    } finally {
+      setIsFetchingPrompt(false)
+    }
   }
 
   const handleReindex = () => {
@@ -185,25 +555,6 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     }, 2000)
   }
 
-  const handleAddRule = () => {
-    if (!newKeyword.trim()) return
-    const newRule = {
-      id: Math.random().toString(36).substring(2, 9),
-      keywords: newKeyword.trim(),
-      targetModel: newModel,
-    }
-    const updated = [...rules, newRule]
-    setRules(updated)
-    updateSettings({ autoRouteRules: updated })
-    setNewKeyword('')
-    addToast({ type: 'success', message: 'Auto-routing rule added' })
-  }
-
-  const handleDeleteRule = (id: string) => {
-    const updated = rules.filter((r) => r.id !== id)
-    setRules(updated)
-    updateSettings({ autoRouteRules: updated })
-  }
 
   const handleSaveServerConfig = () => {
     updateServer({
@@ -241,22 +592,25 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   // Sidebar navigation sections matching Claude screenshot
   const NAV_SECTIONS = [
     {
-      group: 'Settings',
+      group: 'Claude Settings',
       items: [
-        { id: 'general' as const, label: 'General', icon: <SettingsIcon size={15} /> },
-        { id: 'account' as const, label: 'Account', icon: <User size={15} /> },
+        { id: 'profile' as const, label: 'Profile', icon: <User size={15} /> },
+        { id: 'account' as const, label: 'Account', icon: <Building size={15} /> },
         { id: 'privacy' as const, label: 'Privacy', icon: <Shield size={15} /> },
         { id: 'capabilities' as const, label: 'Capabilities', icon: <Sliders size={15} /> },
-        { id: 'memory' as const, label: 'Memory', icon: <History size={15} /> },
-        { id: 'reflect' as const, label: 'Reflect', icon: <Bell size={15} /> },
-        { id: 'time' as const, label: 'Time and focus', icon: <Moon size={15} /> },
-        { id: 'code' as const, label: 'Code Sandbox', icon: <Code2 size={15} /> },
+        { id: 'permissions' as const, label: 'Permissions', icon: <MapPin size={15} /> },
+        { id: 'connectors' as const, label: 'Connectors', icon: <Cable size={15} /> },
       ],
     },
     {
       group: 'Workbench & Operations',
       items: [
-        { id: 'alerts' as const, label: 'Incident Alerts', icon: <AlertTriangle size={15} />, badge: criticalCount > 0 ? String(criticalCount) : undefined },
+        {
+          id: 'alerts' as const,
+          label: 'Incident Alerts',
+          icon: <AlertTriangle size={15} />,
+          badge: criticalCount > 0 ? String(criticalCount) : undefined,
+        },
         { id: 'health' as const, label: 'Plant Health', icon: <Factory size={15} /> },
         { id: 'documents' as const, label: 'Document Library', icon: <FileText size={15} /> },
         { id: 'shift' as const, label: 'Shift Handover', icon: <RefreshCcw size={15} /> },
@@ -270,16 +624,17 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       items: [
         { id: 'skills' as const, label: 'Skills', icon: <BookOpen size={15} /> },
         { id: 'kb' as const, label: 'Knowledge Base', icon: <Upload size={15} /> },
-        { id: 'connectors' as const, label: 'Connectors', icon: <Cable size={15} /> },
         { id: 'plugins' as const, label: 'Plugins', icon: <Puzzle size={15} /> },
       ],
     },
     {
-      group: 'System',
+      group: 'System & Cluster',
       items: [
         { id: 'server' as const, label: 'Cluster Nodes', icon: <Server size={15} /> },
+        { id: 'memory' as const, label: 'Chat Context Window', icon: <History size={15} /> },
+        { id: 'code' as const, label: 'Code Sandbox', icon: <Code2 size={15} /> },
         { id: 'shortcuts' as const, label: 'Shortcuts', icon: <Keyboard size={15} /> },
-        { id: 'about' as const, label: 'About AIRA', icon: <Info size={15} /> },
+        { id: 'about' as const, label: 'About ZINGO', icon: <Info size={15} /> },
       ],
     },
   ]
@@ -287,12 +642,11 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   // Filter items if searching in sidebar
   const filteredSections = NAV_SECTIONS.map((sec) => ({
     ...sec,
-    items: sec.items.filter((i) =>
-      i.label.toLowerCase().includes(searchQuery.toLowerCase())
-    ),
+    items: sec.items.filter((i) => i.label.toLowerCase().includes(searchQuery.toLowerCase())),
   })).filter((sec) => sec.items.length > 0)
 
   const getTabLabel = (tab: TabKey): string => {
+    if (tab === 'general' || tab === 'profile') return 'Profile'
     for (const sec of NAV_SECTIONS) {
       for (const item of sec.items) {
         if ((item as any).id === tab) return item.label
@@ -301,7 +655,13 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     return 'Settings'
   }
 
-  const userInitial = fullName.trim().charAt(0).toUpperCase() || 'D'
+  const userInitial = userProfile.full_name?.trim().charAt(0).toUpperCase() || 'D'
+
+  // Filtered memory files for the sub-modal
+  const filteredMemories =
+    memoryFilter === 'all'
+      ? memoryFiles
+      : memoryFiles.filter((m) => m.category === memoryFilter || (memoryFilter === 'sensitive' && m.is_sensitive))
 
   if (!isOpen) return null
 
@@ -314,7 +674,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       <div
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full ${
-          isWorkbenchTab ? 'md:max-w-6xl md:h-[820px]' : 'md:max-w-4xl md:h-[700px]'
+          isWorkbenchTab ? 'md:max-w-6xl md:h-[840px]' : 'md:max-w-4xl md:h-[720px]'
         } h-full md:max-h-[94vh] bg-surface text-content-primary rounded-none md:rounded-2xl border-0 md:border md:border-border shadow-2xl flex overflow-hidden select-none transition-all duration-200`}
       >
         {/* Left Sidebar */}
@@ -340,10 +700,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
           {/* Search input at top of sidebar matching Claude */}
           <div className="p-3.5 pb-2">
             <div className="relative flex items-center">
-              <Search
-                size={13}
-                className="absolute left-2.5 text-content-tertiary pointer-events-none"
-              />
+              <Search size={13} className="absolute left-2.5 text-content-tertiary pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
@@ -363,7 +720,8 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                 </div>
                 <div className="space-y-0.5 mt-0.5">
                   {sec.items.map((item) => {
-                    const isActive = activeTab === item.id
+                    const isTabActive =
+                      activeTab === item.id || (item.id === 'profile' && activeTab === 'general')
                     const badge = (item as any).badge
                     return (
                       <button
@@ -374,12 +732,12 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                           setMobileView('content')
                         }}
                         className={`w-full flex items-center gap-2.5 px-2.5 py-2 md:py-1.5 rounded-lg text-xs font-normal transition-colors border-none bg-transparent cursor-pointer text-left ${
-                          isActive
+                          isTabActive
                             ? 'bg-elevated text-content-primary font-medium'
                             : 'text-content-secondary hover:bg-elevated/60 hover:text-content-primary'
                         }`}
                       >
-                        <span className={isActive ? 'text-content-primary' : 'text-content-tertiary'}>
+                        <span className={isTabActive ? 'text-content-primary' : 'text-content-tertiary'}>
                           {item.icon}
                         </span>
                         <span className="truncate flex-1">{item.label}</span>
@@ -394,6 +752,18 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Bottom Identity Inspector Button */}
+          <div className="p-3 border-t border-border bg-surface/50">
+            <button
+              type="button"
+              onClick={handleInspectIdentityPrompt}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-accent hover:bg-accent/10 border border-accent/20 transition-colors"
+            >
+              <Sparkles size={13} />
+              <span>Inspect Identity Prompt</span>
+            </button>
           </div>
         </aside>
 
@@ -459,1009 +829,1402 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto px-7 sm:px-10 py-7 max-w-2xl select-text">
-              {/* TAB: GENERAL (CLAUDE PROFILE & PREFERENCES EXACT REPLICA) */}
-              {activeTab === 'general' && (
+              {/* ========================================================================= */}
+              {/* SCREEN 1: PROFILE (SCREENSHOT media_1789707191518.png EXACT REPLICA)     */}
+              {/* ========================================================================= */}
+              {(activeTab === 'profile' || activeTab === 'general') && (
                 <div className="space-y-6">
-                {/* Profile Heading */}
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Profile
-                  </h2>
-                </div>
-
-                {/* Avatar Row */}
-                <div className="flex items-center justify-between py-3 border-b border-border">
-                  <span className="text-xs sm:text-sm font-normal text-content-primary">
-                    Avatar
-                  </span>
-                  <div className="w-8 h-8 rounded-full bg-elevated border border-border text-content-primary flex items-center justify-center font-semibold text-xs select-none">
-                    {userInitial}
-                  </div>
-                </div>
-
-                {/* Full name Row */}
-                <div className="flex items-center justify-between py-3 border-b border-border">
-                  <span className="text-xs sm:text-sm font-normal text-content-primary">
-                    Full name
-                  </span>
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    onBlur={handleSaveProfile}
-                    placeholder="Div"
-                    className="w-56 sm:w-64 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none transition-colors"
-                  />
-                </div>
-
-                {/* What should AIRA call you? Row */}
-                <div className="flex items-center justify-between py-3 border-b border-border">
-                  <span className="text-xs sm:text-sm font-normal text-content-primary">
-                    What should AIRA call you?
-                  </span>
-                  <input
-                    type="text"
-                    value={callMe}
-                    onChange={(e) => setCallMe(e.target.value)}
-                    onBlur={handleSaveProfile}
-                    placeholder="Div"
-                    className="w-56 sm:w-64 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none transition-colors"
-                  />
-                </div>
-
-                {/* What best describes your work? Row */}
-                <div className="flex items-center justify-between py-3 border-b border-border">
-                  <span className="text-xs sm:text-sm font-normal text-content-primary">
-                    What best describes your work?
-                  </span>
-                  <div className="relative w-56 sm:w-64">
-                    <select
-                      value={workRole}
-                      onChange={(e) => {
-                        setWorkRole(e.target.value)
-                        updateSettings({ workDescription: e.target.value })
-                      }}
-                      className="w-full appearance-none px-3 py-1.5 pr-8 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none cursor-pointer"
-                    >
-                      <option value="Select">Select</option>
-                      <option value="Refinery Process Engineer (CDU/VDU)">Refinery Process Engineer (CDU/VDU)</option>
-                      <option value="Mechanical Maintenance Lead">Mechanical Maintenance Lead</option>
-                      <option value="Safety & OISD Compliance Officer">Safety & OISD Compliance Officer</option>
-                      <option value="Chemical Automation Specialist">Chemical Automation Specialist</option>
-                      <option value="Refinery Operations Lead">Refinery Operations Lead</option>
-                      <option value="Executive Management">Executive Management</option>
-                    </select>
-                    <ChevronDown
-                      size={14}
-                      className="absolute right-2.5 top-2.5 text-content-tertiary pointer-events-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Instructions for AIRA (Claude Subtitle & Textarea) */}
-                <div className="py-2 space-y-2">
-                  <span className="text-xs sm:text-sm font-normal text-content-primary block">
-                    Instructions for AIRA
-                  </span>
-                  <p className="text-xs text-content-secondary leading-relaxed max-w-xl">
-                    AIRA will keep these in mind for this and any of your associated accounts across chats and refinery workflows within MRPL safety guidelines.{' '}
-                    <button
-                      type="button"
-                      onClick={() => addToast({ type: 'info', message: 'MRPL Operational & OISD Compliance Guidelines active.' })}
-                      className="text-content-secondary underline hover:text-content-primary cursor-pointer bg-transparent border-none p-0 inline"
-                    >
-                      Learn more
-                    </button>
-                  </p>
-                  <textarea
-                    rows={4}
-                    value={instructions}
-                    onChange={(e) => setInstructions(e.target.value)}
-                    onBlur={handleSaveProfile}
-                    placeholder="e.g. keep explanations brief and to the point"
-                    className="w-full mt-2 p-3 bg-elevated border border-border rounded-xl text-xs text-content-primary placeholder-content-tertiary focus:border-border-strong outline-none resize-y leading-relaxed transition-colors"
-                  />
-                </div>
-
-                {/* Preferences Heading */}
-                <div className="pt-4">
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Preferences
-                  </h2>
-                </div>
-
-                {/* Appearance Row (Monitor, Sun, Moon Segmented Icons) */}
-                <div className="flex items-center justify-between py-3 border-b border-border">
-                  <span className="text-xs sm:text-sm font-normal text-content-primary">
-                    Appearance
-                  </span>
-                  <div className="inline-flex items-center p-0.5 rounded-lg bg-elevated border border-border">
-                    <button
-                      type="button"
-                      onClick={() => setTheme('system')}
-                      className={`p-1.5 px-2 rounded-md transition-colors ${
-                        theme === 'system'
-                          ? 'bg-surface text-content-primary shadow-xs font-medium'
-                          : 'text-content-tertiary hover:text-content-primary'
-                      }`}
-                      title="System Theme"
-                    >
-                      <Monitor size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTheme('light')}
-                      className={`p-1.5 px-2 rounded-md transition-colors ${
-                        theme === 'light'
-                          ? 'bg-surface text-content-primary shadow-xs font-medium'
-                          : 'text-content-tertiary hover:text-content-primary'
-                      }`}
-                      title="Light Theme"
-                    >
-                      <Sun size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTheme('dark')}
-                      className={`p-1.5 px-2 rounded-md transition-colors ${
-                        theme === 'dark'
-                          ? 'bg-surface text-content-primary shadow-xs font-medium'
-                          : 'text-content-tertiary hover:text-content-primary'
-                      }`}
-                      title="Dark Theme"
-                    >
-                      <Moon size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Chat font Row */}
-                <div className="flex items-center justify-between py-3 border-b border-border">
-                  <span className="text-xs sm:text-sm font-normal text-content-primary">
-                    Chat font
-                  </span>
-                  <div className="relative w-48 sm:w-56">
-                    <select
-                      value={settings.chatFont || 'inter'}
-                      onChange={(e) => updateSettings({ chatFont: e.target.value as any })}
-                      className="w-full appearance-none px-3 py-1.5 pr-8 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none cursor-pointer"
-                    >
-                      <option value="inter">AIRA Sans (Default)</option>
-                      <option value="serif">Anthropic Serif</option>
-                      <option value="mono">JetBrains Mono (Technical)</option>
-                      <option value="system">System Native</option>
-                    </select>
-                    <ChevronDown
-                      size={14}
-                      className="absolute right-2.5 top-2.5 text-content-tertiary pointer-events-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Motion Row (System / Reduced Segmented Control) */}
-                <div className="flex items-center justify-between py-3">
-                  <div className="pr-4">
-                    <span className="text-xs sm:text-sm font-normal text-content-primary block">
-                      Motion
-                    </span>
-                    <span className="text-xs text-content-secondary mt-0.5 block">
-                      Reduce animation in streaming responses and other interface elements.
-                    </span>
-                  </div>
-                  <div className="inline-flex items-center p-0.5 rounded-lg bg-elevated border border-border shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => updateSettings({ reducedMotion: false })}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                        !settings.reducedMotion
-                          ? 'bg-surface text-content-primary shadow-xs'
-                          : 'text-content-tertiary hover:text-content-primary'
-                      }`}
-                    >
-                      System
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateSettings({ reducedMotion: true })}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                        settings.reducedMotion
-                          ? 'bg-surface text-content-primary shadow-xs'
-                          : 'text-content-tertiary hover:text-content-primary'
-                      }`}
-                    >
-                      Reduced
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: ACCOUNT */}
-            {activeTab === 'account' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Account & Organization
-                  </h2>
-                </div>
-
-                <div className="divide-y divide-border/60 text-xs sm:text-sm">
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Organization</span>
-                    <span className="font-medium text-content-primary">
-                      Mangalore Refinery and Petrochemicals Limited
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Facility Site</span>
-                    <span className="font-medium text-content-primary">
-                      Kuthethoor, Mangaluru, Karnataka - 575030
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Operator Badge ID</span>
-                    <span className="font-mono text-content-primary">MRPL-ENG-8492</span>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Clearance Level</span>
-                    <span className="inline-flex items-center gap-1.5 text-xs text-success font-medium">
-                      <CheckCircle2 size={13} />
-                      <span>Level 3 · Process & Safety Lead</span>
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Hardware Tier</span>
-                    <span className="font-medium text-content-primary">
-                      MRPL Sovereign Enterprise Node (2x Dell G15 RTX)
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Token Allowance</span>
-                    <span className="font-medium text-success">
-                      Unlimited (On-Premise Air-Gapped Inference)
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Authentication</span>
-                    <span className="font-mono text-xs text-content-primary">Local Hardware Air-Gap</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: PRIVACY */}
-            {activeTab === 'privacy' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Privacy & Sovereign Air-Gap
-                  </h2>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-success/10 border border-success/20 flex items-start gap-3">
-                  <Shield size={16} className="text-success shrink-0 mt-0.5" />
-                  <div className="text-xs text-content-secondary space-y-1">
-                    <span className="font-medium text-success block">Hardware Isolation Verified</span>
-                    <p className="leading-relaxed">
-                      AIRA runs exclusively on private Dell G15 local GPU hardware. No outbound telemetry, analytics, or refinery documents leave MRPL intranet.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="divide-y divide-border/60 text-xs sm:text-sm">
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">External Telemetry</span>
-                    <span className="font-mono text-xs text-success font-medium">Disabled (0 bytes outbound)</span>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Model Weights Storage</span>
-                    <span className="font-mono text-xs text-content-primary">Local NVMe RAID-0</span>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <span className="text-content-secondary">Audit Trail Compliance</span>
-                    <span className="font-mono text-xs text-content-primary">OISD-105 Compliant SQLite Log</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: CAPABILITIES */}
-            {activeTab === 'capabilities' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Capabilities & Model Inference
-                  </h2>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <span className="text-xs font-medium text-content-primary">Default Primary Model</span>
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-3 p-3 rounded-xl bg-elevated border border-border cursor-pointer">
-                        <input
-                          type="radio"
-                          name="model"
-                          checked={settings.defaultModel === 'qwen2.5-7b'}
-                          onChange={() => updateSettings({ defaultModel: 'qwen2.5-7b' })}
-                          className="accent-accent"
-                        />
-                        <div>
-                          <div className="text-xs font-semibold text-content-primary">
-                            Qwen2.5-7B-Instruct (G15 #1 Primary Node)
-                          </div>
-                          <div className="text-[11px] text-content-tertiary">
-                            Refinery SOP retrieval, safety procedures, OISD compliance
-                          </div>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center gap-3 p-3 rounded-xl bg-elevated border border-border cursor-pointer">
-                        <input
-                          type="radio"
-                          name="model"
-                          checked={settings.defaultModel === 'qwen2.5-coder-7b'}
-                          onChange={() => updateSettings({ defaultModel: 'qwen2.5-coder-7b' })}
-                          className="accent-accent"
-                        />
-                        <div>
-                          <div className="text-xs font-semibold text-content-primary">
-                            Qwen2.5-Coder-7B (G15 #2 Coder Node)
-                          </div>
-                          <div className="text-[11px] text-content-tertiary">
-                            Python calculations, cut yields, COT heater balancing, automation
-                          </div>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Sliders */}
-                  <div className="pt-2 divide-y divide-border/60">
-                    <div className="py-3">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs font-medium text-content-primary">Temperature</span>
-                        <span className="font-mono text-xs text-content-secondary px-2 py-0.5 rounded bg-elevated border border-border">
-                          {settings.temperature}
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={2.0}
-                        step={0.05}
-                        value={settings.temperature}
-                        onChange={(e) => updateSettings({ temperature: Number(e.target.value) })}
-                        className="w-full accent-accent cursor-pointer"
-                      />
-                    </div>
-
-                    <div className="py-3">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs font-medium text-content-primary">Max Output Tokens</span>
-                        <span className="font-mono text-xs text-content-secondary px-2 py-0.5 rounded bg-elevated border border-border">
-                          {settings.maxTokens}
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={256}
-                        max={4096}
-                        step={128}
-                        value={settings.maxTokens}
-                        onChange={(e) => updateSettings({ maxTokens: Number(e.target.value) })}
-                        className="w-full accent-accent cursor-pointer"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Auto-routing Rules */}
-                  <div className="pt-4 space-y-3">
-                    <span className="text-xs font-semibold text-content-primary block">
-                      Auto-Routing Keyword Rules
-                    </span>
-                    <div className="space-y-1.5">
-                      {rules.map((rule) => (
-                        <div
-                          key={rule.id}
-                          className="flex items-center justify-between p-2.5 rounded-lg bg-elevated border border-border text-xs"
-                        >
-                          <div>
-                            <span className="font-mono text-xs text-content-primary block">{rule.keywords}</span>
-                            <span className="text-[10px] text-content-tertiary">Route to &rarr; {rule.targetModel}</span>
-                          </div>
-                          <button
-                            onClick={() => handleDeleteRule(rule.id)}
-                            className="btn-icon !w-6 !h-6 text-content-tertiary hover:text-danger"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="flex gap-2 pt-1">
-                      <input
-                        type="text"
-                        placeholder="Keywords (e.g. pump, crude, yield)"
-                        value={newKeyword}
-                        onChange={(e) => setNewKeyword(e.target.value)}
-                        className="flex-1 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none"
-                      />
-                      <select
-                        value={newModel}
-                        onChange={(e) => setNewModel(e.target.value as ModelId)}
-                        className="px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none"
-                      >
-                        <option value="qwen2.5-coder-7b">Qwen2.5-Coder-7B</option>
-                        <option value="qwen2.5-7b">Qwen2.5-7B</option>
-                      </select>
-                      <button onClick={handleAddRule} className="btn-primary !py-1.5 !px-3 !text-xs">
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: MEMORY & CONTEXT */}
-            {activeTab === 'memory' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Memory & Interaction
-                  </h2>
-                </div>
-
-                <div className="space-y-4">
-                  <Toggle
-                    label="Enter to send message"
-                    description="When disabled, press ⌘+Enter to dispatch messages"
-                    checked={settings.enterToSend}
-                    onChange={(val) => updateSettings({ enterToSend: val })}
-                  />
-                  <Toggle
-                    label="Auto-route models"
-                    description="Automatically select between Qwen2.5-7B and Coder based on prompt content"
-                    checked={settings.autoRouteModel}
-                    onChange={(val) => updateSettings({ autoRouteModel: val })}
-                  />
-                  <Toggle
-                    label="Token streaming"
-                    description="Stream responses character by character in real-time"
-                    checked={settings.streamingEnabled}
-                    onChange={(val) => updateSettings({ streamingEnabled: val })}
-                  />
-                  <Toggle
-                    label="Show source citations panel"
-                    description="Allow inspection of referenced MRPL documents on assistant responses"
-                    checked={settings.showSources}
-                    onChange={(val) => updateSettings({ showSources: val })}
-                  />
-
-                  <div className="pt-3 border-t border-border">
-                    <div className="flex justify-between items-center mb-1.5">
-                      <span className="text-xs font-medium text-content-primary">
-                        Context Window ({settings.contextWindow} messages)
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={20}
-                      value={settings.contextWindow}
-                      onChange={(e) => updateSettings({ contextWindow: Number(e.target.value) })}
-                      className="w-full accent-accent cursor-pointer"
-                    />
-                    <p className="text-[11px] text-content-tertiary mt-1">
-                      Number of prior dialogue turns retained in memory for multi-step tasks.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: REFLECT */}
-            {activeTab === 'reflect' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Reflect & Safety Verification
-                  </h2>
-                </div>
-
-                <div className="divide-y divide-border/60 text-xs sm:text-sm">
-                  <div className="py-3.5 space-y-1">
-                    <span className="font-medium text-content-primary block">Automated Reflection Pass</span>
-                    <p className="text-xs text-content-secondary leading-relaxed">
-                      AIRA evaluates intermediate engineering calculations against mass-balance equations before outputting answers.
-                    </p>
-                  </div>
-                  <div className="py-3.5 space-y-1">
-                    <span className="font-medium text-content-primary block">OISD-105 Safety Thresholds</span>
-                    <p className="text-xs text-content-secondary leading-relaxed">
-                      Automatically flags any proposed operating temperatures, column pressures, or reflux ratios exceeding safety limits.
-                    </p>
-                  </div>
-                  <div className="py-3.5 flex items-center justify-between">
-                    <div>
-                      <span className="font-medium text-content-primary block">Verify Thermodynamics</span>
-                      <span className="text-xs text-content-secondary">Enforce Peng-Robinson phase equilibria checks</span>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full bg-success/15 text-success text-[11px] font-medium">
-                      Active
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: TIME AND FOCUS */}
-            {activeTab === 'time' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Time & Shift Focus
-                  </h2>
-                </div>
-
-                <div className="divide-y divide-border/60 text-xs sm:text-sm">
-                  <div className="flex items-center justify-between py-3">
-                    <div>
-                      <span className="font-medium text-content-primary block">Current Shift Schedule</span>
-                      <span className="text-xs text-content-secondary">Align handover reports with operational shifts</span>
-                    </div>
-                    <select className="px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none">
-                      <option>Day Shift (06:00 - 14:00)</option>
-                      <option>Evening Shift (14:00 - 22:00)</option>
-                      <option>Night Shift (22:00 - 06:00)</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center justify-between py-3">
-                    <div>
-                      <span className="font-medium text-content-primary block">Turnaround Quiet Mode</span>
-                      <span className="text-xs text-content-secondary">Mute audio chimes during critical refinery shutdowns</span>
-                    </div>
-                    <span className="text-xs text-content-tertiary">Off</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: CLAUDE CODE / AIRA CODE */}
-            {activeTab === 'code' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    AIRA Code Sandbox & Runtime
-                  </h2>
-                </div>
-
-                <p className="text-xs text-content-secondary leading-relaxed">
-                  Local Python 3.11 execution sandbox hosted on G15 #2 Coder node. Pre-loaded with scientific computing and thermodynamics libraries:
-                </p>
-
-                <div className="grid grid-cols-2 gap-2 font-mono text-xs">
-                  <div className="p-3 rounded-lg bg-elevated border border-border flex justify-between">
-                    <span className="text-content-secondary">NumPy:</span>
-                    <span>1.26.4</span>
-                  </div>
-                  <div className="p-3 rounded-lg bg-elevated border border-border flex justify-between">
-                    <span className="text-content-secondary">Pandas:</span>
-                    <span>2.2.1</span>
-                  </div>
-                  <div className="p-3 rounded-lg bg-elevated border border-border flex justify-between">
-                    <span className="text-content-secondary">SciPy:</span>
-                    <span>1.12.0</span>
-                  </div>
-                  <div className="p-3 rounded-lg bg-elevated border border-border flex justify-between">
-                    <span className="text-content-secondary">ThermoRefKit:</span>
-                    <span>v2.4.1</span>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-elevated border border-border text-xs text-content-secondary space-y-1">
-                  <span className="font-medium text-content-primary block">Air-Gap Code Sandboxing</span>
-                  <p>Scripts execute in an isolated container with zero socket permissions and temporary memory-only filesystem.</p>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: SKILLS (CUSTOMIZE) */}
-            {activeTab === 'skills' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Refinery Engineering Skills
-                  </h2>
-                </div>
-
-                <div className="divide-y divide-border/60 text-xs sm:text-sm">
-                  {[
-                    { name: 'MRPL SOP Expert Parser', desc: 'Deep semantic retrieval across CDU-2, VDU, and PTW manuals', active: true },
-                    { name: 'OISD Safety Auditor', desc: 'Real-time compliance checks against OISD-105 & OISD-118 safety norms', active: true },
-                    { name: 'Crude Cut Yield Modeler', desc: 'Predict true boiling point cuts and assay distributions', active: true },
-                    { name: 'Furnace COT Pass Balancer', desc: 'Multi-pass coil outlet temperature balancing and fouling alerts', active: true },
-                  ].map((skill) => (
-                    <div key={skill.name} className="flex items-center justify-between py-3.5">
-                      <div className="pr-4">
-                        <span className="font-medium text-content-primary block">{skill.name}</span>
-                        <span className="text-xs text-content-secondary mt-0.5 block">{skill.desc}</span>
-                      </div>
-                      <span className="px-2.5 py-1 rounded-full bg-success/15 text-success text-[11px] font-medium shrink-0 flex items-center gap-1">
-                        <Check size={12} />
-                        <span>Enabled</span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            
-            {/* TAB: KNOWLEDGE BASE (CUSTOMIZE) */}
-            {activeTab === 'kb' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                      Knowledge Base ({docs.length})
+                      Profile
                     </h2>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <label className="btn-glass !py-1 !px-2.5 !text-xs flex items-center gap-1.5 cursor-pointer">
-                      <Upload size={13} />
-                      <span>Upload</span>
-                      <input type="file" onChange={handleUploadKBFile} accept=".pdf,.docx,.xlsx,.txt" className="hidden" />
-                    </label>
-                    <button
-                      onClick={handleReindex}
-                      disabled={isReindexing}
-                      className="btn-glass !py-1 !px-2.5 !text-xs flex items-center gap-1.5"
-                    >
-                      {isReindexing ? <Spinner size="sm" /> : <RefreshCw size={13} />}
-                      <span>{isReindexing ? 'Re-indexing...' : 'Re-index'}</span>
-                    </button>
+
+                  {/* Avatar Row */}
+                  <div className="flex items-center justify-between py-3.5 border-b border-border">
+                    <span className="text-xs sm:text-sm font-normal text-content-primary">
+                      Avatar
+                    </span>
+                    <div className="w-9 h-9 rounded-full bg-accent/20 border border-accent/40 text-accent font-semibold text-sm flex items-center justify-center select-none shadow-xs">
+                      {userInitial}
+                    </div>
                   </div>
-                </div>
 
-                <div className="divide-y divide-border/60 text-xs sm:text-sm">
-                  {docs.map((doc) => (
-                    <div key={doc.id} className="flex items-center justify-between py-3">
-                      <div>
-                        <span className="font-medium text-content-primary block">{doc.name}</span>
-                        <span className="text-xs text-content-tertiary mt-0.5 block">{doc.category} · {doc.size}</span>
-                      </div>
-                      <button
-                        onClick={() => setDocs(docs.filter((d) => d.id !== doc.id))}
-                        className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-danger"
+                  {/* Full name Row */}
+                  <div className="flex items-center justify-between py-3.5 border-b border-border">
+                    <span className="text-xs sm:text-sm font-normal text-content-primary">
+                      Full name
+                    </span>
+                    <input
+                      type="text"
+                      value={userProfile.full_name}
+                      onChange={(e) =>
+                        setUserProfile((prev) => ({ ...prev, full_name: e.target.value }))
+                      }
+                      onBlur={handleSaveProfile}
+                      placeholder="Div"
+                      className="w-56 sm:w-64 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none transition-colors"
+                    />
+                  </div>
+
+                  {/* What should Claude call you? Row */}
+                  <div className="flex items-center justify-between py-3.5 border-b border-border">
+                    <span className="text-xs sm:text-sm font-normal text-content-primary">
+                      What should Claude call you?
+                    </span>
+                    <input
+                      type="text"
+                      value={userProfile.preferred_name}
+                      onChange={(e) =>
+                        setUserProfile((prev) => ({ ...prev, preferred_name: e.target.value }))
+                      }
+                      onBlur={handleSaveProfile}
+                      placeholder="Div"
+                      className="w-56 sm:w-64 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none transition-colors"
+                    />
+                  </div>
+
+                  {/* Engineering Role (Process Context) */}
+                  <div className="flex items-center justify-between py-3.5 border-b border-border">
+                    <span className="text-xs sm:text-sm font-normal text-content-primary">
+                      What best describes your work?
+                    </span>
+                    <div className="relative w-56 sm:w-64">
+                      <select
+                        value={userProfile.work_role || 'Refinery Process Engineer (CDU/VDU)'}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setUserProfile((prev) => ({ ...prev, work_role: val }))
+                          zingoApi.updateProfile({ work_role: val })
+                        }}
+                        className="w-full appearance-none px-3 py-1.5 pr-8 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none cursor-pointer"
                       >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: CONNECTORS (CUSTOMIZE) */}
-            {activeTab === 'connectors' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    DCS & SCADA Connectors
-                  </h2>
-                </div>
-
-                <div className="divide-y divide-border/60 text-xs sm:text-sm">
-                  {[
-                    { name: 'Honeywell Experion PKS DCS', desc: 'OPC UA Gateway · 192.168.1.100:4840', status: 'Connected' },
-                    { name: 'Yokogawa CENTUM VP (Offsites)', desc: 'Modbus TCP Gateway · 192.168.1.105:502', status: 'Connected' },
-                    { name: 'Aspen InfoPlus.21 (IP.21 Historian)', desc: 'REST API · 192.168.1.110:8080', status: 'Connected' },
-                    { name: 'SAP PM Plant Maintenance', desc: 'RFC Gateway · Offline Buffer', status: 'Idle' },
-                  ].map((conn) => (
-                    <div key={conn.name} className="flex items-center justify-between py-3.5">
-                      <div>
-                        <span className="font-medium text-content-primary block">{conn.name}</span>
-                        <span className="text-xs text-content-tertiary mt-0.5 block font-mono">{conn.desc}</span>
-                      </div>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
-                          conn.status === 'Connected'
-                            ? 'bg-success/15 text-success'
-                            : 'bg-elevated text-content-tertiary border border-border'
-                        }`}
-                      >
-                        {conn.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: PLUGINS (CUSTOMIZE) */}
-            {activeTab === 'plugins' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Installed Plugins
-                  </h2>
-                </div>
-
-                <div className="divide-y divide-border/60 text-xs sm:text-sm">
-                  {[
-                    { name: 'MRPL PDF OCR & Table Parser', desc: 'Extracts engineering inspection logs and tabular data from scanned PDFs' },
-                    { name: 'Scientific KaTeX Equation Renderer', desc: 'Displays thermodynamic cut yield formulas and mass balance notation' },
-                    { name: 'Interactive Python Code Runner', desc: 'Sandboxed in-browser code execution with terminal output' },
-                  ].map((plugin) => (
-                    <div key={plugin.name} className="flex items-center justify-between py-3.5">
-                      <div className="pr-4">
-                        <span className="font-medium text-content-primary block">{plugin.name}</span>
-                        <span className="text-xs text-content-secondary mt-0.5 block">{plugin.desc}</span>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-md bg-elevated border border-border text-[11px] text-content-secondary">
-                        v1.2.0
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: CLUSTER & NODES */}
-            {activeTab === 'server' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Distributed Multi-Laptop Cluster
-                  </h2>
-                  <p className="text-xs text-content-secondary mt-1">
-                    Connect up to 4 dedicated laptops over LAN or tunnels. Each laptop hosts its own resident model in VRAM for zero-latency execution.
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  {/* Node 1: Master Node */}
-                  <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-content-primary">Laptop 1: Master Node</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 text-primary border border-primary/20">
-                          Qwen3-8B (Chat & Orchestration)
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => checkIndividual('primary')}
-                        disabled={server.primaryStatus === 'checking'}
-                        className="btn-ghost !py-0.5 !px-2 !text-[11px]"
-                      >
-                        {server.primaryStatus === 'checking' ? 'Testing...' : 'Test connection'}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={g15Primary}
-                        placeholder="e.g. https://splendid-sensibly-primate.ngrok-free.app or http://127.0.0.1:8000"
-                        onChange={(e) => setG15Primary(e.target.value)}
-                        className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                        <option value="Refinery Process Engineer (CDU/VDU)">
+                          Refinery Process Engineer (CDU/VDU)
+                        </option>
+                        <option value="Mechanical Maintenance Lead">Mechanical Maintenance Lead</option>
+                        <option value="Safety & OISD Compliance Officer">
+                          Safety & OISD Compliance Officer
+                        </option>
+                        <option value="Chemical Automation Specialist">
+                          Chemical Automation Specialist
+                        </option>
+                        <option value="Refinery Operations Lead">Refinery Operations Lead</option>
+                        <option value="Full-Stack AI Developer">Full-Stack AI Developer</option>
+                      </select>
+                      <ChevronDown
+                        size={14}
+                        className="absolute right-2.5 top-2.5 text-content-tertiary pointer-events-none"
                       />
-                      <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
-                        <span className={`w-2 h-2 rounded-full ${server.primaryStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
-                        <span className="capitalize text-[11px]">{server.primaryStatus || 'online'}</span>
-                      </span>
                     </div>
                   </div>
 
-                  {/* Node 2: Coder Node */}
-                  <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-content-primary">Laptop 2: Coder Node</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                          Qwen2.5-Coder:7b (Code & Debug)
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => checkIndividual('coder')}
-                        disabled={server.coderStatus === 'checking'}
-                        className="btn-ghost !py-0.5 !px-2 !text-[11px]"
-                      >
-                        {server.coderStatus === 'checking' ? 'Testing...' : 'Test connection'}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={g15Coder}
-                        placeholder="e.g. http://192.168.1.15:11434 or tunnel URL"
-                        onChange={(e) => setG15Coder(e.target.value)}
-                        className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
-                      />
-                      <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
-                        <span className={`w-2 h-2 rounded-full ${server.coderStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
-                        <span className="capitalize text-[11px]">{server.coderStatus || 'offline'}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Node 3: Multimodal Vision Node */}
-                  <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-content-primary">Laptop 3: Vision Node</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                          Qwen2.5-VL:7b (Images & Blueprints)
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => checkIndividual('vision')}
-                        disabled={server.visionStatus === 'checking'}
-                        className="btn-ghost !py-0.5 !px-2 !text-[11px]"
-                      >
-                        {server.visionStatus === 'checking' ? 'Testing...' : 'Test connection'}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={g15Vision}
-                        placeholder="e.g. http://192.168.1.16:11434 or tunnel URL"
-                        onChange={(e) => setG15Vision(e.target.value)}
-                        className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
-                      />
-                      <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
-                        <span className={`w-2 h-2 rounded-full ${server.visionStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
-                        <span className="capitalize text-[11px]">{server.visionStatus || 'offline'}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Node 4: Deep Reasoning Node */}
-                  <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-content-primary">Laptop 4: Deep Reasoning Node</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                          DeepSeek-R1:8b (Math & Step-by-Step)
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => checkIndividual('reasoning')}
-                        disabled={server.reasoningStatus === 'checking'}
-                        className="btn-ghost !py-0.5 !px-2 !text-[11px]"
-                      >
-                        {server.reasoningStatus === 'checking' ? 'Testing...' : 'Test connection'}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={g15Reasoning}
-                        placeholder="e.g. http://192.168.1.17:11434 or tunnel URL"
-                        onChange={(e) => setG15Reasoning(e.target.value)}
-                        className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
-                      />
-                      <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
-                        <span className={`w-2 h-2 rounded-full ${server.reasoningStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
-                        <span className="capitalize text-[11px]">{server.reasoningStatus || 'offline'}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Quick Setup Guide Box */}
-                  <div className="p-3.5 rounded-xl bg-surface/60 border border-border/80 text-xs space-y-2">
-                    <div className="font-semibold text-content-primary flex items-center gap-1.5">
-                      <Info size={14} className="text-primary" />
-                      <span>How to connect each laptop tomorrow:</span>
-                    </div>
-                    <p className="text-content-secondary leading-relaxed">
-                      1. On each laptop, allow Ollama to accept LAN connections by running PowerShell as Admin:
+                  {/* Personal Preferences Textarea (Exact Claude Screenshot text & layout) */}
+                  <div className="py-2 space-y-2">
+                    <span className="text-xs sm:text-sm font-normal text-content-primary block">
+                      What personal preferences should Claude consider in responses?
+                    </span>
+                    <p className="text-xs text-content-secondary leading-relaxed max-w-xl">
+                      These will apply across all your conversations and Projects, unless overridden
+                      in a specific Project or style.
                     </p>
-                    <pre className="p-2 rounded bg-black/40 font-mono text-[11px] text-content-primary overflow-x-auto">
-                      [System.Environment]::SetEnvironmentVariable(&apos;OLLAMA_HOST&apos;, &apos;0.0.0.0:11434&apos;, &apos;User&apos;)
-                    </pre>
-                    <p className="text-content-secondary leading-relaxed">
-                      2. Restart Ollama, run <code className="text-primary font-mono text-[11px]">ipconfig</code> to find that laptop&apos;s IP, enter it above (e.g. <code className="text-primary font-mono text-[11px]">http://192.168.1.15:11434</code>), and click <strong>Test connection</strong>!
+                    <textarea
+                      rows={5}
+                      value={userProfile.personal_preferences || ''}
+                      onChange={(e) =>
+                        setUserProfile((prev) => ({
+                          ...prev,
+                          personal_preferences: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. I'm an engineer working with Python and control systems. Be concise, direct, and verify calculation bounds..."
+                      className="w-full mt-2 p-3 bg-elevated border border-border rounded-xl text-xs text-content-primary placeholder-content-tertiary focus:border-border-strong outline-none resize-y leading-relaxed transition-colors font-sans"
+                    />
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={handleSaveProfile}
+                        className="btn-primary !py-1.5 !px-4 !text-xs"
+                      >
+                        Save preferences
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Appearance Section */}
+                  <div className="pt-4 border-t border-border">
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary mb-3">
+                      Preferences
+                    </h2>
+                    <div className="flex items-center justify-between py-3 border-b border-border">
+                      <span className="text-xs sm:text-sm font-normal text-content-primary">
+                        Appearance
+                      </span>
+                      <div className="inline-flex items-center p-0.5 rounded-lg bg-elevated border border-border">
+                        <button
+                          type="button"
+                          onClick={() => setTheme('system')}
+                          className={`p-1.5 px-2.5 rounded-md transition-colors ${
+                            theme === 'system'
+                              ? 'bg-surface text-content-primary shadow-xs font-medium'
+                              : 'text-content-tertiary hover:text-content-primary'
+                          }`}
+                          title="System Theme"
+                        >
+                          <Monitor size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTheme('light')}
+                          className={`p-1.5 px-2.5 rounded-md transition-colors ${
+                            theme === 'light'
+                              ? 'bg-surface text-content-primary shadow-xs font-medium'
+                              : 'text-content-tertiary hover:text-content-primary'
+                          }`}
+                          title="Light Theme"
+                        >
+                          <Sun size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTheme('dark')}
+                          className={`p-1.5 px-2.5 rounded-md transition-colors ${
+                            theme === 'dark'
+                              ? 'bg-surface text-content-primary shadow-xs font-medium'
+                              : 'text-content-tertiary hover:text-content-primary'
+                          }`}
+                          title="Dark Theme"
+                        >
+                          <Moon size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Delete Account Section (Exact Claude Screenshot red outline button) */}
+                  <div className="pt-6 border-t border-border space-y-2">
+                    <h3 className="text-xs sm:text-sm font-semibold text-content-primary">
+                      Delete Account
+                    </h3>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-content-secondary">
+                        Delete your account and account data
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setIsDeleteAccountModalOpen(true)}
+                        className="px-3.5 py-1.5 rounded-lg border border-danger/40 text-danger hover:bg-danger/10 text-xs font-medium transition-colors"
+                      >
+                        Delete Account
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* SCREEN 2: CAPABILITIES (SCREENSHOT media_1789707212113.png EXACT REPLICA)  */}
+              {/* ========================================================================= */}
+              {activeTab === 'capabilities' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Capabilities
+                    </h2>
+                  </div>
+
+                  <div className="divide-y divide-border/60">
+                    {/* Artifacts Toggle */}
+                    <div className="py-3.5 flex items-center justify-between gap-4">
+                      <div className="pr-4 space-y-0.5">
+                        <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                          Artifacts
+                        </span>
+                        <p className="text-xs text-content-secondary leading-relaxed">
+                          Generate and view standalone content alongside your conversations. Claude
+                          can show code, SVGs, documents, websites, and more.
+                        </p>
+                      </div>
+                      <Toggle
+                        checked={capabilities.artifacts_enabled}
+                        onChange={(val) => handleToggleCapability('artifacts_enabled', val)}
+                      />
+                    </div>
+
+                    {/* Inline Visualizations [BETA] */}
+                    <div className="py-3.5 flex items-center justify-between gap-4">
+                      <div className="pr-4 space-y-0.5">
+                        <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                          Inline visualizations <span className="text-[10px] text-accent font-semibold px-1.5 py-0.2 rounded bg-accent/10 border border-accent/20 uppercase tracking-wider ml-1">BETA</span>
+                        </span>
+                        <p className="text-xs text-content-secondary leading-relaxed">
+                          View interactive charts, SVGs, and diagrams directly in conversations without opening the Artifacts window.
+                        </p>
+                      </div>
+                      <Toggle
+                        checked={capabilities.inline_visualizations}
+                        onChange={(val) => handleToggleCapability('inline_visualizations', val)}
+                      />
+                    </div>
+
+                    {/* Code execution and file creation */}
+                    <div className="py-3.5 flex items-center justify-between gap-4">
+                      <div className="pr-4 space-y-0.5">
+                        <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                          Code execution and file creation
+                        </span>
+                        <p className="text-xs text-content-secondary leading-relaxed">
+                          Claude can write and run code to solve problems and create downloadable files. Available only for Claude 3.7 Sonnet.
+                        </p>
+                      </div>
+                      <Toggle
+                        checked={capabilities.code_execution}
+                        onChange={(val) => handleToggleCapability('code_execution', val)}
+                      />
+                    </div>
+
+                    {/* Switch models on flagged messages */}
+                    <div className="py-3.5 flex items-center justify-between gap-4">
+                      <div className="pr-4 space-y-0.5">
+                        <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                          Switch models on flagged messages
+                        </span>
+                        <p className="text-xs text-content-secondary leading-relaxed">
+                          Choose the response that gives you the best experience by automatically switching to other models if Claude flags your message.
+                        </p>
+                      </div>
+                      <Toggle
+                        checked={capabilities.switch_models_on_flagged}
+                        onChange={(val) => handleToggleCapability('switch_models_on_flagged', val)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Section: Memory */}
+                  <div className="pt-2">
+                    <h3 className="text-sm sm:text-base font-semibold text-content-primary mb-2">
+                      Memory
+                    </h3>
+                    <div className="divide-y divide-border/60">
+                      {/* Generate memory from chats */}
+                      <div className="py-3.5 flex items-center justify-between gap-4">
+                        <div className="pr-4 space-y-0.5">
+                          <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                            Generate memory from chats
+                          </span>
+                          <p className="text-xs text-content-secondary leading-relaxed">
+                            Claude can remember details across conversations to make your chats more relevant.
+                          </p>
+                        </div>
+                        <Toggle
+                          checked={capabilities.generate_memory_from_chats}
+                          onChange={(val) => handleToggleCapability('generate_memory_from_chats', val)}
+                        />
+                      </div>
+
+                      {/* Include sensitive topics in memory */}
+                      <div className="py-3.5 flex items-center justify-between gap-4">
+                        <div className="pr-4 space-y-0.5">
+                          <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                            Include sensitive topics in memory
+                          </span>
+                          <p className="text-xs text-content-secondary leading-relaxed">
+                            Claude can remember information related to health, finances, politics, religion, or interpersonal relationships.
+                          </p>
+                        </div>
+                        <Toggle
+                          checked={capabilities.include_sensitive_topics}
+                          onChange={(val) => handleToggleCapability('include_sensitive_topics', val)}
+                        />
+                      </div>
+
+                      {/* Memory files (Clickable Row opening manager) */}
+                      <button
+                        type="button"
+                        onClick={() => setIsMemoryModalOpen(true)}
+                        className="w-full py-3.5 flex items-center justify-between gap-4 text-left hover:bg-elevated/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer border-none bg-transparent"
+                      >
+                        <div className="pr-4 space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                              Memory files
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded-full bg-elevated border border-border text-[10px] font-mono text-content-secondary">
+                              {memoryFiles.length}
+                            </span>
+                          </div>
+                          <p className="text-xs text-content-secondary leading-relaxed">
+                            Review what Claude has remembered about you
+                          </p>
+                        </div>
+                        <ChevronRight size={16} className="text-content-tertiary shrink-0" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Section: Tool access */}
+                  <div className="pt-2">
+                    <h3 className="text-sm sm:text-base font-semibold text-content-primary mb-2">
+                      Tool access
+                    </h3>
+                    <div className="py-3 flex items-center justify-between">
+                      <div className="pr-4 space-y-0.5">
+                        <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                          Auto
+                        </span>
+                        <p className="text-xs text-content-secondary leading-relaxed">
+                          Claude decides when to use tools based on your request and context.
+                        </p>
+                      </div>
+                      <span className="inline-flex items-center gap-1 text-xs text-accent font-medium px-2.5 py-1 rounded-full bg-accent/10 border border-accent/25">
+                        <Check size={12} />
+                        <span>Active</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* SCREEN 3: PERMISSIONS (SCREENSHOT media_1789707237834.png EXACT REPLICA)   */}
+              {/* ========================================================================= */}
+              {activeTab === 'permissions' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Permissions
+                    </h2>
+                    <p className="text-xs text-content-secondary mt-1 leading-relaxed">
+                      Claude can ask your device for permissions. These can be revoked at any time.
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2">
-                    <button
-                      onClick={checkConnection}
-                      disabled={isChecking}
-                      className="btn-glass !py-1.5 !px-3 !text-xs flex items-center gap-1.5"
-                    >
-                      {isChecking && <Spinner size="sm" />}
-                      <span>{isChecking ? 'Checking...' : 'Test all 4 nodes'}</span>
-                    </button>
-                    <button onClick={handleSaveServerConfig} className="btn-primary !py-1.5 !px-4 !text-xs">
-                      Save cluster configuration
-                    </button>
+                  <div className="divide-y divide-border/60">
+                    {/* Location Permission */}
+                    <div className="py-4 space-y-2">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1 pr-4">
+                          <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                            Location
+                          </span>
+                          <p className="text-xs text-content-secondary leading-relaxed">
+                            Give Claude temporary access to your location for more relevant responses.
+                          </p>
+                          {permissions.location_permitted && (
+                            <div className="inline-flex items-center gap-1.5 text-[11px] text-success font-mono bg-success/10 px-2 py-0.5 rounded border border-success/20 mt-1">
+                              <MapPin size={12} />
+                              <span>{permissions.location_label || 'Location Active'}</span>
+                            </div>
+                          )}
+                        </div>
+                        {permissions.location_permitted ? (
+                          <button
+                            type="button"
+                            onClick={handleRevokeLocation}
+                            className="px-3 py-1.5 rounded-lg border border-border bg-elevated hover:bg-elevated/80 text-xs font-medium text-content-secondary transition-colors shrink-0"
+                          >
+                            Revoke access
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleRequestLocation}
+                            className="btn-primary !py-1.5 !px-3 !text-xs shrink-0"
+                          >
+                            Enable location permissions
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Calendar Permission */}
+                    <div className="py-4 space-y-2">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1 pr-4">
+                          <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                            Calendar
+                          </span>
+                          <p className="text-xs text-content-secondary leading-relaxed">
+                            Give Claude access to read and update your calendar to keep track of events.
+                          </p>
+                          {permissions.calendar_permitted && (
+                            <div className="inline-flex items-center gap-1.5 text-[11px] text-success font-mono bg-success/10 px-2 py-0.5 rounded border border-success/20 mt-1">
+                              <Calendar size={12} />
+                              <span>Synced: {permissions.calendar_account || 'Google Calendar'}</span>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleToggleCalendar}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-elevated hover:bg-elevated/80 text-xs font-medium text-content-primary transition-colors shrink-0"
+                        >
+                          <span>{permissions.calendar_permitted ? 'Disconnect Calendar' : 'Manage Google Calendar connector'}</span>
+                          <ExternalLink size={12} className="text-content-tertiary" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-
-                  {lastChecked && (
-                    <div className="text-[11px] text-content-tertiary pt-2 border-t border-border">
-                      Last cluster check: {new Date(lastChecked).toLocaleTimeString()}
-                    </div>
-                  )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* TAB: SHORTCUTS */}
-            {activeTab === 'shortcuts' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    Keyboard Shortcuts
-                  </h2>
-                </div>
-
-                <div className="divide-y divide-border/60 text-xs">
-                  {[
-                    { action: 'Open settings', key: '⌘ ,' },
-                    { action: 'Open command bar', key: '⌘ K' },
-                    { action: 'New chat', key: '⌘ N' },
-                    { action: 'Send message', key: 'Enter  or  ⌘ ↵' },
-                    { action: 'New line in input', key: '⇧ Enter' },
-                    { action: 'Toggle sidebar collapse', key: '⌘ B' },
-                    { action: 'Toggle light / dark theme', key: '⌘ D' },
-                    { action: 'Stop generation', key: 'Escape' },
-                  ].map((s) => (
-                    <div key={s.action} className="flex items-center justify-between py-2.5">
-                      <span className="text-content-primary">{s.action}</span>
-                      <kbd className="font-mono text-[11px] text-content-secondary px-2 py-0.5 rounded bg-elevated border border-border">
-                        {s.key}
-                      </kbd>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: ABOUT */}
-            {activeTab === 'about' && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold text-content-primary">
-                    About AIRA
-                  </h2>
-                </div>
-
-                <div className="p-5 rounded-2xl bg-elevated border border-border space-y-4">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-surface border border-border flex items-center justify-center shadow-xs">
-                      <svg className="w-6 h-6 text-content-primary" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="8">
-                        <polygon points="50,6 90,29 90,75 50,98 10,75 10,29" />
-                      </svg>
-                    </div>
+              {/* ========================================================================= */}
+              {/* SCREEN 4: CONNECTORS (SCREENSHOT media_1789707241193.png EXACT REPLICA)    */}
+              {/* ========================================================================= */}
+              {activeTab === 'connectors' && (
+                <div className="space-y-6">
+                  <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-content-primary">AIRA Workbench</h3>
-                      <p className="text-xs text-content-tertiary">Version 1.0.0 · Sovereign AI for Mangalore Refinery</p>
+                      <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                        Connectors
+                      </h2>
+                      <p className="text-xs text-content-secondary mt-1 leading-relaxed">
+                        Allow Claude to search for information and take action in other tools.
+                      </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddConnectorModalOpen(true)}
+                      className="btn-icon !w-8 !h-8 text-content-secondary hover:text-content-primary border border-border rounded-lg"
+                      title="Add connector"
+                      aria-label="Add connector"
+                    >
+                      <Plus size={16} />
+                    </button>
                   </div>
 
-                  <div className="border-t border-border pt-3 grid grid-cols-2 gap-2 text-xs font-mono">
-                    <div className="p-2 rounded bg-surface border border-border flex justify-between">
-                      <span className="text-content-secondary">Stack:</span>
-                      <span>React 18 + Vite</span>
+                  {/* Connector discovery toggle */}
+                  <div className="py-3 flex items-center justify-between gap-4 border-b border-border">
+                    <div className="pr-4 space-y-0.5">
+                      <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                        Connector discovery
+                      </span>
+                      <p className="text-xs text-content-secondary leading-relaxed">
+                        Allow Claude to search and recommend relevant connectors for your prompt in chat.
+                      </p>
                     </div>
-                    <div className="p-2 rounded bg-surface border border-border flex justify-between">
-                      <span className="text-content-secondary">Air-Gap:</span>
-                      <span className="text-success">Enforced</span>
+                    <Toggle
+                      checked={connectorDiscovery}
+                      onChange={(val) => setConnectorDiscovery(val)}
+                    />
+                  </div>
+
+                  {/* Connectors List */}
+                  <div className="divide-y divide-border/60">
+                    {connectors.map((conn) => {
+                      const isConn = conn.status === 'connected'
+                      return (
+                        <div key={conn.connector_key} className="py-3.5 flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {/* Premium Pure SVG Connector Icons */}
+                            <div className="w-9 h-9 rounded-xl bg-elevated border border-border flex items-center justify-center shrink-0">
+                              {conn.connector_key.includes('google') ? (
+                                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                                  <path
+                                    fill="#4285F4"
+                                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                                  />
+                                  <path
+                                    fill="#34A853"
+                                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                                  />
+                                  <path
+                                    fill="#FBBC05"
+                                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                                  />
+                                  <path
+                                    fill="#EA4335"
+                                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                                  />
+                                </svg>
+                              ) : conn.connector_key.includes('honeywell') ? (
+                                <Radio size={18} className="text-amber-500" />
+                              ) : conn.connector_key.includes('aspen') ? (
+                                <Database size={18} className="text-blue-400" />
+                              ) : conn.connector_key.includes('yokogawa') ? (
+                                <Network size={18} className="text-emerald-400" />
+                              ) : (
+                                <Cable size={18} className="text-accent" />
+                              )}
+                            </div>
+                            <div className="truncate">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs sm:text-sm font-medium text-content-primary">
+                                  {conn.name}
+                                </span>
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    isConn ? 'bg-success' : 'bg-content-tertiary'
+                                  }`}
+                                />
+                              </div>
+                              <p className="text-xs text-content-secondary truncate max-w-sm">
+                                {conn.description}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleConnector(conn.connector_key, conn.status)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
+                              isConn
+                                ? 'bg-elevated border border-border text-content-secondary hover:text-content-primary'
+                                : 'btn-primary !py-1.5 !px-3'
+                            }`}
+                          >
+                            {isConn ? 'Disconnect' : 'Connect'}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: ACCOUNT & ORGANIZATION                                               */}
+              {/* ========================================================================= */}
+              {activeTab === 'account' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Account & Organization
+                    </h2>
+                  </div>
+
+                  <div className="divide-y divide-border/60 text-xs sm:text-sm">
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">User Account</span>
+                      <span className="font-mono text-content-primary">default_user (Div)</span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">Organization</span>
+                      <span className="font-medium text-content-primary">
+                        Mangalore Refinery and Petrochemicals Limited
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">Facility Site</span>
+                      <span className="font-medium text-content-primary">
+                        Kuthethoor, Mangaluru, Karnataka - 575030
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">Operator Badge ID</span>
+                      <span className="font-mono text-content-primary">MRPL-ENG-8492</span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">Clearance Level</span>
+                      <span className="inline-flex items-center gap-1.5 text-xs text-success font-medium">
+                        <CheckCircle2 size={13} />
+                        <span>Level 3 · Process & Safety Lead</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">Hardware Tier</span>
+                      <span className="font-medium text-content-primary">
+                        Sovereign Local RTX Inference Node
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">Token Allowance</span>
+                      <span className="font-medium text-success">
+                        Unlimited (100% On-Device Sovereign Air-Gap)
+                      </span>
                     </div>
                   </div>
                 </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: PRIVACY & AIR-GAP                                                    */}
+              {/* ========================================================================= */}
+              {activeTab === 'privacy' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Privacy & Sovereign Air-Gap
+                    </h2>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-success/10 border border-success/20 flex items-start gap-3">
+                    <Shield size={16} className="text-success shrink-0 mt-0.5" />
+                    <div className="text-xs text-content-secondary space-y-1">
+                      <span className="font-medium text-success block">Hardware Isolation Verified</span>
+                      <p className="leading-relaxed">
+                        ZINGO runs exclusively on private local GPU hardware. 0 bytes of prompts, telemetry, or documents ever leave this computer.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-border/60 text-xs sm:text-sm">
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">External Telemetry</span>
+                      <span className="font-mono text-xs text-success font-medium">Disabled (0 bytes outbound)</span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">Model Weights Storage</span>
+                      <span className="font-mono text-xs text-content-primary">Local Storage (Ollama / ChromaDB)</span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="text-content-secondary">Audit Trail Compliance</span>
+                      <span className="font-mono text-xs text-content-primary">OISD-105 Compliant SQLite Log</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: CONTEXT & CHAT SETTINGS                                              */}
+              {/* ========================================================================= */}
+              {activeTab === 'memory' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Context & Chat Settings
+                    </h2>
+                  </div>
+
+                  <div className="space-y-4">
+                    <Toggle
+                      label="Enter to send message"
+                      description="When disabled, press ⌘+Enter to dispatch messages"
+                      checked={settings.enterToSend}
+                      onChange={(val) => updateSettings({ enterToSend: val })}
+                    />
+                    <Toggle
+                      label="Token streaming"
+                      description="Stream responses character by character in real-time"
+                      checked={settings.streamingEnabled}
+                      onChange={(val) => updateSettings({ streamingEnabled: val })}
+                    />
+                    <Toggle
+                      label="Show source citations panel"
+                      description="Allow inspection of referenced documents on assistant responses"
+                      checked={settings.showSources}
+                      onChange={(val) => updateSettings({ showSources: val })}
+                    />
+
+                    <div className="pt-3 border-t border-border">
+                      <div className="flex justify-between items-center mb-1.5">
+                        <span className="text-xs font-medium text-content-primary">
+                          Context Window ({settings.contextWindow} messages)
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={20}
+                        value={settings.contextWindow}
+                        onChange={(e) => updateSettings({ contextWindow: Number(e.target.value) })}
+                        className="w-full accent-accent cursor-pointer"
+                      />
+                      <p className="text-[11px] text-content-tertiary mt-1">
+                        Number of prior dialogue turns retained in memory for multi-step tasks.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: CODE SANDBOX                                                         */}
+              {/* ========================================================================= */}
+              {activeTab === 'code' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      AIRA Code Sandbox & Runtime
+                    </h2>
+                  </div>
+
+                  <p className="text-xs text-content-secondary leading-relaxed">
+                    Local Python execution sandbox pre-loaded with scientific computing and thermodynamics libraries:
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-2 font-mono text-xs">
+                    <div className="p-3 rounded-lg bg-elevated border border-border flex justify-between">
+                      <span className="text-content-secondary">NumPy:</span>
+                      <span>1.26.4</span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-elevated border border-border flex justify-between">
+                      <span className="text-content-secondary">Pandas:</span>
+                      <span>2.2.1</span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-elevated border border-border flex justify-between">
+                      <span className="text-content-secondary">SciPy:</span>
+                      <span>1.12.0</span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-elevated border border-border flex justify-between">
+                      <span className="text-content-secondary">ThermoRefKit:</span>
+                      <span>v2.4.1</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-elevated border border-border text-xs text-content-secondary space-y-1">
+                    <span className="font-medium text-content-primary block">Air-Gap Code Sandboxing</span>
+                    <p>Scripts execute in an isolated container with zero socket permissions and temporary memory-only filesystem.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: SKILLS                                                               */}
+              {/* ========================================================================= */}
+              {activeTab === 'skills' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Refinery Engineering Skills
+                    </h2>
+                  </div>
+
+                  <div className="divide-y divide-border/60 text-xs sm:text-sm">
+                    {[
+                      { name: 'MRPL SOP Expert Parser', desc: 'Deep semantic retrieval across CDU-2, VDU, and PTW manuals', active: true },
+                      { name: 'OISD Safety Auditor', desc: 'Real-time compliance checks against OISD-105 & OISD-118 safety norms', active: true },
+                      { name: 'Crude Cut Yield Modeler', desc: 'Predict true boiling point cuts and assay distributions', active: true },
+                      { name: 'Furnace COT Pass Balancer', desc: 'Multi-pass coil outlet temperature balancing and fouling alerts', active: true },
+                    ].map((skill) => (
+                      <div key={skill.name} className="flex items-center justify-between py-3.5">
+                        <div className="pr-4">
+                          <span className="font-medium text-content-primary block">{skill.name}</span>
+                          <span className="text-xs text-content-secondary mt-0.5 block">{skill.desc}</span>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-full bg-success/15 text-success text-[11px] font-medium shrink-0 flex items-center gap-1">
+                          <Check size={12} />
+                          <span>Enabled</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: KNOWLEDGE BASE                                                       */}
+              {/* ========================================================================= */}
+              {activeTab === 'kb' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                        Knowledge Base ({docs.length})
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="btn-glass !py-1 !px-2.5 !text-xs flex items-center gap-1.5 cursor-pointer">
+                        <Upload size={13} />
+                        <span>Upload</span>
+                        <input type="file" onChange={handleUploadKBFile} accept=".pdf,.docx,.xlsx,.txt" className="hidden" />
+                      </label>
+                      <button
+                        onClick={handleReindex}
+                        disabled={isReindexing}
+                        className="btn-glass !py-1 !px-2.5 !text-xs flex items-center gap-1.5"
+                      >
+                        {isReindexing ? <Spinner size="sm" /> : <RefreshCw size={13} />}
+                        <span>{isReindexing ? 'Re-indexing...' : 'Re-index'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-border/60 text-xs sm:text-sm">
+                    {docs.map((doc) => (
+                      <div key={doc.id} className="flex items-center justify-between py-3">
+                        <div>
+                          <span className="font-medium text-content-primary block">{doc.name}</span>
+                          <span className="text-xs text-content-tertiary mt-0.5 block">{doc.category} · {doc.size}</span>
+                        </div>
+                        <button
+                          onClick={() => setDocs(docs.filter((d) => d.id !== doc.id))}
+                          className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-danger"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: PLUGINS                                                              */}
+              {/* ========================================================================= */}
+              {activeTab === 'plugins' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Installed Plugins
+                    </h2>
+                  </div>
+
+                  <div className="divide-y divide-border/60 text-xs sm:text-sm">
+                    {[
+                      { name: 'MRPL PDF OCR & Table Parser', desc: 'Extracts engineering inspection logs and tabular data from scanned PDFs' },
+                      { name: 'Scientific KaTeX Equation Renderer', desc: 'Displays thermodynamic cut yield formulas and mass balance notation' },
+                      { name: 'Interactive Python Code Runner', desc: 'Sandboxed in-browser code execution with terminal output' },
+                    ].map((plugin) => (
+                      <div key={plugin.name} className="flex items-center justify-between py-3.5">
+                        <div className="pr-4">
+                          <span className="font-medium text-content-primary block">{plugin.name}</span>
+                          <span className="text-xs text-content-secondary mt-0.5 block">{plugin.desc}</span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-md bg-elevated border border-border text-[11px] text-content-secondary">
+                          v1.2.0
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: CLUSTER NODES                                                        */}
+              {/* ========================================================================= */}
+              {activeTab === 'server' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Distributed Multi-Laptop Cluster
+                    </h2>
+                    <p className="text-xs text-content-secondary mt-1">
+                      Connect up to 4 dedicated laptops over LAN or tunnels. Each laptop hosts its own resident model in VRAM for zero-latency execution.
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Node 1: Master Node */}
+                    <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-content-primary">Laptop 1: Master Node</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 text-primary border border-primary/20">
+                            Qwen3-8B (Chat & Orchestration)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => checkIndividual('primary')}
+                          disabled={server.primaryStatus === 'checking'}
+                          className="btn-ghost !py-0.5 !px-2 !text-[11px]"
+                        >
+                          {server.primaryStatus === 'checking' ? 'Testing...' : 'Test connection'}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={g15Primary}
+                          placeholder="e.g. http://127.0.0.1:8000"
+                          onChange={(e) => setG15Primary(e.target.value)}
+                          className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                        />
+                        <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
+                          <span className={`w-2 h-2 rounded-full ${server.primaryStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
+                          <span className="capitalize text-[11px]">{server.primaryStatus || 'online'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Node 2: Coder Node */}
+                    <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-content-primary">Laptop 2: Coder Node</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                            Qwen2.5-Coder:7b (Code & Debug)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => checkIndividual('coder')}
+                          disabled={server.coderStatus === 'checking'}
+                          className="btn-ghost !py-0.5 !px-2 !text-[11px]"
+                        >
+                          {server.coderStatus === 'checking' ? 'Testing...' : 'Test connection'}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={g15Coder}
+                          placeholder="e.g. http://192.168.1.15:11434"
+                          onChange={(e) => setG15Coder(e.target.value)}
+                          className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                        />
+                        <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
+                          <span className={`w-2 h-2 rounded-full ${server.coderStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
+                          <span className="capitalize text-[11px]">{server.coderStatus || 'offline'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Node 3: Vision Node */}
+                    <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-content-primary">Laptop 3: Vision Node</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                            Qwen2.5-VL:7b (Images & Blueprints)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => checkIndividual('vision')}
+                          disabled={server.visionStatus === 'checking'}
+                          className="btn-ghost !py-0.5 !px-2 !text-[11px]"
+                        >
+                          {server.visionStatus === 'checking' ? 'Testing...' : 'Test connection'}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={g15Vision}
+                          placeholder="e.g. http://192.168.1.16:11434"
+                          onChange={(e) => setG15Vision(e.target.value)}
+                          className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                        />
+                        <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
+                          <span className={`w-2 h-2 rounded-full ${server.visionStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
+                          <span className="capitalize text-[11px]">{server.visionStatus || 'offline'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Node 4: Deep Reasoning Node */}
+                    <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-content-primary">Laptop 4: Deep Reasoning Node</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            DeepSeek-R1:8b (Math & Step-by-Step)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => checkIndividual('reasoning')}
+                          disabled={server.reasoningStatus === 'checking'}
+                          className="btn-ghost !py-0.5 !px-2 !text-[11px]"
+                        >
+                          {server.reasoningStatus === 'checking' ? 'Testing...' : 'Test connection'}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={g15Reasoning}
+                          placeholder="e.g. http://192.168.1.17:11434"
+                          onChange={(e) => setG15Reasoning(e.target.value)}
+                          className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                        />
+                        <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
+                          <span className={`w-2 h-2 rounded-full ${server.reasoningStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
+                          <span className="capitalize text-[11px]">{server.reasoningStatus || 'offline'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <button
+                        onClick={checkConnection}
+                        disabled={isChecking}
+                        className="btn-glass !py-1.5 !px-3 !text-xs flex items-center gap-1.5"
+                      >
+                        {isChecking && <Spinner size="sm" />}
+                        <span>{isChecking ? 'Checking...' : 'Test all nodes'}</span>
+                      </button>
+                      <button onClick={handleSaveServerConfig} className="btn-primary !py-1.5 !px-4 !text-xs">
+                        Save cluster configuration
+                      </button>
+                    </div>
+
+                    {lastChecked && (
+                      <div className="text-[11px] text-content-tertiary pt-2 border-t border-border">
+                        Last cluster check: {new Date(lastChecked).toLocaleTimeString()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: SHORTCUTS                                                            */}
+              {/* ========================================================================= */}
+              {activeTab === 'shortcuts' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      Keyboard Shortcuts
+                    </h2>
+                  </div>
+
+                  <div className="divide-y divide-border/60 text-xs">
+                    {[
+                      { action: 'Open settings', key: '⌘ ,' },
+                      { action: 'Open command bar', key: '⌘ K' },
+                      { action: 'New chat', key: '⌘ N' },
+                      { action: 'Send message', key: 'Enter  or  ⌘ ↵' },
+                      { action: 'New line in input', key: '⇧ Enter' },
+                      { action: 'Toggle sidebar collapse', key: '⌘ B' },
+                      { action: 'Toggle light / dark theme', key: '⌘ D' },
+                      { action: 'Stop generation', key: 'Escape' },
+                    ].map((s) => (
+                      <div key={s.action} className="flex items-center justify-between py-2.5">
+                        <span className="text-content-primary">{s.action}</span>
+                        <kbd className="font-mono text-[11px] text-content-secondary px-2 py-0.5 rounded bg-elevated border border-border">
+                          {s.key}
+                        </kbd>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB: ABOUT                                                                */}
+              {/* ========================================================================= */}
+              {activeTab === 'about' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold text-content-primary">
+                      About ZINGO
+                    </h2>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-elevated border border-border space-y-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-surface border border-border flex items-center justify-center shadow-xs">
+                        <svg className="w-6 h-6 text-content-primary" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="8">
+                          <polygon points="50,6 90,29 90,75 50,98 10,75 10,29" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-content-primary">ZINGO Autonomous AI Platform</h3>
+                        <p className="text-xs text-content-tertiary">Version 2.0.0 · Sovereign AI for Process Engineering</p>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border pt-3 grid grid-cols-2 gap-2 text-xs font-mono">
+                      <div className="p-2 rounded bg-surface border border-border flex justify-between">
+                        <span className="text-content-secondary">Stack:</span>
+                        <span>React 18 + FastApi</span>
+                      </div>
+                      <div className="p-2 rounded bg-surface border border-border flex justify-between">
+                        <span className="text-content-secondary">Air-Gap:</span>
+                        <span className="text-success">100% Enforced</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SUB-MODAL: MEMORY FILES MANAGER (From Capabilities -> Memory files)       */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isMemoryModalOpen}
+        onClose={() => {
+          setIsMemoryModalOpen(false)
+          setEditingMemoryId(null)
+          setMemoryTitle('')
+          setMemoryContent('')
+        }}
+        title="Memory files"
+        description="Review and manage what Claude has remembered about you across conversations."
+        maxWidth="xl"
+      >
+        <div className="space-y-4 pt-2">
+          {/* Controls: Filter & Add New */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1 bg-surface p-0.5 rounded-lg border border-border text-xs">
+              {(['all', 'preference', 'project', 'general', 'sensitive'] as const).map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setMemoryFilter(cat)}
+                  className={`px-2.5 py-1 rounded-md capitalize transition-colors ${
+                    memoryFilter === cat
+                      ? 'bg-elevated text-content-primary font-medium shadow-xs'
+                      : 'text-content-tertiary hover:text-content-primary'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              {memoryFiles.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearAllMemories}
+                  className="px-2.5 py-1 text-xs text-danger hover:bg-danger/10 rounded-lg transition-colors border border-transparent hover:border-danger/30"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Add / Edit Memory Form */}
+          <div className="p-3.5 rounded-xl bg-surface border border-border space-y-3">
+            <span className="text-xs font-semibold text-content-primary block">
+              {editingMemoryId ? 'Edit Memory File' : 'Add Memory File'}
+            </span>
+            <input
+              type="text"
+              placeholder="Memory title (e.g. Focus area, equipment specialty...)"
+              value={memoryTitle}
+              onChange={(e) => setMemoryTitle(e.target.value)}
+              className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none"
+            />
+            <textarea
+              rows={3}
+              placeholder="Memory content (details Claude will remember in prompt context)..."
+              value={memoryContent}
+              onChange={(e) => setMemoryContent(e.target.value)}
+              className="w-full p-2.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none resize-none"
+            />
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <div className="flex items-center gap-3 text-xs">
+                <select
+                  value={memoryCategory}
+                  onChange={(e) => setMemoryCategory(e.target.value as any)}
+                  className="px-2 py-1 bg-elevated border border-border rounded-md text-xs text-content-primary outline-none"
+                >
+                  <option value="preference">Preference</option>
+                  <option value="project">Project</option>
+                  <option value="general">General</option>
+                  <option value="sensitive">Sensitive</option>
+                </select>
+                <label className="inline-flex items-center gap-1.5 text-content-secondary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={memoryIsSensitive}
+                    onChange={(e) => setMemoryIsSensitive(e.target.checked)}
+                    className="accent-accent"
+                  />
+                  <span>Mark Sensitive</span>
+                </label>
               </div>
+              <div className="flex items-center gap-2">
+                {editingMemoryId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingMemoryId(null)
+                      setMemoryTitle('')
+                      setMemoryContent('')
+                    }}
+                    className="btn-ghost !py-1 !px-2.5 !text-xs"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSaveMemoryFile}
+                  className="btn-primary !py-1 !px-3 !text-xs"
+                >
+                  {editingMemoryId ? 'Update Memory' : 'Save to Memory'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* List of Memory Files */}
+          <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+            {filteredMemories.length === 0 ? (
+              <div className="text-center py-8 text-content-tertiary text-xs">
+                No memory files found for this filter.
+              </div>
+            ) : (
+              filteredMemories.map((mem) => (
+                <div
+                  key={mem.id}
+                  className="p-3 rounded-xl bg-elevated border border-border flex items-start justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-content-primary truncate">{mem.title}</span>
+                      <span className="px-1.5 py-0.2 rounded bg-surface border border-border text-[10px] text-content-tertiary uppercase font-mono">
+                        {mem.category}
+                      </span>
+                      {mem.is_sensitive && (
+                        <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-mono">
+                          sensitive
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-content-secondary leading-relaxed whitespace-pre-wrap">
+                      {mem.content}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingMemoryId(mem.id)
+                        setMemoryTitle(mem.title)
+                        setMemoryContent(mem.content)
+                        setMemoryCategory(mem.category)
+                        setMemoryIsSensitive(mem.is_sensitive)
+                      }}
+                      className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary"
+                      title="Edit"
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteMemoryFile(mem.id)}
+                      className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-danger"
+                      title="Delete"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))
             )}
           </div>
-        )}
-      </main>
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* SUB-MODAL: MODEL IDENTITY PROMPT INSPECTOR                                */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isIdentityPromptModalOpen}
+        onClose={() => setIsIdentityPromptModalOpen(false)}
+        title="Active Model Identity Injection"
+        description="This exact structured context is injected into Qwen3/Claude system prompt on every chat turn."
+        maxWidth="2xl"
+      >
+        <div className="space-y-3 pt-2">
+          {isFetchingPrompt ? (
+            <div className="flex items-center justify-center p-8">
+              <Spinner size="md" />
+            </div>
+          ) : (
+            <div className="relative">
+              <pre className="p-4 rounded-xl bg-black/70 border border-border text-[11px] font-mono text-emerald-400 max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed select-text">
+                {modelIdentityPrompt || 'No identity prompt configured.'}
+              </pre>
+            </div>
+          )}
+          <div className="flex items-center justify-between pt-2 border-t border-border text-xs text-content-tertiary">
+            <span>Dynamic compilation from SQLite tables</span>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(modelIdentityPrompt)
+                addToast({ type: 'success', message: 'Identity prompt copied to clipboard.' })
+              }}
+              className="btn-ghost !py-1 !px-2.5 !text-xs"
+            >
+              Copy Prompt
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* SUB-MODAL: DELETE ACCOUNT CONFIRMATION                                    */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isDeleteAccountModalOpen}
+        onClose={() => setIsDeleteAccountModalOpen(false)}
+        title="Delete Account & Local Identity"
+        description="Are you sure you want to permanently delete your account?"
+        maxWidth="sm"
+      >
+        <div className="space-y-4 pt-2">
+          <div className="p-3 rounded-xl bg-danger/10 border border-danger/20 text-xs text-danger space-y-1">
+            <span className="font-semibold block">Warning: Irreversible Action</span>
+            <p>
+              This will erase your stored profile preferences, all remembered memory files, and reset your local identity back to default.
+            </p>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsDeleteAccountModalOpen(false)}
+              className="btn-ghost !py-1.5 !px-3 !text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDeleteAccount}
+              className="px-3.5 py-1.5 rounded-lg bg-danger text-white text-xs font-medium hover:bg-danger/90 transition-colors"
+            >
+              Confirm Delete
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* SUB-MODAL: ADD CUSTOM CONNECTOR                                           */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isAddConnectorModalOpen}
+        onClose={() => setIsAddConnectorModalOpen(false)}
+        title="Add Custom Connector"
+        description="Connect Claude to a custom internal API, OPC UA gateway, or data service."
+        maxWidth="md"
+      >
+        <div className="space-y-3 pt-2">
+          <div>
+            <label className="text-xs text-content-secondary mb-1 block">Connector Name</label>
+            <input
+              type="text"
+              placeholder="e.g. Lab Information Management System (LIMS)"
+              value={customConnName}
+              onChange={(e) => setCustomConnName(e.target.value)}
+              className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-content-secondary mb-1 block">Connector Key / ID</label>
+            <input
+              type="text"
+              placeholder="e.g. lims_system"
+              value={customConnKey}
+              onChange={(e) => setCustomConnKey(e.target.value)}
+              className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary font-mono outline-none"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-content-secondary mb-1 block">Description</label>
+            <input
+              type="text"
+              placeholder="e.g. Daily laboratory distillation quality specs and Reid vapor pressure"
+              value={customConnDesc}
+              onChange={(e) => setCustomConnDesc(e.target.value)}
+              className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <button
+              type="button"
+              onClick={() => setIsAddConnectorModalOpen(false)}
+              className="btn-ghost !py-1.5 !px-3 !text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAddCustomConnector}
+              className="btn-primary !py-1.5 !px-3.5 !text-xs"
+            >
+              Add Connector
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
-  </div>
   )
 }

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Network,
   ClipboardList,
+  PenTool,
 } from 'lucide-react'
 import { useZingoStore } from '../../stores/zingoStore'
 
@@ -20,6 +21,7 @@ interface NavItem {
 
 const ITEMS: NavItem[] = [
   { to: '/app', label: 'Chat', icon: <MessageSquare size={16} /> },
+  { to: '/app/action-notes', label: 'Action Notes', icon: <PenTool size={16} /> },
   { to: '/app/alerts', label: 'Alerts', icon: <AlertTriangle size={16} /> },
   { to: '/app/health', label: 'Plant Health', icon: <Factory size={16} /> },
   { to: '/app/documents', label: 'Documents', icon: <FileText size={16} /> },

@@ -32,8 +32,10 @@ interface ChatStore {
   renameChat: (id: string, title: string) => void
   pinChat: (id: string) => void
   setActiveChat: (id: string) => void
+  getChat: (id: string) => Chat | undefined
   addMessage: (chatId: string, message: Message) => void
   updateMessage: (chatId: string, messageId: string, updates: Partial<Message>) => void
+  updateLastAssistantMessage: (chatId: string, update: Partial<Message>) => void
   clearChat: (chatId: string) => void
   searchChats: (query: string) => Chat[]
   stopGeneration: (chatId?: string) => void
@@ -46,6 +48,7 @@ interface ChatStore {
   ) => void
   startGenerating: (chatId: string, controller?: AbortController) => void
   stopGenerating: (chatId: string) => void
+  setGenerating: (chatId: string, isGenerating: boolean) => void
   isChatGenerating: (chatId: string | null) => boolean
   setActiveSources: (sources: Source[] | null) => void
   toggleSourcePanel: (open?: boolean) => void
@@ -366,6 +369,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })
   },
 
+  getChat: (id) => get().chats.find((c) => c.id === id),
+
   addMessage: (chatId, message) => {
     let targetChat: Chat | undefined
 
@@ -422,6 +427,36 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (userId && updatedMsgObj) {
       saveMessageToDb(chatId, updatedMsgObj, userId)
       persistUserLocalCache(userId, updatedChats)
+    }
+  },
+
+  updateLastAssistantMessage: (chatId, update) => {
+    let lastAssistantMsg: Message | undefined
+    set((state) => ({
+      chats: state.chats.map((c) =>
+        c.id === chatId
+          ? {
+              ...c,
+              updatedAt: new Date().toISOString(),
+              messages: c.messages.map((m, i) => {
+                if (i === c.messages.length - 1 && m.role === 'assistant') {
+                  const merged = { ...m, ...update }
+                  lastAssistantMsg = merged
+                  return merged
+                }
+                return m
+              }),
+            }
+          : c
+      ),
+    }))
+
+    if (update.isStreaming === false) {
+      const userId = get().currentUserId
+      if (userId && lastAssistantMsg) {
+        saveMessageToDb(chatId, lastAssistantMsg, userId)
+        persistUserLocalCache(userId, get().chats)
+      }
     }
   },
 
@@ -489,6 +524,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         abortController: updatedIds.length === 0 ? null : state.abortController,
       }
     })
+  },
+
+  setGenerating: (chatId: string, isGen: boolean) => {
+    if (isGen) {
+      get().startGenerating(chatId)
+    } else {
+      get().stopGenerating(chatId)
+    }
   },
 
   stopGeneration: (chatId?: string) => {

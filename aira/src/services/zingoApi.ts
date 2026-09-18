@@ -22,7 +22,7 @@ const client = axios.create({
   },
 })
 
-async function req<T>(method: 'get' | 'post' | 'delete', path: string, opts: {
+async function req<T>(method: 'get' | 'post' | 'put' | 'delete', path: string, opts: {
   params?: Record<string, unknown>
   data?: unknown
   formData?: FormData
@@ -148,6 +148,154 @@ export interface DocumentRecord {
   superseded?: number
 }
 
+export interface ActionNote {
+  id: number
+  ref_number: string
+  title: string
+  doc_id?: number
+  alert_id?: number
+  equipment_tag: string
+  severity: Severity
+  status: 'DRAFT' | 'APPROVED' | 'REJECTED' | 'CLOSED'
+  target_role: string
+  anomaly_summary?: string
+  technical_findings?: any
+  regulatory_clauses?: any
+  contradictions_detected?: any
+  recommended_action?: string
+  raw_markdown?: string
+  original_draft?: string
+  escalation_level?: number
+  due_date?: string | null
+  acknowledged_at?: string | null
+  acknowledged_by?: string | null
+  created_at: string
+  updated_at: string
+  approved_by?: string | null
+  approved_at?: string | null
+  approval_notes?: string | null
+  signature_hash?: string | null
+}
+
+export interface LearnedPreference {
+  id: number
+  project_id?: string | null
+  category: string
+  title: string
+  rule_instruction: string
+  trigger_pattern?: string | null
+  evidence_count: number
+  confidence: number
+  status: 'ACTIVE' | 'PROVISIONAL' | 'DISABLED'
+  examples?: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface TemporalEvent {
+  type: string
+  timestamp: string
+  date: string
+  title: string
+  description: string
+  ref_id?: number | string
+  severity?: string
+}
+
+export interface PlantContext {
+  equipment_tag: string
+  equipment_name: string
+  equipment_type: string
+  unit: string
+  design_specs: {
+    design_pressure_bar: number
+    design_temp_c: number
+    metallurgy: string
+    corrosion_allowance_mm: number
+    fluid_service: string
+  }
+  topology: {
+    upstream_assets: string[]
+    downstream_assets: string[]
+  }
+  latest_measurements: Record<string, { value: number; unit: string; date: string }>
+  historical_series: Record<string, Array<{ date: string; value: number; unit: string; source: string }>>
+  operating_limits: Record<string, any>
+  health_score: number
+  health_status: string
+  active_alerts_count: number
+  active_alerts: any[]
+  episodic_facts: any[]
+  retrieved_at: string
+}
+
+export interface RoleNotification {
+  id: number
+  recipient_role: string
+  alert_id?: number
+  action_note_id?: number
+  equipment_tag?: string
+  title: string
+  message: string
+  severity: Severity
+  status: 'UNREAD' | 'READ'
+  dispatched_at: string
+  read_at?: string | null
+}
+
+export interface UserProfile {
+  user_id: string
+  full_name: string
+  preferred_name: string
+  work_role?: string
+  personal_preferences?: string
+  updated_at?: string
+}
+
+export interface UserCapabilities {
+  user_id: string
+  artifacts_enabled: boolean
+  inline_visualizations: boolean
+  code_execution: boolean
+  switch_models_on_flagged: boolean
+  generate_memory_from_chats: boolean
+  include_sensitive_topics: boolean
+  tool_access_mode: 'auto' | 'manual'
+  updated_at?: string
+}
+
+export interface UserMemoryFile {
+  id: number
+  user_id: string
+  title: string
+  content: string
+  category: 'general' | 'project' | 'preference' | 'sensitive'
+  is_sensitive: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface UserPermissions {
+  user_id: string
+  location_permitted: boolean
+  location_label?: string
+  location_coords?: string
+  calendar_permitted: boolean
+  calendar_account?: string
+  updated_at?: string
+}
+
+export interface UserConnector {
+  connector_key: string
+  user_id: string
+  name: string
+  description: string
+  status: 'connected' | 'disconnected' | 'idle'
+  account_email?: string
+  config?: Record<string, any>
+  updated_at?: string
+}
+
 export interface Contradiction {
   id: number
   equipment_tag: string
@@ -222,8 +370,10 @@ export const zingoApi = {
   document: (id: number) => req<Record<string, any>>('get', `/api/ingest/document/${id}`),
   deleteDocument: (id: number) => req<Record<string, any>>('delete', `/api/ingest/document/${id}`),
   ingestStats: () => req<Record<string, any>>('get', '/api/ingest/stats'),
+  pipelineStatus: (pipelineId: string) => req<Record<string, any>>('get', `/api/ingest/pipeline/${pipelineId}`),
+  runPipeline: (docId: number) => req<Record<string, any>>('post', `/api/ingest/run_pipeline/${docId}`),
 
-  // Feature 2 — monitoring
+  // Feature 2 — monitoring & action notes
   alerts: (params: { status?: string; severity?: string; equipment_tag?: string; limit?: number } = {}) =>
     req<{ alerts: Alert[]; total: number; counts?: Record<string, number> }>('get', '/api/monitor/alerts', { params }),
   alert: (id: number) => req<Alert>('get', `/api/monitor/alerts/${id}`),
@@ -234,6 +384,57 @@ export const zingoApi = {
   timeline: (tag: string) => req<Record<string, any>>('get', `/api/monitor/equipment/${tag}/timeline`),
   runFullScan: () => req<Record<string, any>>('post', '/api/monitor/run_full_scan'),
   monitorSummary: () => req<Record<string, any>>('get', '/api/monitor/summary'),
+
+  // Autonomous Action Notes
+  actionNotes: (params: { equipment_tag?: string; status?: string; severity?: string; limit?: number } = {}) =>
+    req<{ action_notes: ActionNote[]; total: number }>('get', '/api/monitor/action_notes', { params }),
+  actionNote: (id: number) => req<ActionNote>('get', `/api/monitor/action_notes/${id}`),
+  signActionNote: (
+    id: number,
+    body: {
+      approved_by: string
+      approval_notes?: string
+      edited_title?: string
+      edited_anomaly_summary?: string
+      edited_recommended_action?: string
+      edited_raw_markdown?: string
+      project_id?: string
+    }
+  ) => req<ActionNote>('post', `/api/monitor/action_notes/${id}/sign`, { data: body }),
+  acknowledgeActionNote: (id: number, body: { engineer_id: string; notes?: string }) =>
+    req<ActionNote>('post', `/api/monitor/action_notes/${id}/acknowledge`, { data: body }),
+  downloadActionNoteDocx: (id: number, refNumber: string) =>
+    downloadDoc(`/api/monitor/action_notes/${id}/docx`, `${refNumber}.docx`),
+
+  // Role Notifications
+  notifications: (params: { role?: string; unread_only?: boolean; limit?: number } = {}) =>
+    req<{ notifications: RoleNotification[]; total: number; unread: number }>('get', '/api/monitor/notifications', { params }),
+  markNotificationRead: (id: number) => req<Record<string, any>>('post', `/api/monitor/notifications/${id}/read`),
+  markAllNotificationsRead: (role?: string) =>
+    req<Record<string, any>>('post', '/api/monitor/notifications/mark_all_read', { params: role ? { role } : {} }),
+
+  // Plant-Aware Artifacts
+  plantContext: (tag: string) => req<PlantContext>('get', `/api/artifacts/plant-context/${encodeURIComponent(tag)}`),
+  saveArtifactState: (artifactId: string, data: { equipment_tag?: string; title: string; state: any; saved_by?: string; project_id?: string; update_equipment_memory?: boolean }) =>
+    req<Record<string, any>>('post', `/api/artifacts/${encodeURIComponent(artifactId)}/save-state`, { data }),
+  artifactState: (artifactId: string) => req<Record<string, any>>('get', `/api/artifacts/${encodeURIComponent(artifactId)}/state`),
+  plantTemplates: () => req<{ templates: any[] }>('get', '/api/artifacts/templates'),
+
+  // Behavioral Learning
+  learnedPreferences: (params: { project_id?: string; status?: string } = {}) =>
+    req<{ total: number; active_count: number; preferences: LearnedPreference[] }>('get', '/api/learning/preferences', { params }),
+  toggleLearnedPreference: (id: number, status: string) =>
+    req<Record<string, any>>('post', `/api/learning/preferences/${id}/toggle`, { data: { status } }),
+  engineerEdits: (params: { item_type?: string; item_id?: number } = {}) =>
+    req<{ total: number; edits: any[] }>('get', '/api/learning/edits', { params }),
+
+  // Cross-Session Temporal Reasoning & Escalations
+  temporalTimeline: (tag: string) =>
+    req<{ equipment_tag: string; total_events: number; events: TemporalEvent[]; narrative_context: string }>('get', `/api/temporal/timeline/${encodeURIComponent(tag)}`),
+  escalations: (params: { equipment_tag?: string; status?: string } = {}) =>
+    req<{ total: number; escalations: any[] }>('get', '/api/temporal/escalations', { params }),
+  evaluateEscalation: (tag: string) =>
+    req<{ equipment_tag: string; escalations_triggered: number; details: any[] }>('post', `/api/temporal/evaluate/${encodeURIComponent(tag)}`),
 
   // Feature 3 — compliance
   gaps: (params: { status?: string; sop_id?: number; severity?: string } = {}) =>
@@ -288,6 +489,48 @@ export const zingoApi = {
   auditSummary: () => req<Record<string, any>>('get', '/api/audit/summary'),
   downloadAuditExport: (format: 'json' | 'csv' = 'csv') =>
     downloadDoc('/api/audit/export', `zingo_audit_log.${format}`, { format, exported_by: 'engineer' }),
+
+  // Feature 8 — Persistent Conversations & Memory
+  conversations: (projectId?: string) =>
+    req<{ conversations: any[]; total: number }>('get', '/api/conversations', { params: projectId ? { project_id: projectId } : {} }),
+  conversation: (id: string) => req<any>('get', `/api/conversations/${id}`),
+  createConversation: (data: any) => req<any>('post', '/api/conversations', { data }),
+  saveConversationMessage: (convId: string, message: any) =>
+    req<any>('post', `/api/conversations/${convId}/messages`, { data: message }),
+  deleteConversation: (id: string) => req<any>('delete', `/api/conversations/${id}`),
+  equipmentMemory: (tag: string) => req<{ tag: string; total_facts: number; facts: any[] }>('get', `/api/memory/equipment/${tag}`),
+
+  // Claude Settings & Identity Integration
+  getProfile: (userId?: string) =>
+    req<UserProfile>('get', '/api/settings/profile', { params: userId ? { user_id: userId } : {} }),
+  updateProfile: (data: Partial<UserProfile>) =>
+    req<UserProfile>('post', '/api/settings/profile', { data }),
+  getCapabilities: (userId?: string) =>
+    req<UserCapabilities>('get', '/api/settings/capabilities', { params: userId ? { user_id: userId } : {} }),
+  updateCapabilities: (data: Partial<UserCapabilities>) =>
+    req<UserCapabilities>('post', '/api/settings/capabilities', { data }),
+  getPermissions: (userId?: string) =>
+    req<UserPermissions>('get', '/api/settings/permissions', { params: userId ? { user_id: userId } : {} }),
+  updatePermissions: (data: Partial<UserPermissions>) =>
+    req<UserPermissions>('post', '/api/settings/permissions', { data }),
+  getConnectors: (userId?: string) =>
+    req<{ total: number; connectors: UserConnector[] }>('get', '/api/settings/connectors', { params: userId ? { user_id: userId } : {} }),
+  toggleConnector: (connectorKey: string, data: { status?: string; account_email?: string; config?: any } = {}) =>
+    req<UserConnector>('post', `/api/settings/connectors/${encodeURIComponent(connectorKey)}/toggle`, { data }),
+  getMemoryFiles: (userId?: string, category?: string) =>
+    req<{ total: number; memories: UserMemoryFile[] }>('get', '/api/settings/memory', { params: { user_id: userId, category } }),
+  addMemoryFile: (data: { title: string; content: string; category?: string; is_sensitive?: boolean }) =>
+    req<UserMemoryFile>('post', '/api/settings/memory', { data }),
+  updateMemoryFile: (id: number, data: { title?: string; content?: string; category?: string; is_sensitive?: boolean }) =>
+    req<UserMemoryFile>('put', `/api/settings/memory/${id}`, { data }),
+  deleteMemoryFile: (id: number) =>
+    req<{ success: boolean; deleted_id: number }>('delete', `/api/settings/memory/${id}`),
+  clearMemoryFiles: (userId?: string) =>
+    req<{ success: boolean }>('delete', '/api/settings/memory', { params: userId ? { user_id: userId } : {} }),
+  deleteAccount: (userId?: string) =>
+    req<{ success: boolean; message: string }>('post', '/api/settings/account/delete', { params: userId ? { user_id: userId } : {} }),
+  getModelIdentityPrompt: (userId?: string) =>
+    req<{ user_id: string; prompt: string }>('get', '/api/settings/model-identity', { params: userId ? { user_id: userId } : {} }),
 }
 
 export const tagList = (tags: string[] | string | undefined): string[] => {

@@ -30,6 +30,11 @@ export interface UploadedFile {
   rawFile?: File
 }
 
+export interface ThinkStep {
+  step_number: number
+  content: string
+}
+
 export interface Message {
   id: string
   role: MessageRole
@@ -44,6 +49,14 @@ export interface Message {
   latencyMs?: number
   effort?: string
   error?: string
+  // CoT additions
+  thinkSteps?: ThinkStep[]
+  rawThinking?: string
+  isThinkingPhase?: boolean
+  thinkElapsedMs?: number
+  thinkTotalSteps?: number
+  // Artifact additions
+  artifactIds?: string[]
 }
 
 export interface Chat {
@@ -54,7 +67,11 @@ export interface Chat {
   messages: Message[]
   model: ModelId
   pinned?: boolean
+  projectId?: string
 }
+
+export * from './artifact'
+export * from './project'
 
 export interface ServerConfig {
   g15_1_url: string      // Master / Chat Node (default: Live tunnel or http://127.0.0.1:8000)
@@ -106,6 +123,24 @@ export interface AppSettings {
   enterToSend: boolean
   notificationsEnabled: boolean
   autoRouteRules?: AutoRouteRule[]
+
+  // Capabilities
+  artifactsEnabled?: boolean
+  inlineVisualizations?: boolean
+  codeExecution?: boolean
+  switchModelsOnFlagged?: boolean
+  generateMemoryFromChats?: boolean
+  includeSensitiveTopics?: boolean
+  toolAccessMode?: 'auto' | 'manual'
+
+  // Permissions
+  locationPermitted?: boolean
+  locationLabel?: string
+  calendarPermitted?: boolean
+  calendarAccount?: string
+
+  // Connectors
+  connectorDiscovery?: boolean
 }
 
 export interface Toast {
