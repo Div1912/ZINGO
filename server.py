@@ -378,23 +378,36 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
             ),
         }
     else:
-        # Fast mode: responsive, direct, and thorough without internal CoT thinking tokens
+        # Fast mode: ultra-responsive, zero CoT thinking, compact context for maximum GPU throughput
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.4, "num_predict": 2048, "num_ctx": 8192, "top_p": 0.85},
+            "options": {"temperature": 0.3, "num_predict": 450, "num_ctx": 2048, "top_p": 0.85},
             "think": False,
             "instruction": (
-                "Operating in FAST mode. Provide a direct, clear, and well-structured answer without internal thinking overhead. "
-                "Answer thoroughly with relevant details, code or calculations when asked, and answer specifically "
-                "using the user's profile and memory context when asked about identity or plant assignments."
+                "Operating in FAST mode. Provide an immediate, direct, concise, and accurate answer. "
+                "Answer directly without conversational filler, preamble, or repetition."
             ),
         }
 
 
 # --------------------------------------------------------------------------------------
-# Chain of Thought streaming engine
+# Chain of Thought streaming engine & Fast Mode Domain Gates
 # --------------------------------------------------------------------------------------
 from cot_backend import run_ollama_stream_cot as run_ollama_stream
+
+PLANT_KEYWORDS = {
+    "cdu", "vdu", "sop", "oisd", "permit", "ptw", "manual", "flange", "valve",
+    "inspection", "corrosion", "fouling", "furnace", "reboiler", "refinery",
+    "mrpl", "he-301", "v-102", "p-101", "c-101", "k-101", "e-101", "plant",
+    "pipeline", "crude", "distillation", "flare", "column", "exchanger",
+    "tower", "naphtha", "diesel", "lpg", "atf", "kerosene", "bitumen",
+    "effluent", "etp", "desalter", "fccu", "msu", "dhu", "om&s"
+}
+
+IDENTITY_KEYWORDS = {
+    "who am i", "my role", "my name", "what do i do", "my responsibility",
+    "my plant", "my unit", "do you know me", "remember that", "remember:"
+}
 
 
 def retrieve_context(question: str, top_k: int = 5,
@@ -406,8 +419,8 @@ def retrieve_context(question: str, top_k: int = 5,
         preferred = [h for h in hits if tag in str((h.get("metadata") or {}).get("equipment_tags", "")).upper()]
         hits = preferred + [h for h in hits if h not in preferred]
 
-    # Filter out weak unrelated matches so conversational questions don't get false citations
-    hits = [h for h in hits if h.get("similarity") is None or h.get("similarity", 0) >= 0.22]
+    # Filter out weak unrelated matches so general questions don't get false citations or prompt bloat
+    hits = [h for h in hits if h.get("similarity") is None or h.get("similarity", 0) >= 0.35]
 
     blocks, sources, doc_ids = [], [], []
     for i, hit in enumerate(hits[:top_k], start=1):
@@ -487,33 +500,41 @@ async def process_and_ask(
         except Exception as ocr_err:
             print(f"--- OCR extraction warning: {ocr_err} ---")
     else:
-        # Automatic RAG retrieval from ChromaDB document store when no file is attached
-        rag_query = user_query
-        if chat_history and len(user_query.strip().split()) <= 4:
-            prev_user_queries = [m["content"] for m in chat_history if m["role"] == "user" and m["content"] != user_query]
-            if prev_user_queries:
-                rag_query = f"{prev_user_queries[-1]} {user_query}"
+        eff_lower = (effort or "Fast").lower()
+        is_fast = "fast" in eff_lower
+        q_low = user_query.lower().strip()
+        is_plant = any(k in q_low for k in PLANT_KEYWORDS)
 
-        try:
-            retrieval = retrieve_context(rag_query, top_k=5)
-            if retrieval.get("context") and retrieval.get("confidence", 0) > 0.15:
-                context = "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
-                sources = retrieval.get("sources", [])
-                print(f"--- RAG retrieved {len(sources)} chunks from ChromaDB for query: {rag_query[:60]!r} ---")
-        except Exception as rag_err:
-            print(f"--- RAG retrieval warning: {rag_err} ---")
+        # In Fast mode, only run RAG if query is specifically plant-related to avoid 2-3s delay and prompt bloat
+        if not is_fast or is_plant:
+            rag_query = user_query
+            if chat_history and len(user_query.strip().split()) <= 4:
+                prev_user_queries = [m["content"] for m in chat_history if m["role"] == "user" and m["content"] != user_query]
+                if prev_user_queries:
+                    rag_query = f"{prev_user_queries[-1]} {user_query}"
+
+            try:
+                retrieval = retrieve_context(rag_query, top_k=5)
+                if retrieval.get("context") and retrieval.get("confidence", 0) >= 0.25:
+                    context = "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
+                    sources = retrieval.get("sources", [])
+                    print(f"--- RAG retrieved {len(sources)} chunks from ChromaDB for query: {rag_query[:60]!r} ---")
+            except Exception as rag_err:
+                print(f"--- RAG retrieval warning: {rag_err} ---")
 
     cfg = get_effort_config(effort, user_query)
 
-    # Build full prompt including conversation history turns
+    # Build full prompt including conversation history turns (limit history in Fast mode)
     if chat_history:
+        eff_lower = (effort or "Fast").lower()
+        recent_history = chat_history[-4:] if "fast" in eff_lower else chat_history[-12:]
         lines = []
         if context:
             lines.append(f"Context from Documents:\n{context}")
-        for m in chat_history:
+        for m in recent_history:
             role_label = "User" if m["role"] == "user" else "Assistant"
             lines.append(f"{role_label}: {m['content']}")
-        if not chat_history or chat_history[-1].get("content") != user_query:
+        if not recent_history or recent_history[-1].get("content") != user_query:
             lines.append(f"User: {user_query}")
         full_prompt = "\n\n".join(lines) + "\n\nAssistant:"
     else:
@@ -558,13 +579,18 @@ async def process_and_ask(
             "If the documents do not contain the answer, say so honestly based on your knowledge."
         )
 
-    try:
-        from data_layer import build_zingo_identity_prompt
-        user_identity = build_zingo_identity_prompt("default_user")
-        if user_identity:
-            instruction = f"{user_identity}\n\n{instruction}"
-    except Exception as id_err:
-        print(f"[process_and_ask] identity context build failed: {id_err}")
+    eff_lower = (effort or "Fast").lower()
+    is_fast = "fast" in eff_lower
+    is_identity = any(k in user_query.lower() for k in IDENTITY_KEYWORDS)
+
+    if not is_fast or is_identity:
+        try:
+            from data_layer import build_zingo_identity_prompt
+            user_identity = build_zingo_identity_prompt("default_user")
+            if user_identity:
+                instruction = f"{user_identity}\n\n{instruction}"
+        except Exception as id_err:
+            print(f"[process_and_ask] identity context build failed: {id_err}")
 
     payload = {
         "model": target_model,
@@ -658,24 +684,36 @@ async def api_chat(payload_data: ChatPayload):
     if not question and not payload_data.messages:
         return JSONResponse(status_code=400, content={"error": "Prompt or messages required"})
 
+    eff = (payload_data.effort or "Fast").lower()
+    is_fast_mode = "fast" in eff
+    q_lower = question.lower().strip()
+
+    is_plant_query = (
+        bool(payload_data.equipment_tag) or
+        any(k in q_lower for k in PLANT_KEYWORDS) or
+        bool(payload_data.context)
+    )
+    is_identity_query = any(k in q_lower for k in IDENTITY_KEYWORDS)
+
     retrieval = {"context": "", "sources": [], "doc_ids": [], "confidence": 0.0, "chunks_retrieved": 0}
-    if payload_data.use_rag and question:
+    # In Fast mode, only run RAG if query is specifically plant-related to eliminate 2-3s delay and prompt bloat
+    should_run_rag = payload_data.use_rag and question and (not is_fast_mode or is_plant_query)
+    if should_run_rag:
         try:
             retrieval = retrieve_context(question, payload_data.top_k, payload_data.equipment_tag)
         except Exception as exc:
             print(f"[chat] retrieval failed: {exc}")
 
     context = payload_data.context or ""
-    if retrieval["context"]:
+    if retrieval["context"] and retrieval.get("confidence", 0) >= 0.25:
         context = (context + "\n\n" if context else "") + \
             "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
 
     # Temporal Cross-Session Continuity Context
     target_tag = payload_data.equipment_tag
     if not target_tag and question:
-        # Detect common equipment tags mentioned in the query
         for possible_tag in ["HE-301", "V-102", "P-101", "C-101", "K-101", "E-101"]:
-            if possible_tag.lower() in question.lower():
+            if possible_tag.lower() in q_lower:
                 target_tag = possible_tag
                 break
 
@@ -691,59 +729,71 @@ async def api_chat(payload_data: ChatPayload):
     cfg = get_effort_config(payload_data.effort, question)
 
     # 1. ZINGO User Identity, Profile, Capabilities, Memory, Permissions & Connectors
-    try:
-        from data_layer import build_zingo_identity_prompt, add_user_memory_file, get_user_capabilities
-        user_identity = build_zingo_identity_prompt(payload_data.user or "default_user")
+    user_identity = ""
+    if not is_fast_mode or is_identity_query:
+        try:
+            from data_layer import build_zingo_identity_prompt, add_user_memory_file, get_user_capabilities
+            user_identity = build_zingo_identity_prompt(payload_data.user or "default_user")
 
-        # Dynamic Memory Extraction if user says "Remember that..." or "Please remember: "
-        if question:
-            q_lower = question.lower()
-            for trig in ["remember that ", "remember: ", "note that i ", "please remember "]:
-                if trig in q_lower:
-                    caps = get_user_capabilities(payload_data.user or "default_user")
-                    if caps.get("generate_memory_from_chats", True):
-                        fact = question[q_lower.index(trig) + len(trig):].strip()
-                        if len(fact) > 4:
-                            add_user_memory_file(
-                                user_id=payload_data.user or "default_user",
-                                title="Chat-Derived Preference",
-                                content=fact,
-                                category="preference",
-                            )
-                            # Re-generate identity prompt with the newly learned fact
-                            user_identity = build_zingo_identity_prompt(payload_data.user or "default_user")
-                    break
-    except Exception as id_err:
-        print(f"[chat] identity context build failed: {id_err}")
-        user_identity = ""
+            # Dynamic Memory Extraction if user says "Remember that..." or "Please remember: "
+            if question:
+                for trig in ["remember that ", "remember: ", "note that i ", "please remember "]:
+                    if trig in q_lower:
+                        caps = get_user_capabilities(payload_data.user or "default_user")
+                        if caps.get("generate_memory_from_chats", True):
+                            fact = question[q_lower.index(trig) + len(trig):].strip()
+                            if len(fact) > 4:
+                                add_user_memory_file(
+                                    user_id=payload_data.user or "default_user",
+                                    title="Chat-Derived Preference",
+                                    content=fact,
+                                    category="preference",
+                                    plant_unit="General",
+                                )
+                                user_identity = build_zingo_identity_prompt(payload_data.user or "default_user")
+                        break
+        except Exception as id_err:
+            print(f"[chat] identity context build failed: {id_err}")
+            user_identity = ""
 
     # In-Context Learned Preferences injection
-    try:
-        from behavior_learning import format_learned_preferences_for_prompt
-        learned_guidelines = format_learned_preferences_for_prompt()
-    except Exception:
-        learned_guidelines = ""
+    learned_guidelines = ""
+    if not is_fast_mode:
+        try:
+            from behavior_learning import format_learned_preferences_for_prompt
+            learned_guidelines = format_learned_preferences_for_prompt()
+        except Exception:
+            learned_guidelines = ""
 
-    base_system = payload_data.system or (
-        f"You are ZINGO, an on-premise engineering assistant for an Indian refinery. {cfg['instruction']} "
-        "Answer using the retrieved organisation documents where they are relevant, and cite them "
-        "by their bracket number, e.g. [1]. If the documents do not contain the answer, say so "
-        "plainly instead of speculating."
-    )
+    if is_fast_mode and not is_plant_query and not is_identity_query:
+        # Ultra-lean system prompt for Fast mode: 0ms prompt prefill delay, instant first token
+        system = (
+            "You are ZINGO, a high-performance AI engineering assistant. "
+            "Provide an immediate, direct, concise, and accurate answer. "
+            "Answer directly without conversational filler, preamble, or repetition."
+        )
+    else:
+        base_system = payload_data.system or (
+            f"You are ZINGO, an on-premise engineering assistant for an Indian refinery. {cfg['instruction']} "
+            "Answer using the retrieved organisation documents where they are relevant, and cite them "
+            "by their bracket number, e.g. [1]. If the documents do not contain the answer, say so "
+            "plainly instead of speculating."
+        )
 
-    system_blocks = []
-    if user_identity:
-        system_blocks.append(user_identity)
-    if learned_guidelines:
-        system_blocks.append(learned_guidelines)
-    system_blocks.append(base_system)
-    system = "\n\n".join(system_blocks)
+        system_blocks = []
+        if user_identity:
+            system_blocks.append(user_identity)
+        if learned_guidelines:
+            system_blocks.append(learned_guidelines)
+        system_blocks.append(base_system)
+        system = "\n\n".join(system_blocks)
 
     if payload_data.messages:
+        recent_messages = payload_data.messages[-4:] if is_fast_mode else payload_data.messages[-12:]
         lines = []
         if context:
             lines.append(f"Context from Documents:\n{context}")
-        for m in payload_data.messages:
+        for m in recent_messages:
             lines.append(f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}")
         full_prompt = "\n\n".join(lines) + "\n\nAssistant:"
     else:
