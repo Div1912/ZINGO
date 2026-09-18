@@ -394,10 +394,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     set({ chats: updatedChats })
 
-    const userId = get().currentUserId
-    if (userId && targetChat) {
-      saveMessageToDb(chatId, message, userId)
-      saveChatToDb(targetChat, userId)
+    const userId = get().currentUserId || 'local_user'
+    if (targetChat) {
+      if (get().currentUserId) {
+        saveMessageToDb(chatId, message, get().currentUserId!)
+        saveChatToDb(targetChat, get().currentUserId!)
+      }
       persistUserLocalCache(userId, updatedChats)
     }
   },
@@ -423,9 +425,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     set({ chats: updatedChats })
 
-    const userId = get().currentUserId
-    if (userId && updatedMsgObj) {
-      saveMessageToDb(chatId, updatedMsgObj, userId)
+    const userId = get().currentUserId || 'local_user'
+    if (updatedMsgObj) {
+      if (get().currentUserId) {
+        saveMessageToDb(chatId, updatedMsgObj, get().currentUserId!)
+      }
       persistUserLocalCache(userId, updatedChats)
     }
   },
@@ -433,28 +437,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   updateLastAssistantMessage: (chatId, update) => {
     let lastAssistantMsg: Message | undefined
     set((state) => ({
-      chats: state.chats.map((c) =>
-        c.id === chatId
-          ? {
-              ...c,
-              updatedAt: new Date().toISOString(),
-              messages: c.messages.map((m, i) => {
-                if (i === c.messages.length - 1 && m.role === 'assistant') {
-                  const merged = { ...m, ...update }
-                  lastAssistantMsg = merged
-                  return merged
-                }
-                return m
-              }),
+      chats: state.chats.map((c) => {
+        if (c.id !== chatId) return c
+        const lastAstIdx = c.messages.map((m) => m.role).lastIndexOf('assistant')
+        if (lastAstIdx === -1) return c
+        return {
+          ...c,
+          updatedAt: new Date().toISOString(),
+          messages: c.messages.map((m, i) => {
+            if (i === lastAstIdx) {
+              const merged = { ...m, ...update }
+              lastAssistantMsg = merged
+              return merged
             }
-          : c
-      ),
+            return m
+          }),
+        }
+      }),
     }))
 
     if (update.isStreaming === false) {
-      const userId = get().currentUserId
-      if (userId && lastAssistantMsg) {
-        saveMessageToDb(chatId, lastAssistantMsg, userId)
+      const userId = get().currentUserId || 'local_user'
+      if (lastAssistantMsg) {
+        if (get().currentUserId) {
+          saveMessageToDb(chatId, lastAssistantMsg, get().currentUserId!)
+        }
         persistUserLocalCache(userId, get().chats)
       }
     }

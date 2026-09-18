@@ -145,10 +145,13 @@ export function useChat(chatId?: string | null) {
         }
 
         const targetChat = getChat(sendToChatId)
-        const messagesForContext = (targetChat?.messages || []).map((m) => ({
-          role: m.role,
-          content: m.content,
-        }))
+        // Filter out empty placeholder assistant messages so they do not contaminate the context
+        const messagesForContext = (targetChat?.messages || [])
+          .filter((m) => m.content && m.content.trim().length > 0)
+          .map((m) => ({
+            role: m.role,
+            content: m.content,
+          }))
 
         if (hasFiles) {
           const fd = new FormData()
@@ -161,6 +164,7 @@ export function useChat(chatId?: string | null) {
           })
           if (selectedModel) fd.append('model', selectedModel)
           if (effort) fd.append('effort', effort)
+          fd.append('user', 'default_user')
           fd.append('messages', JSON.stringify(messagesForContext))
 
           body = fd
@@ -170,6 +174,7 @@ export function useChat(chatId?: string | null) {
           body = JSON.stringify({
             messages: messagesForContext,
             prompt: content,
+            user: 'default_user',
             system: systemPrompt || undefined,
             context: projectContextText || undefined,
             stream: true,

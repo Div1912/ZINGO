@@ -1640,19 +1640,29 @@ def get_equipment_temporal_events(tag: str) -> List[Dict[str, Any]]:
 # ZINGO User Identity, Profile, Capabilities, Memory, Permissions & Connectors
 # --------------------------------------------------------------------------------------
 
+def normalize_user_id(user_id: Optional[str]) -> str:
+    """Normalizes any user ID string, mapping defaults/engineers/guests to 'default_user'."""
+    if not user_id or str(user_id).strip().lower() in ("default_user", "engineer", "guest", "local_user", "undefined", "null", ""):
+        return "default_user"
+    return str(user_id).strip()
+
+
 def get_user_profile(user_id: str = "default_user") -> Dict[str, Any]:
+    norm_id = normalize_user_id(user_id)
     conn = get_db()
     try:
-        row = conn.execute("SELECT * FROM user_profile WHERE user_id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT * FROM user_profile WHERE user_id = ?", (norm_id,)).fetchone()
+        if not row and norm_id != "default_user":
+            row = conn.execute("SELECT * FROM user_profile WHERE user_id = 'default_user'").fetchone()
         if row:
             return dict(row)
         # Default fallback
         return {
-            "user_id": user_id,
+            "user_id": norm_id,
             "full_name": "Div",
             "preferred_name": "Div",
             "work_role": "Refinery Process Engineer (CDU/VDU)",
-            "personal_preferences": "Ask clarifying questions before giving detailed answers. Keep technical explanations rigorous and precise.",
+            "personal_preferences": "Provide direct, precise, knowledgeable answers. When asked about identity or responsibilities, answer specifically using the profile and memory context.",
             "updated_at": datetime.now().isoformat(),
         }
     finally:
@@ -1694,9 +1704,12 @@ def upsert_user_profile(
 
 
 def get_user_capabilities(user_id: str = "default_user") -> Dict[str, Any]:
+    norm_id = normalize_user_id(user_id)
     conn = get_db()
     try:
-        row = conn.execute("SELECT * FROM user_capabilities WHERE user_id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT * FROM user_capabilities WHERE user_id = ?", (norm_id,)).fetchone()
+        if not row and norm_id != "default_user":
+            row = conn.execute("SELECT * FROM user_capabilities WHERE user_id = 'default_user'").fetchone()
         if row:
             d = dict(row)
             for k in ("artifacts_enabled", "inline_visualizations", "code_execution",
@@ -1704,7 +1717,7 @@ def get_user_capabilities(user_id: str = "default_user") -> Dict[str, Any]:
                 d[k] = bool(d.get(k, 1))
             return d
         return {
-            "user_id": user_id,
+            "user_id": norm_id,
             "artifacts_enabled": True,
             "inline_visualizations": True,
             "code_execution": True,
@@ -1756,13 +1769,19 @@ def update_user_capabilities(user_id: str = "default_user", updates: Optional[Di
 
 
 def get_user_memory_files(user_id: str = "default_user", category: Optional[str] = None) -> List[Dict[str, Any]]:
-    where, params = " WHERE user_id = ?", [user_id]
+    norm_id = normalize_user_id(user_id)
+    where, params = " WHERE user_id = ?", [norm_id]
     if category:
         where += " AND category = ?"; params.append(category)
 
     conn = get_db()
     try:
         rows = conn.execute(f"SELECT * FROM user_memory_files {where} ORDER BY updated_at DESC", params).fetchall()
+        if not rows and norm_id != "default_user":
+            where_fallback, params_fallback = " WHERE user_id = 'default_user'", []
+            if category:
+                where_fallback += " AND category = ?"; params_fallback.append(category)
+            rows = conn.execute(f"SELECT * FROM user_memory_files {where_fallback} ORDER BY updated_at DESC", params_fallback).fetchall()
         results = []
         for r in rows:
             d = dict(r)
@@ -1850,16 +1869,19 @@ def clear_user_memory_files(user_id: str = "default_user") -> bool:
 
 
 def get_user_permissions(user_id: str = "default_user") -> Dict[str, Any]:
+    norm_id = normalize_user_id(user_id)
     conn = get_db()
     try:
-        row = conn.execute("SELECT * FROM user_permissions WHERE user_id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT * FROM user_permissions WHERE user_id = ?", (norm_id,)).fetchone()
+        if not row and norm_id != "default_user":
+            row = conn.execute("SELECT * FROM user_permissions WHERE user_id = 'default_user'").fetchone()
         if row:
             d = dict(row)
             d["location_permitted"] = bool(d.get("location_permitted", 1))
             d["calendar_permitted"] = bool(d.get("calendar_permitted", 1))
             return d
         return {
-            "user_id": user_id,
+            "user_id": norm_id,
             "location_permitted": True,
             "location_label": "Mangaluru, Karnataka, India (Refinery Complex)",
             "location_coords": "12.9141° N, 74.8560° E",
@@ -1995,11 +2017,12 @@ def delete_user_account(user_id: str = "default_user") -> bool:
 
 def build_zingo_identity_prompt(user_id: str = "default_user") -> str:
     """Builds ZINGO system prompt injection from user profile, capabilities, memory, permissions, and connectors."""
-    profile = get_user_profile(user_id)
-    caps = get_user_capabilities(user_id)
-    perms = get_user_permissions(user_id)
-    mems = get_user_memory_files(user_id)
-    connectors = get_user_connectors(user_id)
+    norm_id = normalize_user_id(user_id)
+    profile = get_user_profile(norm_id)
+    caps = get_user_capabilities(norm_id)
+    perms = get_user_permissions(norm_id)
+    mems = get_user_memory_files(norm_id)
+    connectors = get_user_connectors(norm_id)
 
     sections = []
 
