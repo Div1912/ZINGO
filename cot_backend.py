@@ -166,6 +166,7 @@ def run_ollama_stream_cot(
 
     # ── Parse stream ─────────────────────────────────────────────────────────
     in_think_block = False          # Are we inside <think>...</think>?
+    is_dedicated_thinking = False   # Is Ollama streaming via dedicated 'thinking' field?
     think_buf = ""                  # Accumulates current thinking text
     answer_buf = ""                 # Accumulates final answer text
     char_buf = ""                   # Raw character buffer for tag detection
@@ -223,7 +224,8 @@ def run_ollama_stream_cot(
 
             # Handle dedicated thinking field if Ollama returns it directly
             if dedicated_thinking:
-                if not in_think_block:
+                if not is_dedicated_thinking:
+                    is_dedicated_thinking = True
                     in_think_block = True
                     yield f"data: {json.dumps({'type': 'thinking_start', 'message': 'Reasoning...'})}\n\n"
                 think_buf += dedicated_thinking
@@ -235,12 +237,10 @@ def run_ollama_stream_cot(
                 continue
 
             # If we were in dedicated thinking and now received non-empty response text,
-            # conclude the thinking phase before streaming the answer
-            if in_think_block and not chunk_text.startswith("<think>"):
-                # Check if we were in dedicated thinking (no active open_idx / inline tag)
+            # conclude the dedicated thinking phase before streaming the answer
+            if is_dedicated_thinking and chunk_text:
+                is_dedicated_thinking = False
                 in_think_block = False
-                open_idx = 0
-                close_idx = 0
                 think_buf, events = flush_think_buf(think_buf, force=True)
                 for ev in events:
                     yield f"data: {ev}\n\n"

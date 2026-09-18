@@ -323,69 +323,70 @@ async def root():
 
 def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dict[str, Any]:
     """Map UI reasoning effort to inference parameters, thinking mode, and system guidance.
-    Adapts token budgets dynamically based on query complexity to prevent long hangs on simple questions."""
+    Ensures adequate token budget and context window so deep deliberation never truncates the final response."""
     eff = (effort or "Fast").lower()
     q = (user_query or "").strip().lower()
 
-    # Detect if query is a brief greeting, conversational question, or short definition
-    is_brief = len(q) < 40 or any(
-        q.startswith(w) for w in [
-            "hi", "hello", "hey", "what is", "who is", "who are", "whats", "what's",
-            "test", "ping", "thanks", "ok", "speed", "top speed", "why", "how are"
-        ]
-    )
+    # Truly trivial conversational greetings that do not warrant burning reasoning tokens
+    TRIVIAL_GREETINGS = {
+        "hi", "hello", "hey", "hii", "hiii", "heyy", "test", "ping",
+        "thanks", "thank you", "thx", "ok", "okay", "bye", "good morning",
+        "good evening", "good afternoon", "who are you", "who r u",
+        "what is your name", "how are you", "sup", "yo"
+    }
+    is_greeting = q in TRIVIAL_GREETINGS or (len(q) <= 10 and any(q.startswith(g) for g in ["hi ", "hey ", "yo "]))
+
+    if is_greeting:
+        return {
+            "effort": "Fast",
+            "options": {"temperature": 0.4, "num_predict": 512, "num_ctx": 8192, "top_p": 0.85},
+            "think": False,
+            "instruction": (
+                "The user is sending a friendly greeting or ping. Respond politely, warmly, and concisely as ZINGO, "
+                "mentioning your role as their on-premise engineering assistant. Keep it brief and ready for their task."
+            ),
+        }
 
     if "max" in eff:
-        if is_brief:
-            return {
-                "effort": "Max Effort",
-                "options": {"temperature": 0.3, "num_predict": 1024, "top_p": 0.85},
-                "think": True,
-                "instruction": (
-                    "Operating in MAX EFFORT mode. Answer the user's prompt directly, accurately, and thoroughly. "
-                    "Since the query is brief or conversational, provide a clear, high-quality answer without over-deliberating."
-                ),
-            }
         return {
             "effort": "Max Effort",
-            "options": {"temperature": 0.6, "num_predict": 3072, "top_p": 0.9},
+            "options": {"temperature": 0.6, "num_predict": 8192, "num_ctx": 16384, "top_p": 0.95},
             "think": True,
             "instruction": (
                 "Operating at MAXIMUM REASONING EFFORT. Conduct an exhaustive, rigorous engineering analysis. "
-                "Explore root causes, secondary plant impacts, relevant industry standards (OISD, API, ASME, ISO), "
-                "formulas/parameters where applicable, and structured mitigation checklists."
+                "First, deliberate through all mechanisms, thermodynamics, governing formulas, standards (OISD, API, ASME, ISO), "
+                "edge cases, and process constraints. "
+                "Then, deliver an exhaustive, beautifully structured technical breakdown with clear markdown headers: "
+                "Executive Summary, Fundamental Principles/Mechanisms, Detailed Step-by-Step Breakdown, "
+                "Formulas & Calculations (with KaTeX math if applicable), Real-World Industrial/Operational Examples, "
+                "Failure Modes & Challenges, and Engineering Best-Practice Checklists. "
+                "Never truncate, abbreviate, or stop at a one-sentence definition. Fully write out every section."
             ),
         }
     elif "deep" in eff or "reason" in eff or "research" in eff:
-        if is_brief:
-            return {
-                "effort": "Deep Research",
-                "options": {"temperature": 0.2, "num_predict": 768, "top_p": 0.8},
-                "think": True,
-                "instruction": (
-                    "Operating in DEEP RESEARCH mode. Provide a clear, well-reasoned answer directly addressing the user's prompt."
-                ),
-            }
         return {
             "effort": "Deep Research",
-            "options": {"temperature": 0.5, "num_predict": 2048, "top_p": 0.9},
+            "options": {"temperature": 0.5, "num_predict": 6144, "num_ctx": 16384, "top_p": 0.9},
             "think": True,
             "instruction": (
-                "Operating in DEEP RESEARCH mode. Conduct systematic, step-by-step reasoning. "
-                "Break down technical problem constraints, evaluate underlying mechanisms, "
-                "reference applicable refinery procedures, and deliver a comprehensive, structured response."
+                "Operating in DEEP RESEARCH mode. Conduct systematic, deep step-by-step reasoning before formulating your response. "
+                "Your final response must be comprehensive, thorough, and highly structured with markdown headings. "
+                "Include: 1) Definition and Core Conceptual Overview, 2) The Complete Process / Mechanism (broken down step-by-step), "
+                "3) Types, Classifications, and Key Components, 4) Practical Concrete Examples, "
+                "5) Why It Matters (Importance, Benefits, Impact), and 6) Common Pitfalls, Challenges, or Edge Cases. "
+                "Never provide a brief or one-sentence answer when Deep Research is active. Write out the full explanation with technical depth."
             ),
         }
     else:
-        # Fast mode: responsive but not robotically deterministic
+        # Fast mode: responsive, direct, and thorough without internal CoT thinking tokens
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.4, "num_predict": 1024, "top_p": 0.85},
+            "options": {"temperature": 0.4, "num_predict": 2048, "num_ctx": 8192, "top_p": 0.85},
             "think": False,
             "instruction": (
-                "Operating in FAST mode. Provide an immediate, direct, and concise answer. "
-                "When the user asks about their identity, role, or responsibilities, answer specifically "
-                "using the profile and memory context — never deflect with generic phrases."
+                "Operating in FAST mode. Provide a direct, clear, and well-structured answer without internal thinking overhead. "
+                "Answer thoroughly with relevant details, code or calculations when asked, and answer specifically "
+                "using the user's profile and memory context when asked about identity or plant assignments."
             ),
         }
 
@@ -739,7 +740,7 @@ async def api_chat(payload_data: ChatPayload):
     system = "\n\n".join(system_blocks)
 
     if payload_data.messages:
-        lines = [f"System: {system}"]
+        lines = []
         if context:
             lines.append(f"Context from Documents:\n{context}")
         for m in payload_data.messages:
