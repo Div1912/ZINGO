@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import { Highlight, themes } from 'prism-react-renderer'
 import { useArtifactStore } from '../../stores/artifactStore'
 import { useToastStore } from '../../stores/toastStore'
@@ -316,7 +318,7 @@ export const ArtifactViewer: React.FC = () => {
         ) : activeTab === 'preview' && artifact.type === 'markdown' ? (
           <div className="w-full h-full overflow-y-auto p-6 select-text">
             <div className="max-w-3xl mx-auto markdown-body">
-              <Markdown remarkPlugins={[remarkGfm]}>
+              <Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                 {artifact.content}
               </Markdown>
             </div>

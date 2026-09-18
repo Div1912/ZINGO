@@ -232,6 +232,19 @@ def run_ollama_stream_cot(
                     think_buf, events = flush_think_buf(think_buf, force=False)
                     for ev in events:
                         yield f"data: {ev}\n\n"
+                continue
+
+            # If we were in dedicated thinking and now received non-empty response text,
+            # conclude the thinking phase before streaming the answer
+            if in_think_block and not chunk_text.startswith("<think>"):
+                # Check if we were in dedicated thinking (no active open_idx / inline tag)
+                in_think_block = False
+                open_idx = 0
+                close_idx = 0
+                think_buf, events = flush_think_buf(think_buf, force=True)
+                for ev in events:
+                    yield f"data: {ev}\n\n"
+                yield f"data: {json.dumps({'type': 'thinking_end', 'total_steps': think_step_count})}\n\n"
 
             # Process character-by-character for inline <think> tags
             for char in chunk_text:

@@ -603,7 +603,7 @@ def init_db() -> None:
                        (user_id, full_name, preferred_name, work_role, personal_preferences, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?)""",
                     ("default_user", "Div", "Div", "Refinery Process Engineer (CDU/VDU)",
-                     "Ask clarifying questions before giving detailed answers. Keep technical explanations rigorous and precise.", now)
+                     "Provide direct, precise, knowledgeable answers. When asked about identity or responsibilities, answer specifically using the profile and memory context.", now)
                 )
 
             # Seed default user capabilities if empty
@@ -1972,7 +1972,7 @@ def delete_user_account(user_id: str = "default_user") -> bool:
         conn.execute(
             """UPDATE user_profile
                SET full_name = 'Div', preferred_name = 'Div', work_role = 'Refinery Process Engineer (CDU/VDU)',
-                   personal_preferences = 'Ask clarifying questions before giving detailed answers.', updated_at = ?
+                   personal_preferences = 'Provide direct, precise, knowledgeable answers. When asked about identity or responsibilities, answer specifically using the profile and memory context.', updated_at = ?
                WHERE user_id = ?""",
             (now, user_id)
         )
@@ -2001,11 +2001,28 @@ def build_claude_identity_prompt(user_id: str = "default_user") -> str:
 
     sections = []
 
+    # 0. Identity Instructions (prepended first — highest priority)
+    sections.append(
+        "<identity_instructions>\n"
+        "You know who the user is. You have their full profile, role, and memory files available.\n"
+        "When the user asks 'Who am I?', 'What's my responsibility?', 'Do you know me?', "
+        "'What do I do?', or any variant about their identity, role, plant, equipment, or background:\n"
+        "→ Answer directly and specifically using the <user_profile> and <user_memory> below.\n"
+        "→ Mention their name, role, plant unit (CDU-2, VDU-1), and key responsibilities.\n"
+        "→ NEVER respond with generic deflections like 'How can I assist you today?' or 'I'm not sure'.\n"
+        "→ NEVER ask them who they are — you already know.\n"
+        "For math, chemical equations, and scientific notation, use proper LaTeX:\n"
+        "→ Inline: $...$ or \\(...\\)  |  Display block: $$...$$ or \\[...\\]\n"
+        "→ Use \\text{} for chemical element names in subscripts, e.g.: $\\text{CO}_2$\n"
+        "→ Use \\mathrm{} for molecular formulae, e.g.: $\\mathrm{C_6H_{12}O_6}$\n"
+        "</identity_instructions>"
+    )
+
     # 1. User Profile & Personal Preferences
     full_name = profile.get("full_name") or "Div"
     preferred_name = profile.get("preferred_name") or full_name
     work_role = profile.get("work_role") or "Refinery Process Engineer (CDU/VDU)"
-    prefs = profile.get("personal_preferences") or "Ask clarifying questions before giving detailed answers."
+    prefs = profile.get("personal_preferences") or "Provide direct, precise, knowledgeable answers."
 
     sections.append(
         f"<user_profile>\n"

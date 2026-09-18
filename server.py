@@ -377,13 +377,15 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
             ),
         }
     else:
-        # Fast mode: MAXIMUM SPEED, ultra low latency
+        # Fast mode: responsive but not robotically deterministic
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.1, "num_predict": 512, "top_p": 0.7},
+            "options": {"temperature": 0.4, "num_predict": 1024, "top_p": 0.85},
             "think": False,
             "instruction": (
-                "Operating in FAST mode. Provide an immediate, direct, and concise answer with zero unnecessary preamble or filler."
+                "Operating in FAST mode. Provide an immediate, direct, and concise answer. "
+                "When the user asks about their identity, role, or responsibilities, answer specifically "
+                "using the profile and memory context — never deflect with generic phrases."
             ),
         }
 

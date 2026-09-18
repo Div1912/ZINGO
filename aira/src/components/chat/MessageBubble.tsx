@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import { Highlight, themes } from 'prism-react-renderer'
 import {
   Copy,
@@ -282,7 +284,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
             {finalContent ? (
               <Markdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
                 components={{
                   code({ inline, className, children, ...props }: any) {
                     const match = /language-(\w+)/.exec(className || '')
