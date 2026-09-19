@@ -185,8 +185,9 @@ async def cluster_ping(node_url: str = Query(..., description="Target node URL t
     clean_url = (node_url or "").strip().rstrip("/")
     if not clean_url:
         return {"connected": False, "error": "Missing node URL"}
+    headers = {"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoPing/1.0"}
     try:
-        resp = requests.get(f"{clean_url}/api/tags", timeout=3)
+        resp = requests.get(f"{clean_url}/api/tags", headers=headers, timeout=8)
         if resp.status_code == 200:
             data = resp.json()
             models = [m.get("name") for m in data.get("models", [])]
@@ -614,7 +615,7 @@ async def process_and_ask(
 
     if not target_model or target_model.lower() in ("auto", "auto (recommended)", "auto (cluster smart router)"):
         if images_b64:
-            target_model = local_vl or ("qwen2.5vl:3b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5vl:3b"))
+            target_model = local_vl or ("qwen2.5-vl:3b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5-vl:3b"))
         elif has_remote_node:
             if any(k in user_query.lower() for k in ["code", "python", "script", "def ", "sql", "bug", "error", "function", "class "]):
                 target_model = "qwen2.5-coder:7b"
@@ -628,7 +629,7 @@ async def process_and_ask(
     elif "coder" in target_model.lower():
         target_model = local_coder or ("qwen2.5-coder:7b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5-coder:7b"))
     elif "vl" in target_model.lower() or "vision" in target_model.lower():
-        target_model = local_vl or ("qwen2.5vl:3b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5vl:3b"))
+        target_model = local_vl or ("qwen2.5-vl:3b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5-vl:3b"))
     elif "r1" in target_model.lower() or "deepseek" in target_model.lower():
         target_model = local_r1 or ("deepseek-r1:8b" if has_remote_node else (available_local_models[0] if available_local_models else "deepseek-r1:8b"))
     elif "8b" in target_model.lower() or "qwen3" in target_model.lower():
@@ -686,10 +687,14 @@ async def process_and_ask(
         return StreamingResponse(run_ollama_stream(payload, context=context, sources=sources, feature="ocr_chat"),
                                  media_type="text/event-stream")
     try:
+        req_headers = {"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoCluster/1.0"}
         try:
-            response = requests.post(target_endpoint,
-                                     json={k: v for k, v in payload.items() if not k.startswith("_")},
-                                     timeout=8 if target_endpoint != MODEL_ENDPOINT else 300)
+            response = requests.post(
+                target_endpoint,
+                json={k: v for k, v in payload.items() if not k.startswith("_")},
+                headers=req_headers,
+                timeout=(15, 300) if target_endpoint != MODEL_ENDPOINT else (15, 300),
+            )
             response.raise_for_status()
         except Exception as remote_err:
             if target_endpoint != MODEL_ENDPOINT:
@@ -697,9 +702,13 @@ async def process_and_ask(
                 target_endpoint = MODEL_ENDPOINT
                 target_model = llm.DEFAULT_MODEL
                 payload["model"] = target_model
-                response = requests.post(target_endpoint,
-                                         json={k: v for k, v in payload.items() if not k.startswith("_")},
-                                         timeout=300)
+                payload.pop("images", None)  # master model qwen3:8b is text-only
+                response = requests.post(
+                    target_endpoint,
+                    json={k: v for k, v in payload.items() if not k.startswith("_")},
+                    headers=req_headers,
+                    timeout=(15, 300),
+                )
                 response.raise_for_status()
             else:
                 raise remote_err
@@ -894,7 +903,15 @@ async def api_chat(payload_data: ChatPayload):
     if payload_data.images:
         task = "vision"
 
-    model = llm.resolve_model(task, payload_data.model)
+    has_remote_node = bool(payload_data.node_url and payload_data.node_url.strip())
+    if has_remote_node and payload_data.model and payload_data.model.lower() not in ("auto", "auto (recommended)", "auto (cluster smart router)"):
+        model = payload_data.model
+        if model == "qwen2.5vl:3b":
+            model = "qwen2.5-vl:3b"
+    elif has_remote_node and (task == "vision" or payload_data.images):
+        model = "qwen2.5-vl:3b"
+    else:
+        model = llm.resolve_model(task, payload_data.model)
     log_audit("chat_query", payload_data.user, None, "chat", {
         "question": question[:300], "task_type": task,
         "rag_used": bool(retrieval["chunks_retrieved"]),

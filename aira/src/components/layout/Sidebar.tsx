@@ -208,16 +208,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Kebab action dropdown */}
         <div
-          className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+          className="opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
           onClick={(e) => e.stopPropagation()}
         >
           <Dropdown
             trigger={
               <button
-                className="btn-icon !w-5 !h-5 text-content-tertiary hover:text-content-primary"
+                className="btn-icon !w-6 !h-6 sm:!w-5 sm:!h-5 text-content-tertiary hover:text-content-primary"
                 aria-label="Chat options"
               >
-                <MoreVertical size={12} />
+                <MoreVertical size={13} />
               </button>
             }
             items={[

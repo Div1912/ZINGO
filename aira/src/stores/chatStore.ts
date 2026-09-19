@@ -144,13 +144,79 @@ const persistUserLocalCache = (userId: string | null | undefined, chats: Chat[])
   }
 }
 
+const getDeletedChatIdsKey = (userId?: string | null) =>
+  userId ? `aira-deleted-chats-${userId}` : 'aira-deleted-chats-local_user'
+
+const getDeletedChatIds = (userId?: string | null): Set<string> => {
+  try {
+    const raw = localStorage.getItem(getDeletedChatIdsKey(userId))
+    if (raw) {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) return new Set(arr)
+    }
+  } catch {}
+  return new Set()
+}
+
+const addDeletedChatId = (userId: string | null | undefined, chatId: string) => {
+  try {
+    const ids = getDeletedChatIds(userId)
+    ids.add(chatId)
+    localStorage.setItem(getDeletedChatIdsKey(userId), JSON.stringify(Array.from(ids)))
+  } catch (e) {
+    console.warn('Could not persist deleted chat tombstone:', e)
+  }
+}
+
+const getClearedChatMapKey = (userId?: string | null) =>
+  userId ? `aira-cleared-chats-${userId}` : 'aira-cleared-chats-local_user'
+
+const getClearedChatMap = (userId?: string | null): Record<string, number> => {
+  try {
+    const raw = localStorage.getItem(getClearedChatMapKey(userId))
+    if (raw) {
+      const obj = JSON.parse(raw)
+      if (obj && typeof obj === 'object') return obj
+    }
+  } catch {}
+  return {}
+}
+
+const recordClearedChat = (userId: string | null | undefined, chatId: string) => {
+  try {
+    const map = getClearedChatMap(userId)
+    map[chatId] = Date.now()
+    localStorage.setItem(getClearedChatMapKey(userId), JSON.stringify(map))
+  } catch (e) {
+    console.warn('Could not persist cleared chat map:', e)
+  }
+}
+
 const getInitialChats = (): { chats: Chat[]; activeChatId: string | null } => {
   try {
     const cached = localStorage.getItem(getLocalUserCacheKey(null))
+    const deletedIds = getDeletedChatIds(null)
+    const clearedMap = getClearedChatMap(null)
     if (cached) {
       const parsed = JSON.parse(cached) as Chat[]
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return { chats: parsed, activeChatId: parsed[0]?.id || null }
+        const filtered = parsed
+          .filter((c) => !deletedIds.has(c.id))
+          .map((c) => {
+            const clearedAt = clearedMap[c.id]
+            if (clearedAt) {
+              return {
+                ...c,
+                messages: c.messages.filter(
+                  (m) => new Date(m.timestamp).getTime() > clearedAt
+                ),
+              }
+            }
+            return c
+          })
+        if (filtered.length > 0) {
+          return { chats: filtered, activeChatId: filtered[0]?.id || null }
+        }
       }
     }
   } catch {
@@ -179,6 +245,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   loadUserChats: async (userId: string) => {
     set({ currentUserId: userId, isLoadingChats: true })
+    const deletedIds = getDeletedChatIds(userId)
+    const clearedMap = getClearedChatMap(userId)
 
     // 1. Immediately hydrate from local per-user cache for instant UI
     try {
@@ -186,10 +254,26 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (cached) {
         const parsed = JSON.parse(cached) as Chat[]
         if (Array.isArray(parsed) && parsed.length > 0) {
-          set({
-            chats: parsed,
-            activeChatId: parsed[0]?.id || null,
-          })
+          const filtered = parsed
+            .filter((c) => !deletedIds.has(c.id))
+            .map((c) => {
+              const clearedAt = clearedMap[c.id]
+              if (clearedAt) {
+                return {
+                  ...c,
+                  messages: c.messages.filter(
+                    (m) => new Date(m.timestamp).getTime() > clearedAt
+                  ),
+                }
+              }
+              return c
+            })
+          if (filtered.length > 0) {
+            set({
+              chats: filtered,
+              activeChatId: filtered[0]?.id || null,
+            })
+          }
         }
       }
     } catch {
@@ -200,16 +284,39 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const dbChats = await fetchUserChats(userId)
 
-      if (dbChats.length > 0) {
+      // Filter out deleted chats and filter messages from cleared chats
+      const activeDbChats = dbChats
+        .filter((c) => !deletedIds.has(c.id))
+        .map((c) => {
+          const clearedAt = clearedMap[c.id]
+          if (clearedAt) {
+            return {
+              ...c,
+              messages: c.messages.filter(
+                (m) => new Date(m.timestamp).getTime() > clearedAt
+              ),
+            }
+          }
+          return c
+        })
+
+      // Silently trigger background cleanup in Supabase for any lingering deleted chats
+      dbChats.forEach((c) => {
+        if (deletedIds.has(c.id)) {
+          deleteChatFromDb(c.id, userId).catch(() => {})
+        }
+      })
+
+      if (activeDbChats.length > 0) {
         const currentActive = get().activeChatId
-        const activeExists = dbChats.some((c) => c.id === currentActive)
-        const nextActive = activeExists ? currentActive : dbChats[0].id
+        const activeExists = activeDbChats.some((c) => c.id === currentActive)
+        const nextActive = activeExists ? currentActive : activeDbChats[0].id
 
         set({
-          chats: dbChats,
+          chats: activeDbChats,
           activeChatId: nextActive,
         })
-        persistUserLocalCache(userId, dbChats)
+        persistUserLocalCache(userId, activeDbChats)
       } else if (get().chats.length === 0) {
         // Brand new user with zero chats: create initial clean workspace
         const initialChat: Chat = {
@@ -327,6 +434,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   deleteChat: (id) => {
     const state = get()
+    const userId = state.currentUserId
+    addDeletedChatId(userId, id)
+    addDeletedChatId(null, id)
+
     let remaining = state.chats.filter((c) => c.id !== id)
     let nextActive = state.activeChatId === id ? (remaining[0]?.id ?? null) : state.activeChatId
 
@@ -353,9 +464,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       isSourcePanelOpen: false,
     })
 
-    const userId = state.currentUserId
     if (userId) {
-      deleteChatFromDb(id, userId)
+      deleteChatFromDb(id, userId).catch(() => {})
     }
     zingoApi.deleteConversation(id).catch(() => {})
     persistUserLocalCache(userId, remaining)
@@ -503,7 +613,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   clearChat: (chatId) => {
-    const updatedChats = get().chats.map((chat) =>
+    const state = get()
+    const userId = state.currentUserId
+    recordClearedChat(userId, chatId)
+    recordClearedChat(null, chatId)
+
+    const updatedChats = state.chats.map((chat) =>
       chat.id === chatId ? { ...chat, messages: [], updatedAt: new Date().toISOString() } : chat
     )
     set({
@@ -512,11 +627,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       isSourcePanelOpen: false,
     })
 
-    const userId = get().currentUserId
     if (userId) {
       const chat = updatedChats.find((c) => c.id === chatId)
       if (chat) saveChatToDb(chat, userId)
-      clearChatMessagesFromDb(chatId, userId)
+      clearChatMessagesFromDb(chatId, userId).catch(() => {})
     }
     zingoApi.clearConversationMessages(chatId).catch(() => {})
     persistUserLocalCache(userId, updatedChats)

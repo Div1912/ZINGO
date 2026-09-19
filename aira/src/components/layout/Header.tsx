@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Bell,
   CheckCheck,
+  RotateCcw,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useChatStore } from '../../stores/chatStore'
@@ -47,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
   isMobileSidebarOpen,
   onNewChat,
 }) => {
-  const { chats, activeChatId, renameChat, clearChat } = useChatStore()
+  const { chats, activeChatId, renameChat, clearChat, deleteChat } = useChatStore()
   const { projects, activeProjectId, setActiveProject } = useProjectStore()
   const { addToast } = useToastStore()
   const { settings } = useSettingsStore()
@@ -443,16 +444,30 @@ export const Header: React.FC<HeaderProps> = ({
               }
               items={[
                 {
-                  id: 'clear',
-                  label: 'Clear Conversation',
+                  id: 'delete-conversation',
+                  label: 'Delete Conversation',
                   icon: <Trash2 size={13} />,
                   danger: true,
+                  onClick: () => {
+                    if (currentChat) {
+                      deleteChat(currentChat.id)
+                      addToast({
+                        type: 'info',
+                        message: 'Conversation permanently deleted.',
+                      })
+                    }
+                  },
+                },
+                {
+                  id: 'clear-messages',
+                  label: 'Clear Messages',
+                  icon: <RotateCcw size={13} />,
                   onClick: () => {
                     if (currentChat) {
                       clearChat(currentChat.id)
                       addToast({
                         type: 'info',
-                        message: 'Conversation history cleared.',
+                        message: 'Conversation messages cleared.',
                       })
                     }
                   },

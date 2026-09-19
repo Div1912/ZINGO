@@ -130,14 +130,39 @@ def run_ollama_stream_cot(
     clean_payload = {k: v for k, v in payload.items() if not k.startswith("_")}
     req = None
 
+    req_headers = {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+        "User-Agent": "ZingoCluster/1.0",
+    }
+
     try:
         try:
             req = requests.post(
                 endpoint,
                 json=clean_payload,
+                headers=req_headers,
                 stream=True,
-                timeout=10 if endpoint != DEFAULT_ENDPOINT else 600,
+                timeout=(15, 300) if endpoint != DEFAULT_ENDPOINT else (15, 600),
             )
+            # If model name wasn't found (e.g. qwen2.5vl:3b vs qwen2.5-vl:3b), try hyphenated tag
+            if req.status_code == 404 and "model" in req.text.lower():
+                cur_model = clean_payload.get("model", "")
+                alt_model = None
+                if cur_model == "qwen2.5vl:3b":
+                    alt_model = "qwen2.5-vl:3b"
+                elif cur_model == "qwen2.5-vl:3b":
+                    alt_model = "qwen2.5vl:3b"
+                if alt_model:
+                    clean_payload["model"] = alt_model
+                    model_name = alt_model
+                    req = requests.post(
+                        endpoint,
+                        json=clean_payload,
+                        headers=req_headers,
+                        stream=True,
+                        timeout=(15, 300),
+                    )
             req.raise_for_status()
         except Exception as remote_err:
             if clean_payload.get("model") != DEFAULT_MODEL or endpoint != DEFAULT_ENDPOINT:
@@ -145,11 +170,14 @@ def run_ollama_stream_cot(
                 clean_payload["model"] = DEFAULT_MODEL
                 model_name = DEFAULT_MODEL
                 endpoint = DEFAULT_ENDPOINT
+                # DEFAULT_MODEL (qwen3:8b) is text-only. Remove 'images' so prompt with OCR text still answers cleanly.
+                clean_payload.pop("images", None)
                 req = requests.post(
                     endpoint,
                     json=clean_payload,
+                    headers=req_headers,
                     stream=True,
-                    timeout=600,
+                    timeout=(15, 600),
                 )
                 req.raise_for_status()
             else:
