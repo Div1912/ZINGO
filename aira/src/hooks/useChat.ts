@@ -63,12 +63,28 @@ export function useChat(chatId?: string | null) {
 
       if (isChatGenerating(sendToChatId)) return
 
-      const detectedTask: TaskType = detectTaskType(content || '')
+      const hasImageFile = Boolean(
+        files &&
+          (files as any[]).some((f: any) => {
+            const type = f.type || (f.rawFile && f.rawFile.type) || ''
+            const name = f.name || (f.rawFile && f.rawFile.name) || ''
+            return type.startsWith('image/') || /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(name)
+          })
+      )
+
+      let detectedTask: TaskType = hasImageFile ? 'vision' : detectTaskType(content || '')
       let selectedModel: ModelId = (forcedModel as ModelId) || settings.defaultModel || 'qwen3:8b'
 
       if (settings.autoRouteModel && !forcedModel) {
-        if (detectedTask === 'code') {
-          selectedModel = 'qwen2.5-coder-7b'
+        if (hasImageFile) {
+          selectedModel = 'qwen2.5vl:3b'
+          addToast({
+            type: 'info',
+            title: 'Auto-Routed to Multimodal',
+            message: 'Switched to Qwen2.5-VL (Laptop 2) for visual recognition and document inspection.',
+          })
+        } else if (detectedTask === 'code') {
+          selectedModel = 'qwen2.5-coder:7b'
           addToast({
             type: 'info',
             title: 'Auto-Routed to Coder',
@@ -162,6 +178,20 @@ export function useChat(chatId?: string | null) {
             content: m.content,
           }))
 
+        let targetNodeUrl: string | undefined = undefined
+        if (
+          selectedModel === 'qwen2.5vl:3b' ||
+          selectedModel === 'qwen2.5-vl:3b' ||
+          selectedModel === 'qwen2.5-vl:7b' ||
+          detectedTask === 'vision'
+        ) {
+          targetNodeUrl = server.vision_url || server.g15_2_url || 'http://127.0.0.1:11434'
+        } else if (selectedModel.includes('coder')) {
+          targetNodeUrl = server.coderStatus === 'connected' ? server.g15_2_url : undefined
+        } else if (selectedModel.includes('r1')) {
+          targetNodeUrl = server.reasoning_url
+        }
+
         if (hasFiles) {
           const fd = new FormData()
           const queryText = (content || '').trim() || 'Please analyze the attached document and provide a comprehensive summary and key takeaways.'
@@ -174,6 +204,7 @@ export function useChat(chatId?: string | null) {
           })
           if (selectedModel) fd.append('model', selectedModel)
           if (effort) fd.append('effort', effort)
+          if (targetNodeUrl) fd.append('node_url', targetNodeUrl)
           fd.append('user', 'default_user')
           fd.append('messages', JSON.stringify(messagesForContext))
 
@@ -184,6 +215,7 @@ export function useChat(chatId?: string | null) {
           })
           if (selectedModel) qp.set('model', selectedModel)
           if (effort) qp.set('effort', effort)
+          if (targetNodeUrl) qp.set('node_url', targetNodeUrl)
           endpoint = `${cleanBaseUrl}/process-and-ask/?${qp.toString()}`
         } else {
           headers['Content-Type'] = 'application/json'
@@ -197,6 +229,7 @@ export function useChat(chatId?: string | null) {
             model: selectedModel ?? undefined,
             effort: effort ?? 'Fast',
             task_type: detectedTask,
+            node_url: targetNodeUrl ?? undefined,
           })
           endpoint = `${cleanBaseUrl}/api/chat`
         }

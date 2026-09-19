@@ -27,10 +27,10 @@ export const InputBar: React.FC<InputBarProps> = ({
     meta: { model: string; effort: string; attachments: File[] }
   ) => {
     let modelId: ModelId = 'auto'
-    if (meta.model.includes('Coder')) {
+    if (meta.model.includes('Vision') || meta.model.includes('VL') || meta.model.includes('Multimodal')) {
+      modelId = 'qwen2.5vl:3b'
+    } else if (meta.model.includes('Coder')) {
       modelId = 'qwen2.5-coder:7b'
-    } else if (meta.model.includes('Vision') || meta.model.includes('VL')) {
-      modelId = 'qwen2.5-vl:7b'
     } else if (meta.model.includes('R1') || meta.model.includes('DeepSeek')) {
       modelId = 'deepseek-r1:8b'
     } else if (meta.model.includes('Qwen3') || meta.model.includes('Master') || meta.model.includes('8B')) {
@@ -77,10 +77,10 @@ export const InputBar: React.FC<InputBarProps> = ({
           placeholder="Ask AIRA anything... (Shift+Enter for new line)"
           models={[
             'Auto (Cluster Smart Router)',
-            'Qwen3-8B (Master / Chat Node)',
-            'Qwen2.5-Coder (Laptop 2)',
-            'Qwen2.5-VL Vision (Laptop 3)',
-            'DeepSeek-R1 (Laptop 4)'
+            'Qwen3-8B (Laptop 1 - Master Node)',
+            'Qwen2.5-VL Multimodal (Laptop 2 - Vision Node)',
+            'Qwen2.5-Coder (Laptop 3 - Coder Node)',
+            'DeepSeek-R1 (Laptop 4 - Deep Reasoning Node)'
           ]}
           efforts={['Fast', 'Deep Research', 'Max Effort']}
           maxWidthCollapsed={560}

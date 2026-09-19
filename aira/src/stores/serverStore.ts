@@ -16,16 +16,17 @@ interface ServerStore {
 }
 
 export const DEFAULT_TUNNEL_URL = 'https://splendid-sensibly-primate.ngrok-free.app'
+export const DEFAULT_LAPTOP2_VISION_TUNNEL_URL = 'https://unfailing-idealism-caretaker.ngrok-free.dev'
 
 const DEFAULT_SERVER: ServerConfig = {
   g15_1_url: DEFAULT_TUNNEL_URL,
-  g15_2_url: 'http://127.0.0.1:11434',
-  vision_url: 'http://192.168.1.16:11434',
+  g15_2_url: DEFAULT_LAPTOP2_VISION_TUNNEL_URL, // Laptop 2: Multimodal & Vision Node (Permanent Ngrok Tunnel)
+  vision_url: DEFAULT_LAPTOP2_VISION_TUNNEL_URL,
   reasoning_url: 'http://192.168.1.17:11434',
   connectionStatus: 'connected',
   primaryStatus: 'connected',
   coderStatus: 'connected',
-  visionStatus: 'disconnected',
+  visionStatus: 'connected',
   reasoningStatus: 'disconnected',
 }
 
@@ -66,7 +67,7 @@ export const useServerStore = create<ServerStore>()(
         const coderSuccess = coderRes.connected
         const visionSuccess = visionRes.connected
         const reasoningSuccess = reasoningRes.connected
-        const overall = primarySuccess || coderSuccess ? 'connected' : 'disconnected'
+        const overall = primarySuccess || coderSuccess || visionSuccess ? 'connected' : 'disconnected'
 
         set({
           isChecking: false,
@@ -86,7 +87,7 @@ export const useServerStore = create<ServerStore>()(
         addToast({
           type: activeCount > 0 ? 'success' : 'warning',
           title: `Cluster Check Complete (${activeCount}/4 Online)`,
-          message: `Primary: ${primarySuccess ? 'OK' : 'Offline'} | Coder: ${coderSuccess ? 'OK' : 'Offline'} | Vision: ${visionSuccess ? 'OK' : 'Offline'} | Reasoning: ${reasoningSuccess ? 'OK' : 'Offline'}`,
+          message: `Primary: ${primarySuccess ? 'OK' : 'Offline'} | Vision (Laptop 2): ${visionSuccess ? 'OK' : 'Offline'} | Coder: ${coderSuccess ? 'OK' : 'Offline'} | Reasoning: ${reasoningSuccess ? 'OK' : 'Offline'}`,
         })
       },
       checkIndividual: async (node: ClusterNodeKey) => {
@@ -98,8 +99,8 @@ export const useServerStore = create<ServerStore>()(
         }
         const labelMap: Record<ClusterNodeKey, string> = {
           primary: 'Master Node (Chat)',
-          coder: 'Laptop 2 (Coder Node)',
-          vision: 'Laptop 3 (Vision Node)',
+          vision: 'Laptop 2 (Multimodal / Vision Node)',
+          coder: 'Laptop 3 (Coder Node)',
           reasoning: 'Laptop 4 (Reasoning Node)',
         }
 
@@ -110,8 +111,8 @@ export const useServerStore = create<ServerStore>()(
 
         const cur = get().server
         let url = cur.g15_1_url
-        if (node === 'coder') url = cur.g15_2_url
-        else if (node === 'vision') url = cur.vision_url || ''
+        if (node === 'vision') url = cur.vision_url || cur.g15_2_url || 'http://127.0.0.1:11434'
+        else if (node === 'coder') url = cur.g15_2_url
         else if (node === 'reasoning') url = cur.reasoning_url || ''
 
         const res = await checkServerHealth(url, cur.g15_1_url)
@@ -140,14 +141,19 @@ export const useServerStore = create<ServerStore>()(
       },
     }),
     {
-      name: 'aira-server-config-v3',
+      name: 'aira-server-config-v5',
       onRehydrateStorage: () => (state) => {
         if (state && state.server) {
           if (!state.server.g15_1_url || state.server.g15_1_url.includes('trycloudflare.com')) {
             state.server.g15_1_url = DEFAULT_TUNNEL_URL
           }
-          if (!state.server.vision_url) {
-            state.server.vision_url = 'http://192.168.1.16:11434'
+          if (
+            !state.server.vision_url ||
+            state.server.vision_url.includes('192.168.1.16') ||
+            state.server.vision_url === 'http://127.0.0.1:11434'
+          ) {
+            state.server.vision_url = DEFAULT_LAPTOP2_VISION_TUNNEL_URL
+            state.server.g15_2_url = DEFAULT_LAPTOP2_VISION_TUNNEL_URL
           }
           if (!state.server.reasoning_url) {
             state.server.reasoning_url = 'http://192.168.1.17:11434'

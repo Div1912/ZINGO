@@ -35,7 +35,7 @@ TASK_MODEL_MAP = {
     "analysis": "qwen3:8b",
     "extraction": "qwen3:8b",
     "code": "qwen2.5-coder:7b",
-    "vision": "llava:7b",
+    "vision": "qwen2.5vl:3b",
 }
 
 _model_cache: Dict[str, Any] = {"models": [], "checked_at": 0.0}
@@ -60,11 +60,33 @@ def list_models(force: bool = False) -> List[str]:
 
 
 def resolve_model(task_type: str = "chat", requested: Optional[str] = None) -> str:
-    """Pick the best locally available model for a task type."""
+    """Pick the best locally available model for a task type or requested identifier."""
     available = list_models()
-    if requested and (not available or requested in available):
-        return requested
-    preferred = TASK_MODEL_MAP.get((task_type or "chat").lower(), DEFAULT_MODEL)
+    normalized_task = (task_type or "chat").lower()
+
+    if requested:
+        req_clean = requested.strip().lower()
+        if not available:
+            return requested
+        if requested in available:
+            return requested
+        # Fuzzy match for requested model variants (e.g. qwen2.5vl, qwen2.5-vl)
+        for m in available:
+            m_clean = m.lower()
+            if req_clean in m_clean or m_clean.startswith(req_clean.split(":")[0]):
+                return m
+        if "vl" in req_clean or "vision" in req_clean:
+            for m in available:
+                if "vl" in m.lower() or "vision" in m.lower() or "llava" in m.lower():
+                    return m
+
+    # Vision / Multimodal routing
+    if normalized_task == "vision":
+        for m in available:
+            if "vl" in m.lower() or "vision" in m.lower() or "llava" in m.lower():
+                return m
+
+    preferred = TASK_MODEL_MAP.get(normalized_task, DEFAULT_MODEL)
     if not available:
         return preferred
     if preferred in available:
@@ -79,9 +101,11 @@ def resolve_model(task_type: str = "chat", requested: Optional[str] = None) -> s
 def generate(prompt: str, system: Optional[str] = None, model: Optional[str] = None,
              feature: str = "core", task_type: str = "general", temperature: float = 0.2,
              json_mode: bool = False, num_predict: int = 1400,
-             effort: Optional[str] = None, timeout: int = 240) -> str:
-    """Single-shot completion against the local node. Always audited."""
-    model_name = resolve_model(task_type, model)
+             effort: Optional[str] = None, timeout: int = 240,
+             images: Optional[List[str]] = None) -> str:
+    """Single-shot completion against the local node. Supports multimodal vision payloads. Always audited."""
+    resolved_task = "vision" if images and task_type == "general" else task_type
+    model_name = resolve_model(resolved_task, model)
 
     options = {"temperature": temperature, "num_predict": num_predict, "top_p": 0.9}
     think_flag = False
@@ -109,6 +133,8 @@ def generate(prompt: str, system: Optional[str] = None, model: Optional[str] = N
         payload["system"] = system
     if json_mode:
         payload["format"] = "json"
+    if images:
+        payload["images"] = images
 
     started = time.perf_counter()
     try:

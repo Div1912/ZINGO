@@ -46,7 +46,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { useServerStore } from '../../stores/serverStore'
+import { useServerStore, DEFAULT_LAPTOP2_VISION_TUNNEL_URL } from '../../stores/serverStore'
 import { useTheme } from '../../hooks/useTheme'
 import { useToastStore } from '../../stores/toastStore'
 import { useZingoStore } from '../../stores/zingoStore'
@@ -196,7 +196,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   // Server state
   const [g15Primary, setG15Primary] = useState(server.g15_1_url)
   const [g15Coder, setG15Coder] = useState(server.g15_2_url)
-  const [g15Vision, setG15Vision] = useState(server.vision_url || 'http://192.168.1.16:11434')
+  const [g15Vision, setG15Vision] = useState(server.vision_url || DEFAULT_LAPTOP2_VISION_TUNNEL_URL)
   const [g15Reasoning, setG15Reasoning] = useState(server.reasoning_url || 'http://192.168.1.17:11434')
 
   // Knowledge base state
@@ -1840,11 +1840,43 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Node 2: Coder Node */}
+                    {/* Node 2: Multimodal & Vision Node (Laptop 2) */}
                     <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
                       <div className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-content-primary">Laptop 2: Coder Node</span>
+                          <span className="font-semibold text-content-primary">Laptop 2: Multimodal & Vision Node</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                            Qwen2.5-VL:3b (Images, Blueprints & Vision)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => checkIndividual('vision')}
+                          disabled={server.visionStatus === 'checking'}
+                          className="btn-ghost !py-0.5 !px-2 !text-[11px]"
+                        >
+                          {server.visionStatus === 'checking' ? 'Testing...' : 'Test connection'}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={g15Vision}
+                          placeholder="e.g. https://unfailing-idealism-caretaker.ngrok-free.dev"
+                          onChange={(e) => setG15Vision(e.target.value)}
+                          className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                        />
+                        <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
+                          <span className={`w-2 h-2 rounded-full ${server.visionStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
+                          <span className="capitalize text-[11px]">{server.visionStatus || 'online'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Node 3: Coder Node */}
+                    <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-content-primary">Laptop 3: Coder Node</span>
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
                             Qwen2.5-Coder:7b (Code & Debug)
                           </span>
@@ -1868,38 +1900,6 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
                           <span className={`w-2 h-2 rounded-full ${server.coderStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
                           <span className="capitalize text-[11px]">{server.coderStatus || 'offline'}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Node 3: Vision Node */}
-                    <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-content-primary">Laptop 3: Vision Node</span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                            Qwen2.5-VL:7b (Images & Blueprints)
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => checkIndividual('vision')}
-                          disabled={server.visionStatus === 'checking'}
-                          className="btn-ghost !py-0.5 !px-2 !text-[11px]"
-                        >
-                          {server.visionStatus === 'checking' ? 'Testing...' : 'Test connection'}
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={g15Vision}
-                          placeholder="e.g. http://192.168.1.16:11434"
-                          onChange={(e) => setG15Vision(e.target.value)}
-                          className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
-                        />
-                        <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
-                          <span className={`w-2 h-2 rounded-full ${server.visionStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
-                          <span className="capitalize text-[11px]">{server.visionStatus || 'offline'}</span>
                         </span>
                       </div>
                     </div>

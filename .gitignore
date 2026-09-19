@@ -55,6 +55,7 @@ sample_docs/
 vector_store.jsonl
 cloudflared.exe
 ngrok.exe
+ngrok
 
 # Integration context & reference materials
 context/

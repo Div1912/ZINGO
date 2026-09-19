@@ -190,7 +190,16 @@ async def cluster_ping(node_url: str = Query(..., description="Target node URL t
         if resp.status_code == 200:
             data = resp.json()
             models = [m.get("name") for m in data.get("models", [])]
-            return {"connected": True, "type": "ollama", "models": models, "active": models[0] if models else "ready"}
+            has_vision = any("vl" in m.lower() or "vision" in m.lower() or "llava" in m.lower() for m in models)
+            active_model = models[0] if models else "ready"
+            return {
+                "connected": True,
+                "type": "ollama",
+                "models": models,
+                "active": active_model,
+                "has_vision": has_vision,
+                "role": "vision" if has_vision else ("coder" if any("coder" in m.lower() for m in models) else "chat")
+            }
     except Exception:
         pass
 
@@ -593,30 +602,40 @@ async def process_and_ask(
     has_remote_node = bool(node_url and node_url.strip())
     target_model = (model or "").strip()
 
-    if not target_model or target_model == "auto" or target_model == "Auto (Recommended)":
-        if has_remote_node:
-            if images_b64:
-                target_model = "qwen2.5-vl:7b"
-            elif any(k in user_query.lower() for k in ["code", "python", "script", "def ", "sql", "bug", "error", "function", "class "]):
+    def _find_matching_model(needle: str) -> Optional[str]:
+        for m in available_local_models:
+            if needle in m.lower():
+                return m
+        return None
+
+    local_vl = _find_matching_model("vl") or _find_matching_model("vision") or _find_matching_model("llava")
+    local_coder = _find_matching_model("coder")
+    local_r1 = _find_matching_model("r1") or _find_matching_model("deepseek")
+
+    if not target_model or target_model.lower() in ("auto", "auto (recommended)", "auto (cluster smart router)"):
+        if images_b64:
+            target_model = local_vl or ("qwen2.5vl:3b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5vl:3b"))
+        elif has_remote_node:
+            if any(k in user_query.lower() for k in ["code", "python", "script", "def ", "sql", "bug", "error", "function", "class "]):
                 target_model = "qwen2.5-coder:7b"
             elif "max" in effort.lower():
                 target_model = "deepseek-r1:8b"
             else:
                 target_model = llm.DEFAULT_MODEL
         else:
-            # Single local node: use local default
-            target_model = llm.DEFAULT_MODEL
+            # Single local node: use local default or best available
+            target_model = llm.DEFAULT_MODEL if llm.DEFAULT_MODEL in available_local_models else (available_local_models[0] if available_local_models else llm.DEFAULT_MODEL)
     elif "coder" in target_model.lower():
-        target_model = "qwen2.5-coder:7b" if (has_remote_node or "qwen2.5-coder:7b" in available_local_models) else llm.DEFAULT_MODEL
+        target_model = local_coder or ("qwen2.5-coder:7b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5-coder:7b"))
     elif "vl" in target_model.lower() or "vision" in target_model.lower():
-        target_model = "qwen2.5-vl:7b" if (has_remote_node or "qwen2.5-vl:7b" in available_local_models) else llm.DEFAULT_MODEL
+        target_model = local_vl or ("qwen2.5vl:3b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5vl:3b"))
     elif "r1" in target_model.lower() or "deepseek" in target_model.lower():
-        target_model = "deepseek-r1:8b" if (has_remote_node or "deepseek-r1:8b" in available_local_models) else llm.DEFAULT_MODEL
+        target_model = local_r1 or ("deepseek-r1:8b" if has_remote_node else (available_local_models[0] if available_local_models else "deepseek-r1:8b"))
     elif "8b" in target_model.lower() or "qwen3" in target_model.lower():
-        target_model = "qwen3:8b"
+        target_model = "qwen3:8b" if (has_remote_node or "qwen3:8b" in available_local_models) else (available_local_models[0] if available_local_models else "qwen3:8b")
     else:
         if not has_remote_node and target_model not in available_local_models:
-            target_model = llm.DEFAULT_MODEL
+            target_model = available_local_models[0] if available_local_models else llm.DEFAULT_MODEL
 
     # Resolve target endpoint
     target_endpoint = MODEL_ENDPOINT
@@ -725,6 +744,9 @@ class ChatPayload(BaseModel):
     top_k: int = 5
     effort: Optional[str] = "Fast"
     user: Optional[str] = "default_user"
+    model: Optional[str] = None
+    images: Optional[List[str]] = None
+    node_url: Optional[str] = None
 
 
 @app.post("/api/chat")
@@ -858,13 +880,29 @@ async def api_chat(payload_data: ChatPayload):
         full_prompt = current_user_text
 
 
-    model = llm.resolve_model(payload_data.task_type or "chat")
+    target_endpoint = MODEL_ENDPOINT
+    if payload_data.node_url and payload_data.node_url.strip():
+        clean_node = payload_data.node_url.strip().rstrip("/")
+        if clean_node.endswith("/api/generate"):
+            target_endpoint = clean_node
+        elif clean_node.endswith("/api/chat"):
+            target_endpoint = clean_node.replace("/api/chat", "/api/generate")
+        else:
+            target_endpoint = f"{clean_node}/api/generate"
+
+    task = payload_data.task_type or "chat"
+    if payload_data.images:
+        task = "vision"
+
+    model = llm.resolve_model(task, payload_data.model)
     log_audit("chat_query", payload_data.user, None, "chat", {
-        "question": question[:300], "task_type": payload_data.task_type,
+        "question": question[:300], "task_type": task,
         "rag_used": bool(retrieval["chunks_retrieved"]),
         "sources": retrieval["doc_ids"], "confidence": retrieval["confidence"],
         "model": model,
         "effort": cfg["effort"],
+        "endpoint": target_endpoint,
+        "has_images": bool(payload_data.images),
     })
 
     ollama_payload = {
@@ -876,7 +914,10 @@ async def api_chat(payload_data: ChatPayload):
         "options": cfg["options"],
         "keep_alive": -1,
         "_effort": cfg["effort"],
+        "_endpoint": target_endpoint,
     }
+    if payload_data.images:
+        ollama_payload["images"] = payload_data.images
 
     if payload_data.stream:
         return StreamingResponse(
@@ -886,13 +927,13 @@ async def api_chat(payload_data: ChatPayload):
 
     try:
         started = datetime.now()
-        response = requests.post(MODEL_ENDPOINT,
+        response = requests.post(target_endpoint,
                                  json={k: v for k, v in ollama_payload.items() if not k.startswith("_")},
                                  timeout=600)
         response.raise_for_status()
         data = response.json()
         answer = data.get("response", "")
-        log_ollama_call(MODEL_ENDPOINT, model, "chat", len(full_prompt), len(answer),
+        log_ollama_call(target_endpoint, model, "chat", len(full_prompt), len(answer),
                         int((datetime.now() - started).total_seconds() * 1000), True)
         return {
             "answer": answer,

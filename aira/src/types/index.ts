@@ -5,6 +5,8 @@ export type ModelId =
   | 'qwen2.5-7b'
   | 'qwen2.5-coder-7b'
   | 'qwen2.5-coder:7b'
+  | 'qwen2.5vl:3b'
+  | 'qwen2.5-vl:3b'
   | 'qwen2.5-vl:7b'
   | 'llava:7b'
   | 'deepseek-r1:8b'
