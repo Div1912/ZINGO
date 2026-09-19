@@ -73,17 +73,19 @@ export function useChat(chatId?: string | null) {
       )
 
       let detectedTask: TaskType = hasImageFile ? 'vision' : detectTaskType(content || '')
-      let selectedModel: ModelId = (forcedModel as ModelId) || settings.defaultModel || 'qwen3:8b'
+      const isAuto = !forcedModel || forcedModel === 'auto' || forcedModel === 'Auto (Cluster Smart Router)'
+      let selectedModel: ModelId = isAuto ? (settings.defaultModel || 'qwen3:8b') : (forcedModel as ModelId)
 
-      if (settings.autoRouteModel && !forcedModel) {
-        if (hasImageFile) {
-          selectedModel = 'qwen2.5vl:3b'
-          addToast({
-            type: 'info',
-            title: 'Auto-Routed to Multimodal',
-            message: 'Switched to Qwen2.5-VL (Laptop 2) for visual recognition and document inspection.',
-          })
-        } else if (detectedTask === 'code') {
+      // Always auto-route to Multimodal (Laptop 2) when an image is uploaded, or when in Auto routing mode
+      if (hasImageFile) {
+        selectedModel = 'qwen2.5vl:3b'
+        addToast({
+          type: 'info',
+          title: 'Auto-Routed to Multimodal',
+          message: 'Switched to Qwen2.5-VL (Laptop 2) for visual recognition and document inspection.',
+        })
+      } else if (settings.autoRouteModel && isAuto) {
+        if (detectedTask === 'code') {
           selectedModel = 'qwen2.5-coder:7b'
           addToast({
             type: 'info',
