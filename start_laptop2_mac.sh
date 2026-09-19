@@ -29,9 +29,16 @@ fi
 echo "[..] Checking local model status..."
 if ollama list | grep -q "qwen2.5vl"; then
     echo "[OK] Model 'qwen2.5vl:3b' is loaded and ready."
+    if ! ollama list | grep -q "qwen2.5-vl:7b"; then
+        echo "[..] Aliasing qwen2.5-vl:7b for cluster backward compatibility..."
+        ollama cp qwen2.5vl:3b qwen2.5-vl:7b >/dev/null 2>&1
+        ollama cp qwen2.5vl:3b qwen2.5-vl:3b >/dev/null 2>&1
+    fi
 else
     echo "[!] 'qwen2.5vl:3b' not detected. Pulling model now..."
     ollama pull qwen2.5vl:3b
+    ollama cp qwen2.5vl:3b qwen2.5-vl:7b >/dev/null 2>&1
+    ollama cp qwen2.5vl:3b qwen2.5-vl:3b >/dev/null 2>&1
 fi
 
 # 4. Check and Launch Ngrok Permanent Tunnel
