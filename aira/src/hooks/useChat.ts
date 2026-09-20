@@ -77,22 +77,12 @@ export function useChat(chatId?: string | null) {
       const isAuto = !forcedModel || forcedModel === 'auto' || forcedModel === 'Auto (Cluster Smart Router)'
       let selectedModel: ModelId = isAuto ? (settings.defaultModel || 'qwen3:8b') : (forcedModel as ModelId)
 
-      // Always auto-route to Multimodal (Laptop 2) when an image is uploaded, or when in Auto routing mode
+      // Auto-route to Multimodal (Laptop 2) when an image is uploaded, or Coder for code tasks
       if (hasImageFile) {
         selectedModel = 'qwen2.5vl:3b'
-        addToast({
-          type: 'info',
-          title: 'Auto-Routed to Multimodal',
-          message: 'Switched to Qwen2.5-VL (Laptop 2) for visual recognition and document inspection.',
-        })
       } else if (settings.autoRouteModel && isAuto) {
         if (detectedTask === 'code') {
           selectedModel = 'qwen2.5-coder:7b'
-          addToast({
-            type: 'info',
-            title: 'Auto-Routed to Coder',
-            message: 'Switched to Qwen2.5-Coder-7B for calculation/code workload.',
-          })
         } else {
           selectedModel = 'qwen3:8b'
         }
@@ -193,9 +183,13 @@ export function useChat(chatId?: string | null) {
           targetNodeUrl = server.coderStatus === 'connected' ? server.g15_2_url : undefined
         } else if (selectedModel.includes('r1')) {
           targetNodeUrl = server.reasoning_url
+        } else if (isAuto) {
+          // Provide Laptop 2 URL to the backend so it can dynamically spill over when Laptop 1 is busy!
+          targetNodeUrl = server.vision_url || server.g15_2_url || undefined
         }
 
         const userInfo = getActiveUserInfo()
+        const effectiveModel = isAuto && !hasImageFile ? 'auto' : selectedModel
 
         if (hasFiles) {
           const fd = new FormData()
@@ -207,7 +201,7 @@ export function useChat(chatId?: string | null) {
               fd.append('file', fileObj)
             }
           })
-          if (selectedModel) fd.append('model', selectedModel)
+          if (effectiveModel) fd.append('model', effectiveModel)
           if (effort) fd.append('effort', effort)
           if (targetNodeUrl) fd.append('node_url', targetNodeUrl)
           fd.append('user', userInfo.userId)
@@ -225,8 +219,8 @@ export function useChat(chatId?: string | null) {
             user_name: userInfo.userName,
             preferred_name: userInfo.preferredName,
             work_role: userInfo.workRole,
+            model: effectiveModel,
           })
-          if (selectedModel) qp.set('model', selectedModel)
           if (effort) qp.set('effort', effort)
           if (targetNodeUrl) qp.set('node_url', targetNodeUrl)
           endpoint = `${cleanBaseUrl}/process-and-ask/?${qp.toString()}`
@@ -243,7 +237,7 @@ export function useChat(chatId?: string | null) {
             system: systemPrompt || undefined,
             context: projectContextText || undefined,
             stream: true,
-            model: selectedModel ?? undefined,
+            model: effectiveModel,
             effort: effort ?? 'Fast',
             task_type: detectedTask,
             node_url: targetNodeUrl ?? undefined,
@@ -275,6 +269,7 @@ export function useChat(chatId?: string | null) {
         let thinkElapsedMs = 0
         let sources: any[] = []
         let evalCount = 0
+        let resolvedModelUsed: string = selectedModel
 
         const flush = (isStillStreaming: boolean = true) => {
           updateLastAssistantMessage(sendToChatId, {
@@ -288,6 +283,7 @@ export function useChat(chatId?: string | null) {
             isStreaming: isStillStreaming,
             tokensUsed: evalCount || Math.max(1, Math.floor(answerContent.length / 4)),
             latencyMs: thinkElapsedMs,
+            modelUsed: (resolvedModelUsed || selectedModel) as ModelId,
           })
         }
 
@@ -321,6 +317,7 @@ export function useChat(chatId?: string | null) {
             switch (evt.type) {
               case 'meta':
                 if (evt.sources) sources = evt.sources
+                if (evt.model) resolvedModelUsed = evt.model
                 flush()
                 break
 
@@ -388,6 +385,7 @@ export function useChat(chatId?: string | null) {
                   ? Date.now() - thinkStartTime
                   : evt.elapsed_ms ?? thinkElapsedMs
                 evalCount = evt.eval_count ?? evalCount
+                if (evt.model) resolvedModelUsed = evt.model
                 isThinkingPhase = false
                 if (rawThinking.trim()) {
                   thinkSteps = [

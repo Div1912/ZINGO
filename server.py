@@ -17,7 +17,8 @@ The ONLY network destination in this codebase is 127.0.0.1:11434 (local Ollama).
 
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+import threading
+from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning, module="torch")
@@ -41,6 +42,110 @@ from data_layer import (
 MODEL_ENDPOINT = llm.GENERATE_ENDPOINT
 MODEL_TAGS_ENDPOINT = llm.TAGS_ENDPOINT
 MODEL_NAME = llm.DEFAULT_MODEL
+DEFAULT_LAPTOP2_TUNNEL_URL = "https://unfailing-idealism-caretaker.ngrok-free.dev"
+
+
+class ClusterLoadBalancer:
+    """
+    Thread-safe dynamic load balancer for ZINGO multi-node cluster.
+    Tracks in-flight streams across Laptop 1 (Primary: qwen3:8b) and Laptop 2 (Worker: qwen2.5-vl:3b).
+    Enables automatic spillover routing to idle models when the primary node is busy.
+    """
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.active_streams = {
+            "primary": 0,
+            "laptop2": 0,
+        }
+        self.laptop2_url = DEFAULT_LAPTOP2_TUNNEL_URL
+
+    def acquire_slot(self, node_key: str):
+        with self._lock:
+            self.active_streams[node_key] = self.active_streams.get(node_key, 0) + 1
+            print(f"[load_balancer] Slot acquired for '{node_key}'. Current active streams: {self.active_streams}")
+
+    def release_slot(self, node_key: str):
+        with self._lock:
+            if node_key in self.active_streams:
+                self.active_streams[node_key] = max(0, self.active_streams[node_key] - 1)
+            print(f"[load_balancer] Slot released for '{node_key}'. Current active streams: {self.active_streams}")
+
+    def route_request(
+        self,
+        has_images: bool = False,
+        requested_model: Optional[str] = None,
+        custom_node_url: Optional[str] = None,
+        task_type: Optional[str] = "chat",
+        available_local_models: Optional[List[str]] = None,
+    ) -> Tuple[str, str, str]:
+        """
+        Dynamically routes a request across the cluster.
+        Returns: (target_endpoint, target_model, node_key)
+        """
+        local_models = available_local_models or []
+        laptop1_endpoint = MODEL_ENDPOINT
+        laptop2_base = (custom_node_url or self.laptop2_url).strip().rstrip("/")
+        if laptop2_base.endswith("/api/generate"):
+            laptop2_endpoint = laptop2_base
+        elif laptop2_base.endswith("/api/chat"):
+            laptop2_endpoint = laptop2_base.replace("/api/chat", "/api/generate")
+        else:
+            laptop2_endpoint = f"{laptop2_base}/api/generate"
+
+        model_req = (requested_model or "").strip().lower()
+        is_auto = not model_req or model_req in ("auto", "auto (recommended)", "auto (cluster smart router)")
+
+        # 1. Vision constraint: must always use Laptop 2 (qwen2.5-vl:3b)
+        if has_images or task_type == "vision":
+            return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+
+        # 2. Explicit model requested by user
+        if not is_auto:
+            if "vl" in model_req or "vision" in model_req:
+                return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+            if "coder" in model_req:
+                coder_name = "qwen2.5-coder:7b"
+                return (laptop2_endpoint if custom_node_url else laptop1_endpoint), coder_name, ("laptop2" if custom_node_url else "primary")
+            if "r1" in model_req or "deepseek" in model_req:
+                return laptop1_endpoint, "deepseek-r1:8b", "primary"
+            # Explicit standard model
+            return (laptop2_endpoint if custom_node_url else laptop1_endpoint), requested_model, ("laptop2" if custom_node_url else "primary")
+
+        # 3. Dynamic Auto Load Balancing:
+        with self._lock:
+            p_active = self.active_streams.get("primary", 0)
+            l2_active = self.active_streams.get("laptop2", 0)
+
+        # If primary has 0 active requests (IDLE) -> Route to Laptop 1 (qwen3:8b)
+        if p_active == 0:
+            target_model = "qwen3:8b" if ("qwen3:8b" in local_models or not local_models) else local_models[0]
+            return laptop1_endpoint, target_model, "primary"
+
+        # If primary is BUSY (p_active >= 1) and Laptop 2 is idle -> DYNAMIC SPILLOVER TO LAPTOP 2!
+        if l2_active == 0:
+            print(f"[load_balancer] Laptop 1 is busy ({p_active} active). Dynamically spilling over to Laptop 2 (idle).")
+            return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+
+        # Both are busy -> Choose whichever has fewer active requests
+        if p_active <= l2_active:
+            target_model = "qwen3:8b" if ("qwen3:8b" in local_models or not local_models) else local_models[0]
+            return laptop1_endpoint, target_model, "primary"
+        else:
+            return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+
+
+cluster_balancer = ClusterLoadBalancer()
+
+
+def stream_with_slot_cleanup(gen, node_key: str):
+    """
+    Wraps an SSE generator to guarantee releasing the cluster slot upon completion or client abort.
+    """
+    try:
+        for chunk in gen:
+            yield chunk
+    finally:
+        cluster_balancer.release_slot(node_key)
 
 
 # --------------------------------------------------------------------------------------
@@ -608,56 +713,15 @@ async def process_and_ask(
     else:
         full_prompt = current_turn_text
 
-    # Dynamic model resolution with local availability check
+    # Dynamic cluster load balancing & model resolution
     available_local_models = llm.list_models()
-    has_remote_node = bool(node_url and node_url.strip())
-    target_model = (model or "").strip()
-
-    def _find_matching_model(needle: str) -> Optional[str]:
-        for m in available_local_models:
-            if needle in m.lower():
-                return m
-        return None
-
-    local_vl = _find_matching_model("vl") or _find_matching_model("vision") or _find_matching_model("llava")
-    local_coder = _find_matching_model("coder")
-    local_r1 = _find_matching_model("r1") or _find_matching_model("deepseek")
-
-    if not target_model or target_model.lower() in ("auto", "auto (recommended)", "auto (cluster smart router)"):
-        if images_b64:
-            target_model = local_vl or ("qwen2.5-vl:3b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5-vl:3b"))
-        elif has_remote_node:
-            if any(k in user_query.lower() for k in ["code", "python", "script", "def ", "sql", "bug", "error", "function", "class "]):
-                target_model = "qwen2.5-coder:7b"
-            elif "max" in effort.lower():
-                target_model = "deepseek-r1:8b"
-            else:
-                target_model = llm.DEFAULT_MODEL
-        else:
-            # Single local node: use local default or best available
-            target_model = llm.DEFAULT_MODEL if llm.DEFAULT_MODEL in available_local_models else (available_local_models[0] if available_local_models else llm.DEFAULT_MODEL)
-    elif "coder" in target_model.lower():
-        target_model = local_coder or ("qwen2.5-coder:7b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5-coder:7b"))
-    elif "vl" in target_model.lower() or "vision" in target_model.lower():
-        target_model = local_vl or ("qwen2.5-vl:3b" if has_remote_node else (available_local_models[0] if available_local_models else "qwen2.5-vl:3b"))
-    elif "r1" in target_model.lower() or "deepseek" in target_model.lower():
-        target_model = local_r1 or ("deepseek-r1:8b" if has_remote_node else (available_local_models[0] if available_local_models else "deepseek-r1:8b"))
-    elif "8b" in target_model.lower() or "qwen3" in target_model.lower():
-        target_model = "qwen3:8b" if (has_remote_node or "qwen3:8b" in available_local_models) else (available_local_models[0] if available_local_models else "qwen3:8b")
-    else:
-        if not has_remote_node and target_model not in available_local_models:
-            target_model = available_local_models[0] if available_local_models else llm.DEFAULT_MODEL
-
-    # Resolve target endpoint
-    target_endpoint = MODEL_ENDPOINT
-    if node_url and node_url.strip():
-        clean_node = node_url.strip().rstrip("/")
-        if clean_node.endswith("/api/generate"):
-            target_endpoint = clean_node
-        elif clean_node.endswith("/api/chat"):
-            target_endpoint = clean_node.replace("/api/chat", "/api/generate")
-        else:
-            target_endpoint = f"{clean_node}/api/generate"
+    target_endpoint, target_model, node_key = cluster_balancer.route_request(
+        has_images=bool(images_b64),
+        requested_model=model,
+        custom_node_url=node_url,
+        task_type="vision" if images_b64 else "chat",
+        available_local_models=available_local_models,
+    )
 
     instruction = cfg["instruction"]
     if context:
@@ -697,12 +761,20 @@ async def process_and_ask(
 
     log_audit("ocr_query", resolved_user, None, "chat",
               {"query": user_query[:300], "ocr_chars": len(context), "effort": cfg["effort"],
-               "model": target_model, "endpoint": target_endpoint, "user_name": resolved_user_name})
+               "model": target_model, "endpoint": target_endpoint, "user_name": resolved_user_name,
+               "cluster_node": node_key})
 
     if stream:
-        return StreamingResponse(run_ollama_stream(payload, context=context, sources=sources, feature="ocr_chat"),
-                                 media_type="text/event-stream")
+        cluster_balancer.acquire_slot(node_key)
+        return StreamingResponse(
+            stream_with_slot_cleanup(
+                run_ollama_stream(payload, context=context, sources=sources, feature="ocr_chat"),
+                node_key,
+            ),
+            media_type="text/event-stream"
+        )
     try:
+        cluster_balancer.acquire_slot(node_key)
         req_headers = {"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoCluster/1.0"}
         try:
             response = requests.post(
@@ -741,11 +813,14 @@ async def process_and_ask(
             "effort": cfg["effort"],
             "endpoint": target_endpoint,
             "sources": sources,
+            "cluster_node": node_key,
         }
     except requests.exceptions.RequestException as exc:
         return {"error": f"Node request failed: {exc}"}
     except Exception as exc:
         return {"error": f"Server error: {exc}"}
+    finally:
+        cluster_balancer.release_slot(node_key)
 
 
 # --------------------------------------------------------------------------------------
@@ -921,29 +996,19 @@ async def api_chat(payload_data: ChatPayload):
         full_prompt = current_user_text
 
 
-    target_endpoint = MODEL_ENDPOINT
-    if payload_data.node_url and payload_data.node_url.strip():
-        clean_node = payload_data.node_url.strip().rstrip("/")
-        if clean_node.endswith("/api/generate"):
-            target_endpoint = clean_node
-        elif clean_node.endswith("/api/chat"):
-            target_endpoint = clean_node.replace("/api/chat", "/api/generate")
-        else:
-            target_endpoint = f"{clean_node}/api/generate"
-
     task = payload_data.task_type or "chat"
     if payload_data.images:
         task = "vision"
 
-    has_remote_node = bool(payload_data.node_url and payload_data.node_url.strip())
-    if has_remote_node and payload_data.model and payload_data.model.lower() not in ("auto", "auto (recommended)", "auto (cluster smart router)"):
-        model = payload_data.model
-        if model == "qwen2.5vl:3b":
-            model = "qwen2.5-vl:3b"
-    elif has_remote_node and (task == "vision" or payload_data.images):
-        model = "qwen2.5-vl:3b"
-    else:
-        model = llm.resolve_model(task, payload_data.model)
+    available_local_models = llm.list_models()
+    target_endpoint, model, node_key = cluster_balancer.route_request(
+        has_images=bool(payload_data.images or task == "vision"),
+        requested_model=payload_data.model,
+        custom_node_url=payload_data.node_url,
+        task_type=task,
+        available_local_models=available_local_models,
+    )
+
     log_audit("chat_query", payload_data.user, None, "chat", {
         "question": question[:300], "task_type": task,
         "rag_used": bool(retrieval["chunks_retrieved"]),
@@ -952,6 +1017,7 @@ async def api_chat(payload_data: ChatPayload):
         "effort": cfg["effort"],
         "endpoint": target_endpoint,
         "has_images": bool(payload_data.images),
+        "cluster_node": node_key,
     })
 
     ollama_payload = {
@@ -969,15 +1035,21 @@ async def api_chat(payload_data: ChatPayload):
         ollama_payload["images"] = payload_data.images
 
     if payload_data.stream:
+        cluster_balancer.acquire_slot(node_key)
         return StreamingResponse(
-            run_ollama_stream(ollama_payload, context=context,
-                              sources=retrieval["sources"], feature="chat"),
+            stream_with_slot_cleanup(
+                run_ollama_stream(ollama_payload, context=context,
+                                  sources=retrieval["sources"], feature="chat"),
+                node_key,
+            ),
             media_type="text/event-stream")
 
     try:
+        cluster_balancer.acquire_slot(node_key)
         started = datetime.now()
         response = requests.post(target_endpoint,
                                  json={k: v for k, v in ollama_payload.items() if not k.startswith("_")},
+                                 headers={"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoCluster/1.0"},
                                  timeout=600)
         response.raise_for_status()
         data = response.json()
@@ -994,9 +1066,12 @@ async def api_chat(payload_data: ChatPayload):
             "chunks_retrieved": retrieval["chunks_retrieved"],
             "rag_used": bool(retrieval["chunks_retrieved"]),
             "effort": cfg["effort"],
+            "cluster_node": node_key,
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
+    finally:
+        cluster_balancer.release_slot(node_key)
 
 
 @app.get("/api/overview")

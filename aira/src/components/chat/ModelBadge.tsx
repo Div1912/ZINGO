@@ -3,20 +3,26 @@ import { Cpu, FileText, Code, BarChart2, Sparkles } from 'lucide-react'
 import type { ModelId, TaskType } from '../../types'
 
 interface ModelBadgeProps {
-  model?: ModelId
+  model?: ModelId | string
   taskType?: TaskType
+}
+
+export function formatModelDisplayName(model?: string): string {
+  if (!model) return 'Qwen 3 (8B)'
+  const m = model.toLowerCase()
+  if (m.includes('vl') || m.includes('vision')) return 'Qwen 2.5-VL'
+  if (m.includes('coder')) return 'Qwen 2.5-Coder (7B)'
+  if (m.includes('r1') || m.includes('deepseek')) return 'DeepSeek-R1 (8B)'
+  if (m.includes('qwen3') || m.includes('8b')) return 'Qwen 3 (8B)'
+  if (m.includes('7b')) return 'Qwen 2.5 (7B)'
+  return model
 }
 
 export const ModelBadge: React.FC<ModelBadgeProps> = ({
   model = 'qwen3:8b',
   taskType = 'document',
 }) => {
-  const modelName =
-    model === 'qwen3:8b' || model === 'qwen3-8b'
-      ? 'Qwen3-8B (Tunnel)'
-      : model === 'qwen2.5-coder-7b'
-      ? 'Qwen2.5-Coder-7B'
-      : 'Qwen2.5-7B'
+  const modelName = formatModelDisplayName(model)
 
   let taskIcon = <FileText size={11} className="text-content-secondary" />
   let taskLabel = 'Document'

@@ -348,7 +348,7 @@ def run_ollama_stream_cot(
 
     elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
 
-    yield f"data: {json.dumps({'type': 'done', 'done': True, 'eval_count': total_tokens, 'elapsed_ms': elapsed_ms, 'think_steps': think_step_count, 'answer_length': len(answer_buf)})}\n\n"
+    yield f"data: {json.dumps({'type': 'done', 'done': True, 'eval_count': total_tokens, 'elapsed_ms': elapsed_ms, 'think_steps': think_step_count, 'answer_length': len(answer_buf), 'model': model_name})}\n\n"
 
     # ── Log call ─────────────────────────────────────────────────────────────
     if log_ollama_call:
