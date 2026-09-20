@@ -2029,6 +2029,12 @@ def build_zingo_identity_prompt(
     mems = get_user_memory_files(norm_id)
     connectors = get_user_connectors(norm_id)
 
+    # Resolve user profile variables first
+    res_full_name = (full_name or "").strip() or profile.get("full_name") or "User"
+    res_preferred_name = (preferred_name or "").strip() or profile.get("preferred_name") or res_full_name
+    res_work_role = (work_role or "").strip() or profile.get("work_role") or "Refinery Process Engineer (CDU/VDU)"
+    res_prefs = (personal_preferences or "").strip() or profile.get("personal_preferences") or "Provide direct, precise, knowledgeable answers."
+
     sections = []
 
     # 0. Ironclad Identity & Role Boundaries
