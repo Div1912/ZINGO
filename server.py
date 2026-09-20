@@ -321,6 +321,11 @@ from mcp_host import mcp_router                                    # noqa: E402
 from self_healing import auto_heal_response                        # noqa: E402
 from model_orchestrator import hardware_router, calculate_safe_num_ctx  # noqa: E402
 from tot_verifier import generate_test_specification, format_tot_instruction  # noqa: E402
+from presentation_engine import (
+    is_presentation_intent,
+    generate_presentation_speculative_plan,
+    get_presentation_system_instruction,
+)  # noqa: E402
 
 app.include_router(ingestion_router)
 app.include_router(monitoring_router)
@@ -879,6 +884,14 @@ async def process_and_ask(
         if test_spec:
             instruction = f"{instruction}\n\n{format_tot_instruction(test_spec)}"
 
+    # Autonomous Presentation Engine integration
+    if is_presentation_intent(user_query):
+        ppt_spec_plan = generate_presentation_speculative_plan(user_query, node_url, cluster_balancer.laptop2_url)
+        instruction = f"{instruction}\n\n{get_presentation_system_instruction(ppt_spec_plan)}"
+        cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
+        if ppt_spec_plan:
+            display_model = f"{target_model} (Dual-Node Synergy · Node 2 PPT Planned + Node 1 Synthesized)"
+
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
     safe_ctx = calculate_safe_num_ctx(target_model, ram_info["available_gb"])
@@ -1164,6 +1177,14 @@ async def api_chat(payload_data: ChatPayload):
         test_spec = generate_test_specification(question, payload_data.node_url, cluster_balancer.laptop2_url)
         if test_spec:
             system = f"{system}\n\n{format_tot_instruction(test_spec)}"
+
+    # Autonomous Presentation Engine integration
+    if is_presentation_intent(question):
+        ppt_spec_plan = generate_presentation_speculative_plan(question, payload_data.node_url, cluster_balancer.laptop2_url)
+        system = f"{system}\n\n{get_presentation_system_instruction(ppt_spec_plan)}"
+        cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
+        if ppt_spec_plan:
+            display_model = f"{model} (Dual-Node Synergy · Node 2 PPT Planned + Node 1 Synthesized)"
 
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()

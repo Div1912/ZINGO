@@ -13,6 +13,7 @@ import {
   FileCode,
   Terminal,
   Sparkles,
+  Presentation,
 } from 'lucide-react'
 
 import { useProjectStore } from '../../stores/projectStore'
@@ -21,6 +22,7 @@ import { bundleVirtualProject } from '../../services/sandboxBundler'
 import { FileTreeEditor } from './FileTreeEditor'
 import { ConsoleTerminal, type SandboxConsoleLog } from './ConsoleTerminal'
 import { MicroVMTerminal } from './MicroVMTerminal'
+import { isPresentationProject, exportVirtualProjectToPptx } from '../../services/pptxExportService'
 
 type CanvasTab = 'preview' | 'code' | 'console' | 'terminal'
 type DeviceMode = 'desktop' | 'tablet' | 'mobile'
@@ -49,9 +51,11 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
   const [logs, setLogs] = useState<SandboxConsoleLog[]>([])
   const [activeFilePath, setActiveFilePath] = useState<string>('')
   const [isExporting, setIsExporting] = useState(false)
+  const [isExportingPptx, setIsExportingPptx] = useState(false)
   const [liveUrl, setLiveUrl] = useState<string | null>(null)
 
   const activeProject = virtualProjects.find((p) => p.id === activeVirtualProjectId) || virtualProjects[0]
+  const isPresentation = useMemo(() => isPresentationProject(activeProject), [activeProject])
 
   // Default active file
   useEffect(() => {
@@ -278,6 +282,47 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
           >
             <ExternalLink size={14} />
           </button>
+
+          {isPresentation && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!activeProject) return
+                setIsExportingPptx(true)
+                try {
+                  await exportVirtualProjectToPptx(activeProject)
+                  addToast({
+                    type: 'success',
+                    title: 'PowerPoint Generated',
+                    message: 'Downloaded executive presentation (.pptx) file.',
+                  })
+                } catch (err: any) {
+                  addToast({
+                    type: 'error',
+                    title: 'PPTX Export Error',
+                    message: err?.message || String(err),
+                  })
+                } finally {
+                  setIsExportingPptx(false)
+                }
+              }}
+              disabled={isExportingPptx}
+              className="btn-glass !py-1 !px-2.5 !text-[11px] !rounded-lg flex items-center gap-1.5 text-amber-300 hover:text-white border-amber-500/30 bg-amber-500/15 hover:bg-amber-500/25 transition-all shadow-xs shrink-0 cursor-pointer"
+              title="Compile and download as native Microsoft PowerPoint (.pptx) file"
+            >
+              {isExportingPptx ? (
+                <>
+                  <span className="w-2.5 h-2.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                  <span>Compiling...</span>
+                </>
+              ) : (
+                <>
+                  <Presentation size={13} className="text-amber-400" />
+                  <span>Download .PPTX</span>
+                </>
+              )}
+            </button>
+          )}
 
           <button
             type="button"

@@ -21,6 +21,7 @@ import {
   Sparkles,
   Eye,
   ShieldCheck,
+  Presentation,
 } from 'lucide-react'
 import type { Message } from '../../types'
 import { ModelBadge, formatModelDisplayName } from './ModelBadge'
@@ -33,6 +34,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../../utils/multiFileParser'
 import { hasSearchReplaceDiffs } from '../../utils/diffEngine'
 import { pyodideEngine, type PyodideExecutionResult } from '../../services/pyodideService'
+import { isPresentationProject, exportVirtualProjectToPptx } from '../../services/pptxExportService'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
 
 import { exportMessageToPdf } from '../../services/pdfExport'
@@ -175,7 +177,34 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     })
   }
 
+  const [isExportingPptx, setIsExportingPptx] = useState(false)
 
+  const handleExportPptx = async () => {
+    if (!detectedProject) return
+    setIsExportingPptx(true)
+    addToast({
+      type: 'info',
+      title: 'PowerPoint Compilation',
+      message: 'Synthesizing professional 16:9 .pptx slide deck in-browser...',
+    })
+    try {
+      const fileName = await exportVirtualProjectToPptx(detectedProject)
+      addToast({
+        type: 'success',
+        title: 'Download Complete',
+        message: `Saved ${fileName} ready for Microsoft PowerPoint & Google Slides.`,
+      })
+    } catch (err) {
+      console.error('Failed to export PPTX:', err)
+      addToast({
+        type: 'error',
+        title: 'Export Failed',
+        message: err instanceof Error ? err.message : 'Could not generate .pptx file',
+      })
+    } finally {
+      setIsExportingPptx(false)
+    }
+  }
 
   const copyMessageContent = async () => {
     await navigator.clipboard.writeText(finalContent || message.content)
@@ -631,8 +660,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         )}
 
         {/* Interactive Multi-File Project Sandbox Banner (Claude-Style) */}
-
-        {!message.isStreaming && detectedProject && (
+        {!message.isStreaming && detectedProject && !isPresentationProject(detectedProject) && (
           <div className="mt-3 p-3.5 rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-950/40 via-slate-900/60 to-indigo-950/40 flex items-center justify-between gap-4 shadow-lg shadow-violet-950/20">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-300 shrink-0">
@@ -660,6 +688,55 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               <Eye size={13} />
               <span>Open Live Sandbox ›</span>
             </button>
+          </div>
+        )}
+
+        {/* Dedicated Presentation Deck Banner with Native .PPTX Export */}
+        {!message.isStreaming && detectedProject && isPresentationProject(detectedProject) && (
+          <div className="mt-3 p-3.5 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-950/40 via-slate-900/70 to-orange-950/40 flex items-center justify-between gap-4 shadow-lg shadow-amber-950/20">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-300 shrink-0">
+                <Presentation size={18} className="text-amber-400" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-100 truncate">
+                    {detectedProject.title || 'Executive Presentation Deck'}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/25 shrink-0">
+                    16:9 Presentation
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-200/80 truncate mt-0.5">
+                  Executive slide deck &bull; Interactive Sandbox Preview or Native Microsoft PowerPoint (.pptx)
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleLaunchProjectSandbox}
+                className="btn-glass !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-1.5 text-slate-200 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border-white/10 transition cursor-pointer"
+                title="Preview interactive slides in Live Sandbox"
+              >
+                <Eye size={13} />
+                <span>Preview Slides ›</span>
+              </button>
+              <button
+                type="button"
+                disabled={isExportingPptx}
+                onClick={handleExportPptx}
+                className="btn-glass !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-1.5 text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 border-amber-400/40 transition shadow-md shadow-amber-600/25 cursor-pointer disabled:opacity-50"
+                title="Compile and download standard Microsoft PowerPoint .pptx file"
+              >
+                {isExportingPptx ? (
+                  <Clock size={13} className="animate-spin text-white" />
+                ) : (
+                  <FileDown size={13} />
+                )}
+                <span>{isExportingPptx ? 'Compiling PPTX...' : 'Download .PPTX'}</span>
+              </button>
+            </div>
           </div>
         )}
 
