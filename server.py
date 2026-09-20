@@ -482,6 +482,11 @@ async def process_and_ask(
     effort: Optional[str] = Form(None, description="Reasoning effort: Fast | Deep Research | Max Effort"),
     model: Optional[str] = Form(None, description="Model ID or 'auto' for smart routing"),
     node_url: Optional[str] = Query(None, description="Direct URL of the target node (e.g. http://192.168.1.15:11434)"),
+    user: Optional[str] = Form(None, description="User ID"),
+    user_name: Optional[str] = Form(None, description="Full Name of User"),
+    preferred_name: Optional[str] = Form(None, description="Preferred Name / Call Name of User"),
+    work_role: Optional[str] = Form(None, description="Role & Designation of User"),
+    personal_preferences: Optional[str] = Form(None, description="Personal Preferences"),
 ):
     # Resolve parameters: prefer Form data, fallback to Query params, then defaults
     q = request.query_params
@@ -493,6 +498,11 @@ async def process_and_ask(
     effort = effort or q.get("effort") or "Fast"
     model = model or q.get("model") or None
     node_url = node_url or q.get("node_url") or None
+    resolved_user = user or q.get("user") or "default_user"
+    resolved_user_name = user_name or q.get("user_name")
+    resolved_preferred_name = preferred_name or q.get("preferred_name")
+    resolved_work_role = work_role or q.get("work_role")
+    resolved_prefs = personal_preferences or q.get("personal_preferences")
     if stream is None:
         raw_stream = q.get("stream")
         stream = str(raw_stream).lower() in ("true", "1", "yes") if raw_stream is not None else False
@@ -659,7 +669,13 @@ async def process_and_ask(
     # Always inject ZINGO User Identity, Profile & Memories into system instruction
     try:
         from data_layer import build_zingo_identity_prompt
-        user_identity = build_zingo_identity_prompt("default_user")
+        user_identity = build_zingo_identity_prompt(
+            user_id=resolved_user,
+            full_name=resolved_user_name,
+            preferred_name=resolved_preferred_name,
+            work_role=resolved_work_role,
+            personal_preferences=resolved_prefs,
+        )
         if user_identity:
             instruction = f"{user_identity}\n\n{instruction}"
     except Exception as id_err:
@@ -679,9 +695,9 @@ async def process_and_ask(
     if images_b64:
         payload["images"] = images_b64
 
-    log_audit("ocr_query", "engineer", None, "chat",
+    log_audit("ocr_query", resolved_user, None, "chat",
               {"query": user_query[:300], "ocr_chars": len(context), "effort": cfg["effort"],
-               "model": target_model, "endpoint": target_endpoint})
+               "model": target_model, "endpoint": target_endpoint, "user_name": resolved_user_name})
 
     if stream:
         return StreamingResponse(run_ollama_stream(payload, context=context, sources=sources, feature="ocr_chat"),
@@ -753,6 +769,10 @@ class ChatPayload(BaseModel):
     top_k: int = 5
     effort: Optional[str] = "Fast"
     user: Optional[str] = "default_user"
+    user_name: Optional[str] = None
+    preferred_name: Optional[str] = None
+    work_role: Optional[str] = None
+    personal_preferences: Optional[str] = None
     model: Optional[str] = None
     images: Optional[List[str]] = None
     node_url: Optional[str] = None
@@ -816,7 +836,13 @@ async def api_chat(payload_data: ChatPayload):
     user_identity = ""
     try:
         from data_layer import build_zingo_identity_prompt, add_user_memory_file, get_user_capabilities
-        user_identity = build_zingo_identity_prompt(user_id)
+        user_identity = build_zingo_identity_prompt(
+            user_id=user_id,
+            full_name=payload_data.user_name,
+            preferred_name=payload_data.preferred_name,
+            work_role=payload_data.work_role,
+            personal_preferences=payload_data.personal_preferences,
+        )
 
         # Dynamic Memory Extraction if user says "Remember that..." or "Please remember: "
         if question:
@@ -833,7 +859,13 @@ async def api_chat(payload_data: ChatPayload):
                                 category="preference",
                                 plant_unit="General",
                             )
-                            user_identity = build_zingo_identity_prompt(user_id)
+                            user_identity = build_zingo_identity_prompt(
+                                user_id=user_id,
+                                full_name=payload_data.user_name,
+                                preferred_name=payload_data.preferred_name,
+                                work_role=payload_data.work_role,
+                                personal_preferences=payload_data.personal_preferences,
+                            )
                     break
     except Exception as id_err:
         print(f"[chat] identity context build failed: {id_err}")

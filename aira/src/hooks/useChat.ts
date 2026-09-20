@@ -13,6 +13,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useArtifactStore } from '../stores/artifactStore'
+import { getActiveUserInfo } from '../stores/authStore'
 import type { ThinkStep } from '../components/chat/ThinkingBlock'
 import type { Message, ModelId, TaskType, UploadedFile } from '../types'
 import { detectTaskType, isComplexTask } from '../services/qwenApi'
@@ -194,6 +195,8 @@ export function useChat(chatId?: string | null) {
           targetNodeUrl = server.reasoning_url
         }
 
+        const userInfo = getActiveUserInfo()
+
         if (hasFiles) {
           const fd = new FormData()
           const queryText = (content || '').trim() || 'Please analyze the attached document and provide a comprehensive summary and key takeaways.'
@@ -207,13 +210,21 @@ export function useChat(chatId?: string | null) {
           if (selectedModel) fd.append('model', selectedModel)
           if (effort) fd.append('effort', effort)
           if (targetNodeUrl) fd.append('node_url', targetNodeUrl)
-          fd.append('user', 'default_user')
+          fd.append('user', userInfo.userId)
+          fd.append('user_name', userInfo.userName)
+          fd.append('preferred_name', userInfo.preferredName)
+          fd.append('work_role', userInfo.workRole)
+          if (userInfo.personalPreferences) fd.append('personal_preferences', userInfo.personalPreferences)
           fd.append('messages', JSON.stringify(messagesForContext))
 
           body = fd
           const qp = new URLSearchParams({
             stream: 'true',
             user_query: queryText,
+            user: userInfo.userId,
+            user_name: userInfo.userName,
+            preferred_name: userInfo.preferredName,
+            work_role: userInfo.workRole,
           })
           if (selectedModel) qp.set('model', selectedModel)
           if (effort) qp.set('effort', effort)
@@ -224,7 +235,11 @@ export function useChat(chatId?: string | null) {
           body = JSON.stringify({
             messages: messagesForContext,
             prompt: content,
-            user: 'default_user',
+            user: userInfo.userId,
+            user_name: userInfo.userName,
+            preferred_name: userInfo.preferredName,
+            work_role: userInfo.workRole,
+            personal_preferences: userInfo.personalPreferences || undefined,
             system: systemPrompt || undefined,
             context: projectContextText || undefined,
             stream: true,

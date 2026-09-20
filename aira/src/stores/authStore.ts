@@ -10,6 +10,7 @@ import {
 import { useSettingsStore } from './settingsStore'
 import { useToastStore } from './toastStore'
 import { useChatStore } from './chatStore'
+import { zingoApi } from '../services/zingoApi'
 
 interface AuthStore {
   user: User | null
@@ -66,6 +67,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             userName: profile.display_name,
             preferredName: profile.preferred_name || profile.display_name,
           })
+          zingoApi.updateProfile({
+            user_id: session.user.id,
+            full_name: profile.display_name,
+            preferred_name: profile.preferred_name || profile.display_name,
+          }).catch(() => {})
         }
 
         // Record session
@@ -95,6 +101,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             userName: profile.display_name,
             preferredName: profile.preferred_name || profile.display_name,
           })
+          zingoApi.updateProfile({
+            user_id: newSession.user.id,
+            full_name: profile.display_name,
+            preferred_name: profile.preferred_name || profile.display_name,
+          }).catch(() => {})
         }
 
         // Record user session in DB
@@ -104,6 +115,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         await useChatStore.getState().loadUserChats(newSession.user.id)
       } else if (event === 'SIGNED_OUT') {
         useChatStore.getState().clearUserChats()
+        localStorage.removeItem('aira_client_user_id')
+        useSettingsStore.getState().updateSettings({
+          userName: 'User',
+          preferredName: 'User',
+        })
         set({
           user: null,
           session: null,
@@ -153,6 +169,17 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         preferredName: pref,
       })
 
+      // Sync with SQLite backend
+      try {
+        await zingoApi.updateProfile({
+          user_id: user.id,
+          full_name: trimmedName,
+          preferred_name: pref,
+        })
+      } catch (err) {
+        console.warn('Could not sync profile to backend SQLite:', err)
+      }
+
       useToastStore.getState().addToast({
         type: 'success',
         title: 'Welcome aboard!',
@@ -173,6 +200,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       await supabase.auth.signOut()
       useChatStore.getState().clearUserChats()
+      localStorage.removeItem('aira_client_user_id')
+      useSettingsStore.getState().updateSettings({
+        userName: 'User',
+        preferredName: 'User',
+      })
       set({
         user: null,
         session: null,
@@ -205,3 +237,40 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 }))
+
+/**
+ * Returns active user ID: Supabase user ID if signed in, or a persistent anonymous client ID
+ */
+export function getActiveUserId(): string {
+  const authUser = useAuthStore.getState().user
+  if (authUser?.id) return authUser.id
+  let cid = localStorage.getItem('aira_client_user_id')
+  if (!cid) {
+    cid = 'client_' + Math.random().toString(36).substring(2, 11)
+    localStorage.setItem('aira_client_user_id', cid)
+  }
+  return cid
+}
+
+/**
+ * Resolves current user info (ID, name, preferred name, role, preferences)
+ * ensuring full identity isolation per user session.
+ */
+export function getActiveUserInfo() {
+  const { profile: authProfile } = useAuthStore.getState()
+  const settings = useSettingsStore.getState().settings
+  const userId = getActiveUserId()
+  const userName = (authProfile?.display_name || settings.userName || 'User').trim()
+  const preferredName = (authProfile?.preferred_name || settings.preferredName || userName).trim()
+  const workRole = (settings.workDescription || 'Refinery Process Engineer (CDU/VDU)').trim()
+  const personalPreferences = (settings.customInstructions || '').trim()
+
+  return {
+    userId,
+    userName,
+    preferredName,
+    workRole,
+    personalPreferences,
+  }
+}
+

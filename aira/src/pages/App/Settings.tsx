@@ -50,6 +50,7 @@ import { useServerStore, DEFAULT_LAPTOP2_VISION_TUNNEL_URL } from '../../stores/
 import { useTheme } from '../../hooks/useTheme'
 import { useToastStore } from '../../stores/toastStore'
 import { useZingoStore } from '../../stores/zingoStore'
+import { useAuthStore, getActiveUserId } from '../../stores/authStore'
 import { Toggle } from '../../components/ui/Toggle'
 import { Spinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
@@ -126,12 +127,14 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const { server, updateServer, checkConnection, checkIndividual, isChecking, lastChecked } = useServerStore()
   const { theme, setTheme } = useTheme()
   const { addToast } = useToastStore()
+  const { user: authUser } = useAuthStore()
+  const activeUserId = authUser?.id || getActiveUserId()
   const criticalCount = useZingoStore((s) => s.activeAlerts.filter((a) => a.severity === 'CRITICAL').length)
   const isWorkbenchTab = ['alerts', 'health', 'documents', 'shift', 'compliance', 'graph', 'audit'].includes(activeTab)
 
   // Real SQLite persistent state
   const [userProfile, setUserProfile] = useState<UserProfile>({
-    user_id: 'default_user',
+    user_id: activeUserId,
     full_name: settings.userName || 'User',
     preferred_name: settings.preferredName || 'User',
     work_role: settings.workDescription || 'Refinery Process Engineer (CDU/VDU)',
@@ -141,7 +144,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   })
 
   const [capabilities, setCapabilities] = useState<UserCapabilities>({
-    user_id: 'default_user',
+    user_id: activeUserId,
     artifacts_enabled: true,
     inline_visualizations: true,
     code_execution: true,
@@ -152,7 +155,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   })
 
   const [permissions, setPermissions] = useState<UserPermissions>({
-    user_id: 'default_user',
+    user_id: activeUserId,
     location_permitted: true,
     location_label: 'MRPL Complex, Mangaluru (12.9141° N, 74.8560° E)',
     location_coords: '12.9141,74.8560',
@@ -221,21 +224,35 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       setIsLoadingSettings(true)
       try {
         const [prof, caps, perms, conns, mems] = await Promise.allSettled([
-          zingoApi.getProfile(),
-          zingoApi.getCapabilities(),
-          zingoApi.getPermissions(),
-          zingoApi.getConnectors(),
-          zingoApi.getMemoryFiles(),
+          zingoApi.getProfile(activeUserId),
+          zingoApi.getCapabilities(activeUserId),
+          zingoApi.getPermissions(activeUserId),
+          zingoApi.getConnectors(activeUserId),
+          zingoApi.getMemoryFiles(activeUserId),
         ])
 
         if (mounted) {
           if (prof.status === 'fulfilled' && prof.value) {
             setUserProfile(prof.value)
+            // Preserve user-configured name if DB returned unconfigured generic defaults
+            const currentName = settings.userName
+            const remoteName = prof.value.full_name
+            const finalName =
+              remoteName && remoteName !== 'User' && remoteName !== 'default_user'
+                ? remoteName
+                : currentName || 'User'
+            const currentPref = settings.preferredName
+            const remotePref = prof.value.preferred_name
+            const finalPref =
+              remotePref && remotePref !== 'User' && remotePref !== 'default_user'
+                ? remotePref
+                : currentPref || finalName
+
             updateSettings({
-              userName: prof.value.full_name,
-              preferredName: prof.value.preferred_name,
-              workDescription: prof.value.work_role,
-              customInstructions: prof.value.personal_preferences,
+              userName: finalName,
+              preferredName: finalPref,
+              workDescription: prof.value.work_role || settings.workDescription,
+              customInstructions: prof.value.personal_preferences || settings.customInstructions,
             })
           }
           if (caps.status === 'fulfilled' && caps.value) {
@@ -264,7 +281,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     return () => {
       mounted = false
     }
-  }, [isOpen])
+  }, [isOpen, activeUserId])
 
   const handleClose = () => {
     if (onClose) {
@@ -297,6 +314,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const handleSaveProfile = async () => {
     try {
       const updated = await zingoApi.updateProfile({
+        user_id: activeUserId,
         full_name: userProfile.full_name,
         preferred_name: userProfile.preferred_name,
         work_role: userProfile.work_role,
@@ -328,7 +346,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     try {
       const newCaps = { ...capabilities, [field]: val }
       setCapabilities(newCaps)
-      await zingoApi.updateCapabilities({ [field]: val })
+      await zingoApi.updateCapabilities({ user_id: activeUserId, [field]: val })
       addToast({
         type: 'success',
         message: `Capability updated: ${String(field).replace(/_/g, ' ')}`,
@@ -342,7 +360,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const handleToggleConnector = async (connectorKey: string, currentStatus: string) => {
     const newStatus = currentStatus === 'connected' ? 'disconnected' : 'connected'
     try {
-      const updated = await zingoApi.toggleConnector(connectorKey, { status: newStatus })
+      const updated = await zingoApi.toggleConnector(connectorKey, { status: newStatus, user_id: activeUserId })
       setConnectors((prev) =>
         prev.map((c) => (c.connector_key === connectorKey ? { ...c, status: updated.status } : c))
       )
@@ -390,6 +408,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
         connector_type: connType,
         api_key: configApiKey.trim() || undefined,
         timeout_ms: 3000,
+        user_id: activeUserId,
       })
       setTestResult(res)
       if (res.reachable) {
@@ -425,6 +444,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       const updated = await zingoApi.toggleConnector(configConnector.connector_key, {
         status: desiredStatus,
         config: cfg,
+        user_id: activeUserId,
       })
       setConnectors((prev) =>
         prev.map((c) =>
@@ -455,6 +475,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
           const label = `Current Device Location (${coords})`
           try {
             const res = await zingoApi.updatePermissions({
+              user_id: activeUserId,
               location_permitted: true,
               location_label: label,
               location_coords: coords,
@@ -472,6 +493,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
         async () => {
           const defaultLabel = 'MRPL Refinery Complex, Mangaluru (12.9141° N, 74.8560° E)'
           const res = await zingoApi.updatePermissions({
+            user_id: activeUserId,
             location_permitted: true,
             location_label: defaultLabel,
             location_coords: '12.9141,74.8560',
@@ -495,6 +517,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const handleRevokeLocation = async () => {
     try {
       const res = await zingoApi.updatePermissions({
+        user_id: activeUserId,
         location_permitted: false,
       })
       setPermissions(res)
@@ -513,6 +536,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     try {
       const newStatus = !permissions.calendar_permitted
       const res = await zingoApi.updatePermissions({
+        user_id: activeUserId,
         calendar_permitted: newStatus,
         calendar_account: newStatus ? 'lead.engineer@mrpl.co.in' : undefined,
       })
@@ -540,6 +564,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
           content: memoryContent.trim(),
           category: memoryCategory,
           is_sensitive: memoryIsSensitive,
+          user_id: activeUserId,
         })
         setMemoryFiles((prev) => prev.map((m) => (m.id === editingMemoryId ? updated : m)))
         addToast({ type: 'success', message: 'Memory file updated successfully.' })
@@ -549,6 +574,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
           content: memoryContent.trim(),
           category: memoryCategory,
           is_sensitive: memoryIsSensitive,
+          user_id: activeUserId,
         })
         setMemoryFiles((prev) => [created, ...prev])
         addToast({ type: 'success', message: 'Memory saved to ZINGO context.' })
@@ -576,7 +602,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const handleClearAllMemories = async () => {
     if (!window.confirm('Are you sure you want to delete all remembered memory files?')) return
     try {
-      await zingoApi.clearMemoryFiles()
+      await zingoApi.clearMemoryFiles(activeUserId)
       setMemoryFiles([])
       addToast({ type: 'info', message: 'All remembered files cleared.' })
     } catch (err) {
@@ -587,7 +613,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   // Delete Account
   const handleConfirmDeleteAccount = async () => {
     try {
-      await zingoApi.deleteAccount()
+      await zingoApi.deleteAccount(activeUserId)
       setIsDeleteAccountModalOpen(false)
       addToast({
         type: 'error',
@@ -612,6 +638,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       const res = await zingoApi.toggleConnector(customConnKey.trim().toLowerCase(), {
         status: 'connected',
         config: { custom: true, description: customConnDesc },
+        user_id: activeUserId,
       })
       setConnectors((prev) => [...prev, res])
       setIsAddConnectorModalOpen(false)
@@ -629,7 +656,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     setIsFetchingPrompt(true)
     setIsIdentityPromptModalOpen(true)
     try {
-      const res = await zingoApi.getModelIdentityPrompt()
+      const res = await zingoApi.getModelIdentityPrompt(activeUserId)
       setModelIdentityPrompt(res.prompt)
     } catch (err) {
       setModelIdentityPrompt('Error fetching model identity prompt from backend.')
@@ -990,7 +1017,8 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         onChange={(e) => {
                           const val = e.target.value
                           setUserProfile((prev) => ({ ...prev, work_role: val }))
-                          zingoApi.updateProfile({ work_role: val })
+                          updateSettings({ workDescription: val })
+                          zingoApi.updateProfile({ user_id: activeUserId, work_role: val })
                         }}
                         className="w-full appearance-none px-3 py-1.5 pr-8 bg-elevated border border-border rounded-lg text-xs text-content-primary focus:border-border-strong outline-none cursor-pointer"
                       >
@@ -1509,7 +1537,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                   <div className="divide-y divide-border/60 text-xs sm:text-sm">
                     <div className="flex items-center justify-between py-3">
                       <span className="text-content-secondary">User Account</span>
-                      <span className="font-mono text-content-primary">default_user</span>
+                      <span className="font-mono text-content-primary">{authUser?.email || activeUserId}</span>
                     </div>
                     <div className="flex items-center justify-between py-3">
                       <span className="text-content-secondary">Organization</span>

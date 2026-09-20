@@ -1781,11 +1781,6 @@ def get_user_memory_files(user_id: str = "default_user", category: Optional[str]
     conn = get_db()
     try:
         rows = conn.execute(f"SELECT * FROM user_memory_files {where} ORDER BY updated_at DESC", params).fetchall()
-        if not rows and norm_id != "default_user":
-            where_fallback, params_fallback = " WHERE user_id = 'default_user'", []
-            if category:
-                where_fallback += " AND category = ?"; params_fallback.append(category)
-            rows = conn.execute(f"SELECT * FROM user_memory_files {where_fallback} ORDER BY updated_at DESC", params_fallback).fetchall()
         results = []
         for r in rows:
             d = dict(r)
@@ -2019,10 +2014,16 @@ def delete_user_account(user_id: str = "default_user") -> bool:
         conn.close()
 
 
-def build_zingo_identity_prompt(user_id: str = "default_user") -> str:
+def build_zingo_identity_prompt(
+    user_id: str = "default_user",
+    full_name: Optional[str] = None,
+    preferred_name: Optional[str] = None,
+    work_role: Optional[str] = None,
+    personal_preferences: Optional[str] = None,
+) -> str:
     """Builds ZINGO system prompt injection from user profile, capabilities, memory, permissions, and connectors."""
     norm_id = normalize_user_id(user_id)
-    profile = get_user_profile(norm_id)
+    profile = get_user_profile(norm_id) if norm_id != "default_user" else {}
     caps = get_user_capabilities(norm_id)
     perms = get_user_permissions(norm_id)
     mems = get_user_memory_files(norm_id)
@@ -2048,17 +2049,18 @@ def build_zingo_identity_prompt(user_id: str = "default_user") -> str:
     )
 
     # 1. User Profile & Personal Preferences
-    full_name = profile.get("full_name") or "User"
-    preferred_name = profile.get("preferred_name") or full_name
-    work_role = profile.get("work_role") or "Refinery Process Engineer (CDU/VDU)"
-    prefs = profile.get("personal_preferences") or "Provide direct, precise, knowledgeable answers."
+    # Priority: explicit session parameters > DB profile for this user_id > generic fallback
+    res_full_name = (full_name or "").strip() or profile.get("full_name") or "User"
+    res_preferred_name = (preferred_name or "").strip() or profile.get("preferred_name") or res_full_name
+    res_work_role = (work_role or "").strip() or profile.get("work_role") or "Refinery Process Engineer (CDU/VDU)"
+    res_prefs = (personal_preferences or "").strip() or profile.get("personal_preferences") or "Provide direct, precise, knowledgeable answers."
 
     sections.append(
         f"<user_profile>\n"
-        f"Full Name: {full_name}\n"
-        f"What to call the user (Preferred Name): {preferred_name}\n"
-        f"Professional Role & Designation: {work_role}\n"
-        f"Personal Preferences for Model Responses:\n{prefs}\n"
+        f"Full Name: {res_full_name}\n"
+        f"What to call the user (Preferred Name): {res_preferred_name}\n"
+        f"Professional Role & Designation: {res_work_role}\n"
+        f"Personal Preferences for Model Responses:\n{res_prefs}\n"
         f"Note: Always respect these personal preferences in every response.\n"
         f"</user_profile>"
     )

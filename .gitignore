@@ -48,6 +48,8 @@ Thumbs.db
 
 # ZINGO local runtime state (regenerate with: python sample_data.py --upload --demo)
 zingo.db
+sovereign_state.db
+*.db
 plant_graph.gpickle
 chroma_db/
 uploads/

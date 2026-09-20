@@ -516,15 +516,15 @@ export const zingoApi = {
     req<UserPermissions>('post', '/api/settings/permissions', { data }),
   getConnectors: (userId?: string) =>
     req<{ total: number; connectors: UserConnector[] }>('get', '/api/settings/connectors', { params: userId ? { user_id: userId } : {} }),
-  toggleConnector: (connectorKey: string, data: { status?: string; account_email?: string; config?: any } = {}) =>
+  toggleConnector: (connectorKey: string, data: { status?: string; account_email?: string; config?: any; user_id?: string } = {}) =>
     req<UserConnector>('post', `/api/settings/connectors/${encodeURIComponent(connectorKey)}/toggle`, { data }),
-  testConnector: (connectorKey: string, data: { endpoint: string; connector_type?: string; api_key?: string; timeout_ms?: number }) =>
+  testConnector: (connectorKey: string, data: { endpoint: string; connector_type?: string; api_key?: string; timeout_ms?: number; user_id?: string }) =>
     req<{ reachable: boolean; latency_ms: number; error: string | null; status_code?: number }>('post', `/api/settings/connectors/${encodeURIComponent(connectorKey)}/test`, { data }),
   getMemoryFiles: (userId?: string, category?: string) =>
     req<{ total: number; memories: UserMemoryFile[] }>('get', '/api/settings/memory', { params: { user_id: userId, category } }),
-  addMemoryFile: (data: { title: string; content: string; category?: string; is_sensitive?: boolean }) =>
+  addMemoryFile: (data: { title: string; content: string; category?: string; is_sensitive?: boolean; user_id?: string }) =>
     req<UserMemoryFile>('post', '/api/settings/memory', { data }),
-  updateMemoryFile: (id: number, data: { title?: string; content?: string; category?: string; is_sensitive?: boolean }) =>
+  updateMemoryFile: (id: number, data: { title?: string; content?: string; category?: string; is_sensitive?: boolean; user_id?: string }) =>
     req<UserMemoryFile>('put', `/api/settings/memory/${id}`, { data }),
   deleteMemoryFile: (id: number) =>
     req<{ success: boolean; deleted_id: number }>('delete', `/api/settings/memory/${id}`),
