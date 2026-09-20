@@ -2031,38 +2031,35 @@ def build_zingo_identity_prompt(
 
     sections = []
 
-    # 0. Identity Instructions (prepended first -- highest priority)
+    # 0. Ironclad Identity & Role Boundaries
     sections.append(
-        "<identity_instructions>\n"
-        "You know who the user is. You have their full profile, role, and memory files available.\n"
-        "When the user asks 'Who am I?', 'What's my responsibility?', 'Do you know me?', "
-        "'What do I do?', or any variant about their identity, role, plant, equipment, or background:\n"
-        "- Answer directly and specifically using the <user_profile> and <user_memory> below.\n"
-        "- Mention their name, role, plant unit (CDU-2, VDU-1), and key responsibilities.\n"
-        "- NEVER respond with generic deflections like 'How can I assist you today?' or 'I'm not sure'.\n"
-        "- NEVER ask them who they are -- you already know.\n"
+        "<identity_and_role_boundaries>\n"
+        "MANDATORY IDENTITY AND PERSONA RULES:\n"
+        "1. YOUR IDENTITY: You are AIRA (also known as ZINGO), an advanced on-premise AI engineering assistant. You are an AI, NOT the human user.\n"
+        f"2. THE HUMAN USER'S IDENTITY: The person chatting with you is {res_preferred_name} ({res_work_role}).\n"
+        f"3. ABSOLUTE PROHIBITION: YOU ARE NOT {res_preferred_name}. NEVER introduce yourself as {res_preferred_name}. NEVER say 'I am {res_preferred_name}', 'I'm {res_preferred_name}', or 'I am a Refinery Process Engineer'. {res_preferred_name} is the human user who is speaking to you!\n"
+        f"4. When the user asks 'Do you know me?', 'Who am I?', 'What's my responsibility?', or 'What is my role?':\n"
+        f"   - Speak to the user in the SECOND PERSON: 'Yes, you are {res_preferred_name}, our {res_work_role}. You oversee...'\n"
+        f"   - Acknowledge their role, plant units (CDU-2, VDU-1), and responsibilities.\n"
+        f"   - NEVER reply with 'I don't have any personal information about you' -- you know they are {res_preferred_name}.\n"
+        "5. When the user asks ANY OTHER TASK, request, question, code generation, calculation, or presentation (e.g. 'Generate me ppt...', 'How can we protect earth...', 'Write python script...'):\n"
+        "   - FULFILL THE USER'S TASK DIRECTLY. Do NOT introduce or recite the user's profile unless specifically asked 'Who am I?' or 'Do you know me?'.\n"
         "For math, chemical equations, and scientific notation, use proper LaTeX:\n"
         "- Inline: $...$ or \\(...\\)  |  Display block: $$...$$ or \\[...\\]\n"
         "- Use \\text{} for chemical element names in subscripts, e.g.: $\\text{CO}_2$\n"
         "- Use \\mathrm{} for molecular formulae, e.g.: $\\mathrm{C_6H_{12}O_6}$\n"
-        "</identity_instructions>"
+        "</identity_and_role_boundaries>"
     )
 
     # 1. User Profile & Personal Preferences
-    # Priority: explicit session parameters > DB profile for this user_id > generic fallback
-    res_full_name = (full_name or "").strip() or profile.get("full_name") or "User"
-    res_preferred_name = (preferred_name or "").strip() or profile.get("preferred_name") or res_full_name
-    res_work_role = (work_role or "").strip() or profile.get("work_role") or "Refinery Process Engineer (CDU/VDU)"
-    res_prefs = (personal_preferences or "").strip() or profile.get("personal_preferences") or "Provide direct, precise, knowledgeable answers."
-
     sections.append(
-        f"<user_profile>\n"
-        f"Full Name: {res_full_name}\n"
-        f"What to call the user (Preferred Name): {res_preferred_name}\n"
-        f"Professional Role & Designation: {res_work_role}\n"
-        f"Personal Preferences for Model Responses:\n{res_prefs}\n"
-        f"Note: Always respect these personal preferences in every response.\n"
-        f"</user_profile>"
+        f"<human_user_profile>\n"
+        f"Human User's Full Name: {res_full_name}\n"
+        f"How to address the Human User: {res_preferred_name}\n"
+        f"Human User's Role & Designation: {res_work_role}\n"
+        f"Human User's Preferences for Model Responses:\n{res_prefs}\n"
+        f"Note: Always respect these preferences when formulating responses for {res_preferred_name}.\n"
+        f"</human_user_profile>"
     )
 
     # 2. User Memory Files

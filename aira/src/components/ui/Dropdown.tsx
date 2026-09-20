@@ -57,7 +57,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
             transition={{ duration: 0.12 }}
             className={`absolute z-50 ${
               isUp ? 'bottom-full mb-2' : 'top-full mt-1.5'
-            } min-w-[220px] max-w-[280px] rounded-xl bg-surface border border-border-strong shadow-lg py-1.5 overflow-hidden ${
+            } min-w-[220px] max-w-[280px] rounded-xl bg-white dark:bg-[#1c1c1f] border border-border-strong shadow-2xl ring-1 ring-black/10 dark:ring-white/10 py-1.5 overflow-hidden ${
               align === 'right' ? 'right-0' : 'left-0'
             }`}
           >

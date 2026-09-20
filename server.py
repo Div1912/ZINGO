@@ -1114,18 +1114,16 @@ async def api_chat(payload_data: ChatPayload):
             learned_guidelines = ""
 
     base_system = payload_data.system or (
-        f"You are ZINGO, an on-premise engineering assistant for an Indian refinery. {cfg['instruction']} "
+        f"You are AIRA, an advanced sovereign engineering assistant. {cfg['instruction']} "
         "Answer using the retrieved organisation documents where they are relevant, and cite them "
-        "by their bracket number, e.g. [1]. If the documents do not contain the answer, say so "
-        "plainly instead of speculating."
+        "by their bracket number, e.g. [1]."
     )
 
-    system_blocks = []
+    system_blocks = [base_system]
     if user_identity:
         system_blocks.append(user_identity)
     if learned_guidelines:
         system_blocks.append(learned_guidelines)
-    system_blocks.append(base_system)
     system = "\n\n".join(system_blocks)
 
     current_user_text = f"{context}\n\nUser Question/Request: {question}" if context else question
@@ -1217,15 +1215,7 @@ async def api_chat(payload_data: ChatPayload):
     if payload_data.images:
         ollama_payload["images"] = payload_data.images
 
-    cached_kv_tokens = session_kv_store.get_context(payload_data.chat_id, model)
-
-    effective_prompt = full_prompt
-    if cached_kv_tokens and not payload_data.images:
-        ollama_payload["context"] = cached_kv_tokens
-        effective_prompt = question
-        print(f"[kv_cache] Reusing {len(cached_kv_tokens)} KV tokens for chat '{payload_data.chat_id}'. Prompt evaluation reduced to {len(effective_prompt)} chars.")
-
-    ollama_payload["prompt"] = effective_prompt
+    ollama_payload["prompt"] = full_prompt
 
     if payload_data.stream:
         cluster_balancer.acquire_slot(node_key)
@@ -1236,7 +1226,6 @@ async def api_chat(payload_data: ChatPayload):
                     context=context,
                     sources=retrieval["sources"],
                     feature="chat",
-                    on_done_context=lambda ctx: session_kv_store.set_context(payload_data.chat_id, model, ctx) if payload_data.chat_id else None,
                 ),
                 node_key,
             ),
