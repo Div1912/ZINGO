@@ -20,8 +20,9 @@ import { useToastStore } from '../../stores/toastStore'
 import { bundleVirtualProject } from '../../services/sandboxBundler'
 import { FileTreeEditor } from './FileTreeEditor'
 import { ConsoleTerminal, type SandboxConsoleLog } from './ConsoleTerminal'
+import { MicroVMTerminal } from './MicroVMTerminal'
 
-type CanvasTab = 'preview' | 'code' | 'console'
+type CanvasTab = 'preview' | 'code' | 'console' | 'terminal'
 type DeviceMode = 'desktop' | 'tablet' | 'mobile'
 
 interface LiveSandboxCanvasProps {
@@ -208,6 +209,19 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
               </span>
             )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('terminal')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === 'terminal'
+                ? 'bg-slate-800 text-emerald-300 border border-emerald-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <Terminal size={13} className="text-emerald-400" />
+            <span>Terminal (WASM)</span>
+          </button>
         </div>
 
         {/* Right: Viewport Mode Switcher & Global Actions */}
@@ -349,6 +363,11 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
             onClearLogs={() => setLogs([])}
             onFixWithAI={onFixWithAI}
           />
+        )}
+
+        {/* Tab 4: Interactive WebContainer MicroVM Terminal */}
+        {activeTab === 'terminal' && (
+          <MicroVMTerminal project={activeProject} />
         )}
       </div>
 

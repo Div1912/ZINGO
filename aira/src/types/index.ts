@@ -59,6 +59,9 @@ export interface Message {
   thinkTotalSteps?: number
   // Artifact additions
   artifactIds?: string[]
+  // Tree-of-Thought (ToT) Automated Verification additions
+  totSpec?: any
+  totResult?: any
 }
 
 export interface Chat {

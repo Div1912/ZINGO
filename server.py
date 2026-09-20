@@ -292,6 +292,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Cross-Origin Isolation Headers for WebAssembly SharedArrayBuffer / WebContainers
+@app.middleware("http")
+async def add_wasm_isolation_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+    return response
+
 # --------------------------------------------------------------------------------------
 # Feature routers
 # --------------------------------------------------------------------------------------
@@ -311,6 +319,8 @@ from routers.settings import router as settings_router            # noqa: E402
 from routers.sandbox import router as sandbox_router              # noqa: E402
 from mcp_host import mcp_router                                    # noqa: E402
 from self_healing import auto_heal_response                        # noqa: E402
+from model_orchestrator import hardware_router, calculate_safe_num_ctx  # noqa: E402
+from tot_verifier import generate_test_specification, format_tot_instruction  # noqa: E402
 
 app.include_router(ingestion_router)
 app.include_router(monitoring_router)
@@ -326,6 +336,7 @@ app.include_router(temporal_router)
 app.include_router(settings_router)
 app.include_router(sandbox_router)
 app.include_router(mcp_router)
+app.include_router(hardware_router)
 
 
 # --------------------------------------------------------------------------------------
@@ -858,11 +869,20 @@ async def process_and_ask(
         print(f"[process_and_ask] identity context build failed: {id_err}")
 
     display_model = target_model
+    test_spec = None
     if node_key == "primary" and not images_b64:
         spec_plan = speculative_plan_decomposition(user_query, node_url)
         if spec_plan:
             instruction = f"Technical Architecture & Plan from Node 2 (Fast Planner):\n{spec_plan}\n\n{instruction}"
             display_model = f"{target_model} (Dual-Node Synergy · Node 2 Planned + Node 1 Synthesized)"
+        test_spec = generate_test_specification(user_query, node_url, cluster_balancer.laptop2_url)
+        if test_spec:
+            instruction = f"{instruction}\n\n{format_tot_instruction(test_spec)}"
+
+    from model_orchestrator import get_system_ram
+    ram_info = get_system_ram()
+    safe_ctx = calculate_safe_num_ctx(target_model, ram_info["available_gb"])
+    cfg["options"]["num_ctx"] = safe_ctx
 
     payload = {
         "model": target_model,
@@ -936,6 +956,7 @@ async def process_and_ask(
             "sources": sources,
             "cluster_node": node_key,
             "healed": healed,
+            "tot_spec": test_spec,
         }
     except requests.exceptions.RequestException as exc:
         return {"error": f"Node request failed: {exc}"}
@@ -1134,11 +1155,20 @@ async def api_chat(payload_data: ChatPayload):
     )
 
     display_model = model
+    test_spec = None
     if node_key == "primary" and not payload_data.images:
         spec_plan = speculative_plan_decomposition(question, payload_data.node_url)
         if spec_plan:
             system = f"Technical Architecture & Plan from Node 2 (Fast Planner):\n{spec_plan}\n\n{system}"
             display_model = f"{model} (Dual-Node Synergy · Node 2 Planned + Node 1 Synthesized)"
+        test_spec = generate_test_specification(question, payload_data.node_url, cluster_balancer.laptop2_url)
+        if test_spec:
+            system = f"{system}\n\n{format_tot_instruction(test_spec)}"
+
+    from model_orchestrator import get_system_ram
+    ram_info = get_system_ram()
+    safe_ctx = calculate_safe_num_ctx(model, ram_info["available_gb"])
+    cfg["options"]["num_ctx"] = safe_ctx
 
     log_audit("chat_query", payload_data.user, None, "chat", {
         "question": question[:300], "task_type": task,
@@ -1219,6 +1249,7 @@ async def api_chat(payload_data: ChatPayload):
             "effort": cfg["effort"],
             "cluster_node": node_key,
             "healed": healed,
+            "tot_spec": test_spec,
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
