@@ -9,6 +9,32 @@ export interface BundleResult {
 }
 
 /**
+ * Returns true if enough of the JS file's top-level identifiers already appear
+ * inside inline <script> blocks in the HTML, indicating the content is already present.
+ */
+function hasSignificantOverlap(jsContent: string, htmlContent: string): boolean {
+  // Extract identifiers (function/const/let/var names) from JS
+  const identifiers = [...jsContent.matchAll(/(?:function|const|let|var)\s+([a-zA-Z_$][\w$]*)/g)]
+    .map(m => m[1])
+    .slice(0, 8)
+  if (identifiers.length === 0) return false
+  const matches = identifiers.filter(id => htmlContent.includes(id))
+  return matches.length >= Math.min(3, Math.ceil(identifiers.length * 0.6))
+}
+
+/**
+ * Returns true if enough of the CSS file's top-level selectors already appear
+ * inside inline <style> blocks in the HTML, indicating the content is already present.
+ */
+function hasSignificantCssOverlap(cssContent: string, htmlContent: string): boolean {
+  const selectors = [...cssContent.matchAll(/([.#][a-zA-Z_-][\w-]*|[a-z][\w-]+)\s*\{/g)]
+    .map(m => m[1]).slice(0, 6)
+  if (selectors.length === 0) return false
+  const matches = selectors.filter(s => htmlContent.includes(s))
+  return matches.length >= Math.min(2, Math.ceil(selectors.length * 0.5))
+}
+
+/**
  * Creates an isolated, executable HTML document from virtual project files.
  * Inlines stylesheets, scripts, telemetry hooks, and necessary CDN libraries.
  */
@@ -134,6 +160,11 @@ export function bundleVirtualProject(project: VirtualProject): BundleResult {
   for (const [path, file] of Object.entries(files)) {
     if (file.language === 'css' || file.name.endsWith('.css')) {
       if (!inlinedCssPaths.has(path) && !inlinedCssPaths.has(file.name)) {
+        // Skip if content already substantially present as inline style in HTML
+        if (hasSignificantCssOverlap(file.content, rawHtml)) {
+          warnings.push(`Skipped orphan injection of "${path}" — CSS content already inlined in HTML.`)
+          continue
+        }
         extraCss += `<style data-file="${escapeHtml(path)}">\n/* Auto-injected: ${escapeHtml(path)} */\n${file.content}\n</style>\n`
       }
     }
@@ -152,7 +183,7 @@ export function bundleVirtualProject(project: VirtualProject): BundleResult {
         Object.values(files).find((f) => f.name === cleanSrc.split('/').pop())
 
       if (matchedFile) {
-        return `<script data-file="${escapeHtml(matchedFile.path)}">\n// inlined from ${escapeHtml(matchedFile.path)}\n${matchedFile.content}\n</script>`
+        return `<script data-file="${escapeHtml(matchedFile.path)}">\ntry {\n// inlined from ${escapeHtml(matchedFile.path)}\n${matchedFile.content}\n} catch(e) { console.error('[Sandbox] ${escapeHtml(matchedFile.path)} error:', e); }\n</script>`
       }
 
       // External CDN script
@@ -173,7 +204,12 @@ export function bundleVirtualProject(project: VirtualProject): BundleResult {
   for (const [path, file] of Object.entries(files)) {
     if (file.language === 'javascript' || file.name.endsWith('.js')) {
       if (!inlinedJsPaths.has(path) && !inlinedJsPaths.has(file.name) && path !== entryPath) {
-        extraJs += `<script data-file="${escapeHtml(path)}">\n// Auto-injected: ${escapeHtml(path)}\n${file.content}\n</script>\n`
+        // Skip if content already substantially present as inline script in HTML
+        if (hasSignificantOverlap(file.content, rawHtml)) {
+          warnings.push(`Skipped orphan injection of "${path}" — content already inlined in HTML.`)
+          continue
+        }
+        extraJs += `<script data-file="${escapeHtml(path)}">\n// Auto-injected: ${escapeHtml(path)}\ntry {\n${file.content}\n} catch(e) { console.error('[Sandbox] ${escapeHtml(path)} runtime error:', e); }\n</script>\n`
       }
     }
   }
