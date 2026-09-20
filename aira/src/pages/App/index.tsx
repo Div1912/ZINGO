@@ -12,6 +12,7 @@ import { CodeRunnerModal } from '../../components/chat/CodeRunnerModal'
 import { ProjectsModal } from '../../components/layout/ProjectsModal'
 import { ArtifactsModal } from '../../components/layout/ArtifactsModal'
 import { ArtifactViewer } from '../../components/artifacts/ArtifactViewer'
+import { LiveSandboxCanvas } from '../../components/sandbox/LiveSandboxCanvas'
 import { GradientWave } from '../../components/ui/gradient-wave'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -219,6 +220,9 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
 
       {/* Live Interactive Artifact Side Panel / Viewer */}
       <ArtifactViewer />
+
+      {/* Claude-Style Live Interactive Multi-File Sandbox Canvas */}
+      <LiveSandboxCanvas />
 
       {/* User Settings Modal */}
       <SettingsPage

@@ -12,7 +12,10 @@ import {
   ArrowLeft,
   Search,
   BookOpen,
+  Sparkles,
 } from 'lucide-react'
+
+
 import { useProjectStore } from '../../stores/projectStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useToastStore } from '../../stores/toastStore'
@@ -34,7 +37,10 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({ isOpen, onClose })
     setActiveProject,
     addFileToProject,
     removeFileFromProject,
+    openSandboxCanvas,
+    virtualProjects,
   } = useProjectStore()
+
 
   const { createChat, chats } = useChatStore()
   const { addToast } = useToastStore()
@@ -200,6 +206,28 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({ isOpen, onClose })
               </button>
 
               <div className="flex items-center gap-2">
+                {(currentProject.virtualProject || virtualProjects.some((vp) => vp.id === currentProject.id || vp.title === currentProject.title)) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const vproj = currentProject.virtualProject || virtualProjects.find((vp) => vp.id === currentProject.id || vp.title === currentProject.title)
+                      if (vproj) {
+                        openSandboxCanvas(vproj.id)
+                        onClose()
+                        addToast({
+                          type: 'info',
+                          title: vproj.title,
+                          message: 'Launching project in Live Sandbox...',
+                        })
+                      }
+                    }}
+                    className="btn-glass !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-1.5 text-violet-300 hover:text-white border-violet-500/30 bg-violet-500/15 hover:bg-violet-500/25 transition shadow-sm cursor-pointer"
+                  >
+                    <Sparkles size={13} className="text-violet-400" />
+                    <span>Launch Live Sandbox</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => handleStartChatInProject(currentProject)}
@@ -209,6 +237,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({ isOpen, onClose })
                   <span>Start Chat in Project</span>
                 </button>
               </div>
+
             </div>
 
             {/* Navigation Tabs */}

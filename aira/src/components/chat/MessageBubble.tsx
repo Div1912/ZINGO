@@ -19,6 +19,7 @@ import {
   FileDown,
   Mail,
   Sparkles,
+  Eye,
 } from 'lucide-react'
 import type { Message } from '../../types'
 import { ModelBadge, formatModelDisplayName } from './ModelBadge'
@@ -27,8 +28,11 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useArtifactStore } from '../../stores/artifactStore'
+import { useProjectStore } from '../../stores/projectStore'
+import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../../utils/multiFileParser'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
 import { exportMessageToPdf } from '../../services/pdfExport'
+
 
 interface MessageBubbleProps {
   message: Message
@@ -111,6 +115,31 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   )
 
   const isUser = message.role === 'user'
+  const { virtualProjects, openSandboxCanvas, saveVirtualProject } = useProjectStore()
+
+  // Detect if this message contains a runnable virtual project
+  const detectedProject = React.useMemo(() => {
+    if (isUser || !message.content || message.content.length < 50) return null
+    const existing = virtualProjects.find((p) => p.messageId === message.id)
+    if (existing) return existing
+    const parsed = extractProjectFromMessage(finalContent || message.content)
+    if (parsed && (parsed.isMultiFile || parsed.isInteractiveApp)) {
+      return createVirtualProjectFromParsed(parsed, { messageId: message.id })
+    }
+    return null
+  }, [message.id, message.content, finalContent, isUser, virtualProjects])
+
+  const handleLaunchProjectSandbox = () => {
+    if (!detectedProject) return
+    const id = saveVirtualProject(detectedProject)
+    openSandboxCanvas(id)
+    addToast({
+      type: 'info',
+      title: detectedProject.title,
+      message: 'Opening project in dedicated Live Sandbox...',
+    })
+  }
+
 
   const copyMessageContent = async () => {
     await navigator.clipboard.writeText(finalContent || message.content)
@@ -343,24 +372,28 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                               </button>
 
                               {/* Web Sandbox Preview Button (Claude-Style) */}
-                              {(['html', 'htm', 'svg', 'react', 'jsx', 'tsx', 'javascript', 'js'].includes(lang.toLowerCase()) ||
+                              {(['html', 'htm', 'svg', 'react', 'jsx', 'tsx', 'javascript', 'js', 'css'].includes(lang.toLowerCase()) ||
                                 codeText.includes('<!DOCTYPE') ||
                                 codeText.includes('<html') ||
                                 (codeText.includes('<div') && codeText.includes('</div>'))) && (
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    openInSandbox(codeText, lang)
-                                    addToast({
-                                      type: 'info',
-                                      message: 'Opening site in dedicated sandbox...',
-                                    })
+                                    if (detectedProject) {
+                                      handleLaunchProjectSandbox()
+                                    } else {
+                                      openInSandbox(codeText, lang)
+                                      addToast({
+                                        type: 'info',
+                                        message: 'Opening in dedicated sandbox...',
+                                      })
+                                    }
                                   }}
                                   className="btn-glass !py-1 !px-2.5 !text-[11px] !rounded-md flex items-center gap-1.5 text-violet-300 hover:text-white border-violet-500/30 bg-violet-500/15 hover:bg-violet-500/25 transition-all shadow-xs"
-                                  title="Test and display live site in dedicated sandbox"
+                                  title="Test and display live application in dedicated sandbox"
                                 >
                                   <Sparkles size={11} className="text-violet-400" />
-                                  <span>Preview Site ›</span>
+                                  <span>{detectedProject ? 'Open Project Sandbox ›' : 'Preview Site ›'}</span>
                                 </button>
                               )}
 
@@ -444,11 +477,46 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               <BookOpen size={13} className="text-content-secondary" />
               <span>Sources: {message.sources.length} documents found ›</span>
             </button>
+
+          </div>
+        )}
+
+        {/* Interactive Multi-File Project Sandbox Banner (Claude-Style) */}
+
+        {!message.isStreaming && detectedProject && (
+          <div className="mt-3 p-3.5 rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-950/40 via-slate-900/60 to-indigo-950/40 flex items-center justify-between gap-4 shadow-lg shadow-violet-950/20">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-300 shrink-0">
+                <Sparkles size={18} className="text-violet-400" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-100 truncate">
+                    {detectedProject.title}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-violet-500/15 text-violet-300 border border-violet-500/25 shrink-0">
+                    {Object.keys(detectedProject.files).length} files
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                  Multi-file application compiled & ready to run in dedicated sandbox
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleLaunchProjectSandbox}
+              className="btn-glass !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-1.5 text-white bg-violet-600 hover:bg-violet-500 border-violet-500/40 transition-all shadow-md shadow-violet-600/25 shrink-0 cursor-pointer"
+            >
+              <Eye size={13} />
+              <span>Open Live Sandbox ›</span>
+            </button>
           </div>
         )}
 
         {/* Action Toolbar & Telemetry */}
         {!message.isStreaming && message.content && (
+
           <div className="flex flex-wrap items-center gap-3 pt-2 text-content-tertiary text-xs select-none">
             {/* Regenerate */}
             {onRegenerate && (

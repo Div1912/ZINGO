@@ -13,6 +13,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useArtifactStore } from '../stores/artifactStore'
+import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../utils/multiFileParser'
 import { getActiveUserInfo } from '../stores/authStore'
 import type { ThinkStep } from '../components/chat/ThinkingBlock'
 import type { Message, ModelId, TaskType, UploadedFile } from '../types'
@@ -420,10 +421,31 @@ export function useChat(chatId?: string | null) {
             })
           }
         } catch {
-          // ignore parsing error
+          // ignore artifact extraction error
         }
 
+        // Automatically detect & catalog multi-file virtual projects for the Live Sandbox
+        try {
+          const parsedProj = extractProjectFromMessage(answerContent)
+          if (parsedProj && (parsedProj.isMultiFile || parsedProj.isInteractiveApp)) {
+            const vproj = createVirtualProjectFromParsed(parsedProj, {
+              chatId: sendToChatId,
+            })
+            const projId = useProjectStore.getState().saveVirtualProject(vproj)
+            // Auto-open the Claude-style live sandbox canvas
+            useProjectStore.getState().openSandboxCanvas(projId)
+            addToast({
+              type: 'success',
+              title: vproj.title,
+              message: `App compiled & running in live sandbox (${Object.keys(vproj.files).length} files)`,
+            })
+          }
+        } catch (err) {
+          console.error('Virtual project extraction error:', err)
+        }
       } catch (err: unknown) {
+
+
         const isAbort = err instanceof DOMException && err.name === 'AbortError'
         if (!isAbort) {
           const errorMsg = err instanceof Error ? err.message : 'Error communicating with backend.'
