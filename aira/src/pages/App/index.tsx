@@ -222,7 +222,13 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
       <ArtifactViewer />
 
       {/* Claude-Style Live Interactive Multi-File Sandbox Canvas */}
-      <LiveSandboxCanvas />
+      <LiveSandboxCanvas
+        onFixWithAI={(errorMessage: string) => {
+          useChatStore.getState().setPendingAIFix(
+            `Fix this sandbox runtime error and provide corrected code:\n\n\`\`\`\n${errorMessage}\n\`\`\``
+          )
+        }}
+      />
 
       {/* User Settings Modal */}
       <SettingsPage

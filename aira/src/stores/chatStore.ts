@@ -24,6 +24,7 @@ interface ChatStore {
   isSourcePanelOpen: boolean
   abortController: AbortController | null
   abortControllers: Record<string, AbortController>
+  pendingAIFix: string | null
 
   // actions
   loadUserChats: (userId: string) => Promise<void>
@@ -55,6 +56,7 @@ interface ChatStore {
   setActiveSources: (sources: Source[] | null) => void
   toggleSourcePanel: (open?: boolean) => void
   setAbortController: (controller: AbortController | null) => void
+  setPendingAIFix: (message: string | null) => void
 }
 
 // Sample engineering conversations that users can optionally load
@@ -242,6 +244,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   activeSources: null,
   isSourcePanelOpen: false,
   abortController: null,
+  pendingAIFix: null,
 
   loadUserChats: async (userId: string) => {
     set({ currentUserId: userId, isLoadingChats: true })
@@ -746,4 +749,5 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })),
 
   setAbortController: (controller) => set({ abortController: controller }),
+  setPendingAIFix: (message) => set({ pendingAIFix: message }),
 }))

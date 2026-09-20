@@ -17,6 +17,8 @@ export const ChatPage: React.FC = () => {
     setActiveChat,
     createChat,
     isLoadingChats,
+    pendingAIFix,
+    setPendingAIFix,
   } = useChatStore()
 
   // Resolve the chat ID directly from route or store fallback
@@ -45,6 +47,17 @@ export const ChatPage: React.FC = () => {
       } else if (id === 'new') {
         const newId = createChat()
         navigate(`/app/chat/${newId}`, { replace: true })
+      } else {
+        // Chat no longer exists (e.g. Supabase sync replaced local chats)
+        // Navigate to the actual current active chat
+        if (activeChatId) {
+          navigate(`/app/chat/${activeChatId}`, { replace: true })
+        } else if (chats.length > 0) {
+          navigate(`/app/chat/${chats[0].id}`, { replace: true })
+        } else {
+          const newId = createChat()
+          navigate(`/app/chat/${newId}`, { replace: true })
+        }
       }
     } else if (!id) {
       if (chats.length > 0) {
@@ -56,9 +69,28 @@ export const ChatPage: React.FC = () => {
     }
   }, [id, activeChatId, chats, setActiveChat, createChat, navigate, isLoadingChats])
 
+  // Navigate when activeChatId changes (e.g. after Supabase sync or sendMessage creates new chat)
+  useEffect(() => {
+    if (isLoadingChats) return
+    if (activeChatId && id && activeChatId !== id) {
+      const exists = chats.some((c) => c.id === id)
+      if (!exists) {
+        navigate(`/app/chat/${activeChatId}`, { replace: true })
+      }
+    }
+  }, [activeChatId, id, chats, isLoadingChats, navigate])
+
   const handleSelectSuggestion = (prompt: string) => {
     setPromptToFill(prompt)
   }
+
+  useEffect(() => {
+    if (pendingAIFix && sendMessage && !isGenerating) {
+      const msg = pendingAIFix
+      setPendingAIFix(null)
+      sendMessage(msg)
+    }
+  }, [pendingAIFix, sendMessage, isGenerating, setPendingAIFix])
 
   return (
     <div className="flex-1 flex min-w-0 h-full overflow-hidden bg-transparent relative">

@@ -152,7 +152,7 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
       {/* ------------------------------------------------------------- */}
       {/* Top Control Bar (Claude Style)                                */}
       {/* ------------------------------------------------------------- */}
-      <div className="h-12 px-3 border-b border-slate-800/90 bg-slate-950/80 backdrop-blur-md flex items-center justify-between shrink-0 select-none">
+      <div className="px-2 border-b border-slate-800/90 bg-slate-950/80 backdrop-blur-md flex items-center justify-between shrink-0 select-none flex-wrap gap-1 min-h-12">
         {/* Left: Project Info & Multi-Project Selector */}
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-500 flex items-center justify-center shadow-md shadow-violet-500/20 shrink-0">
@@ -171,7 +171,7 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
         </div>
 
         {/* Center: Tabs Switcher (Preview | Code | Console) */}
-        <div className="flex items-center bg-slate-900/90 p-1 rounded-lg border border-slate-800">
+        <div className="flex items-center bg-slate-900/90 p-1 rounded-lg border border-slate-800 overflow-x-auto max-w-[55vw] sm:max-w-none">
           <button
             type="button"
             onClick={() => setActiveTab('preview')}
@@ -217,7 +217,7 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
           <button
             type="button"
             onClick={() => setActiveTab('terminal')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition hidden sm:flex ${
               activeTab === 'terminal'
                 ? 'bg-slate-800 text-emerald-300 border border-emerald-500/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -268,7 +268,7 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
           <button
             type="button"
             onClick={handleReload}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="hidden sm:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
             title="Reload Sandbox"
           >
             <RotateCcw size={14} />
@@ -277,7 +277,7 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
           <button
             type="button"
             onClick={handleOpenNewWindow}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="hidden sm:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
             title="Open in Full Browser Tab"
           >
             <ExternalLink size={14} />
@@ -328,7 +328,7 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
             type="button"
             onClick={handleExportZip}
             disabled={isExporting}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition disabled:opacity-50"
+            className="hidden sm:flex p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition disabled:opacity-50"
             title="Export Entire Project as ZIP"
           >
             <Download size={14} />
@@ -337,13 +337,13 @@ export const LiveSandboxCanvas: React.FC<LiveSandboxCanvasProps> = ({ onFixWithA
           <button
             type="button"
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="hidden sm:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
             title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
           >
             {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
 
-          <div className="w-px h-4 bg-slate-800 mx-0.5" />
+          <div className="hidden sm:block w-px h-4 bg-slate-800 mx-0.5" />
 
           <button
             type="button"
