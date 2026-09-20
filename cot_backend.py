@@ -96,7 +96,9 @@ def run_ollama_stream_cot(
     sources: Optional[List[Dict[str, Any]]] = None,
     feature: str = "chat",
     log_ollama_call=None,
+    on_done_context=None,
 ) -> Generator[str, None, None]:
+
     """
     Stream SSE events from Ollama with full chain-of-thought separation.
     Replaces original run_ollama_stream.
@@ -106,7 +108,7 @@ def run_ollama_stream_cot(
 
     started = datetime.now()
     endpoint = payload.get("_endpoint", DEFAULT_ENDPOINT)
-    model_name = payload.get("model", DEFAULT_MODEL)
+    model_name = payload.get("_display_model") or payload.get("model", DEFAULT_MODEL)
     effort = payload.get("_effort", "Fast")
     think_enabled = payload.get("think", False)
 
@@ -234,6 +236,8 @@ def run_ollama_stream_cot(
 
         return remaining, events
 
+    ollama_context = None
+
     with req as response:
         for line in response.iter_lines():
             if not line:
@@ -249,6 +253,9 @@ def run_ollama_stream_cot(
             dedicated_thinking = data.get("thinking", "")
             done = bool(data.get("done"))
             total_tokens = data.get("eval_count", total_tokens)
+            if "context" in data and isinstance(data["context"], list):
+                ollama_context = data["context"]
+
 
             # Handle dedicated thinking field if Ollama returns it directly
             if dedicated_thinking:
@@ -348,7 +355,26 @@ def run_ollama_stream_cot(
 
     elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
 
-    yield f"data: {json.dumps({'type': 'done', 'done': True, 'eval_count': total_tokens, 'elapsed_ms': elapsed_ms, 'think_steps': think_step_count, 'answer_length': len(answer_buf), 'model': model_name})}\n\n"
+    if on_done_context and ollama_context:
+        try:
+            on_done_context(ollama_context)
+        except Exception:
+            pass
+
+    done_payload = {
+        'type': 'done',
+        'done': True,
+        'eval_count': total_tokens,
+        'elapsed_ms': elapsed_ms,
+        'think_steps': think_step_count,
+        'answer_length': len(answer_buf),
+        'model': model_name,
+    }
+    if ollama_context:
+        done_payload['context'] = ollama_context
+
+    yield f"data: {json.dumps(done_payload)}\n\n"
+
 
     # ── Log call ─────────────────────────────────────────────────────────────
     if log_ollama_call:

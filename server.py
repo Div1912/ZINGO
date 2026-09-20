@@ -148,6 +148,115 @@ def stream_with_slot_cleanup(gen, node_key: str):
         cluster_balancer.release_slot(node_key)
 
 
+class SessionKVStore:
+    """
+    Session-level KV Cache token persistence store for multi-turn Ollama acceleration.
+    Preserves Ollama's numeric context token array across chat turns, bypassing the
+    costly quadratic prompt re-evaluation on subsequent messages in the same conversation.
+    """
+    def __init__(self, ttl_seconds: int = 7200):
+        self._lock = threading.Lock()
+        self._store: Dict[str, Dict[str, Any]] = {}
+        self._ttl = ttl_seconds
+
+    def get_context(self, chat_id: Optional[str], model: str) -> Optional[List[int]]:
+        if not chat_id:
+            return None
+        with self._lock:
+            entry = self._store.get(chat_id)
+            if not entry:
+                return None
+            if entry.get("model") != model:
+                return None
+            if (datetime.now() - entry.get("updated_at", datetime.now())).total_seconds() > self._ttl:
+                self._store.pop(chat_id, None)
+                return None
+            return entry.get("context")
+
+    def set_context(self, chat_id: Optional[str], model: str, context: List[int]):
+        if not chat_id or not context:
+            return
+        with self._lock:
+            self._store[chat_id] = {
+                "context": context,
+                "model": model,
+                "updated_at": datetime.now(),
+            }
+            print(f"[kv_cache] Stored {len(context)} context tokens for chat '{chat_id}' (model: {model})")
+
+    def clear(self, chat_id: str):
+        with self._lock:
+            self._store.pop(chat_id, None)
+
+
+session_kv_store = SessionKVStore()
+
+
+def speculative_plan_decomposition(query: str, custom_node_url: Optional[str] = None) -> Optional[str]:
+    """
+    Phase 3: Dual-Node Synergy (Speculative Fast Planning).
+    Queries Laptop 2 (qwen2.5-vl:3b worker node) to generate a speculative
+    high-level architecture and task decomposition blueprint in ~800ms.
+    This speculative plan is fed into Laptop 1 (qwen3:8b) for deep synthesis.
+    Fails safely with a 3.5s strict timeout if Laptop 2 is busy or offline.
+    """
+    if not query or len(query.strip()) < 15:
+        return None
+
+    complex_triggers = (
+        "create", "build", "code", "app", "application", "design", "system",
+        "component", "implement", "develop", "refactor", "fix", "architecture",
+        "html", "react", "python", "script", "database", "api", "pipeline", "function"
+    )
+    q_low = query.lower()
+    if not any(k in q_low for k in complex_triggers):
+        return None
+
+    l2_base = (custom_node_url or cluster_balancer.laptop2_url).strip().rstrip("/")
+    if l2_base.endswith("/api/generate"):
+        l2_endpoint = l2_base
+    elif l2_base.endswith("/api/chat"):
+        l2_endpoint = l2_base.replace("/api/chat", "/api/generate")
+    else:
+        l2_endpoint = f"{l2_base}/api/generate"
+
+    speculative_payload = {
+        "model": "qwen2.5-vl:3b",
+        "prompt": f"User Task: {query.strip()[:1500]}\nProvide a concise 3-4 bullet point technical architecture blueprint and component breakdown:",
+        "system": (
+            "You are a lightning-fast technical architect. Output ONLY 3-4 concise, precise execution steps "
+            "and component boundaries for this task. Maximum 100 words. No introductory or concluding remarks."
+        ),
+        "stream": False,
+        "options": {
+            "num_predict": 160,
+            "temperature": 0.2,
+        },
+        "keep_alive": -1,
+    }
+
+    try:
+        t0 = time.time()
+        resp = requests.post(
+            l2_endpoint,
+            json=speculative_payload,
+            headers={"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoSynergyPlanner/1.0"},
+            timeout=(1.5, 3.5),
+        )
+        if resp.status_code == 200:
+            plan = resp.json().get("response", "").strip()
+            elapsed_ms = int((time.time() - t0) * 1000)
+            if plan and len(plan) > 20:
+                print(f"[synergy] Node 2 speculative plan generated in {elapsed_ms}ms ({len(plan)} chars).")
+                return plan
+    except Exception as err:
+        print(f"[synergy] Speculative planning skipped (Node 2 non-critical): {err}")
+
+    return None
+
+
+
+
 # --------------------------------------------------------------------------------------
 # Lifespan — initialise the shared data layer before serving traffic
 # --------------------------------------------------------------------------------------
@@ -200,6 +309,8 @@ from routers.learning import router as learning_router            # noqa: E402
 from routers.temporal import router as temporal_router            # noqa: E402
 from routers.settings import router as settings_router            # noqa: E402
 from routers.sandbox import router as sandbox_router              # noqa: E402
+from mcp_host import mcp_router                                    # noqa: E402
+from self_healing import auto_heal_response                        # noqa: E402
 
 app.include_router(ingestion_router)
 app.include_router(monitoring_router)
@@ -214,6 +325,7 @@ app.include_router(learning_router)
 app.include_router(temporal_router)
 app.include_router(settings_router)
 app.include_router(sandbox_router)
+app.include_router(mcp_router)
 
 
 # --------------------------------------------------------------------------------------
@@ -745,6 +857,13 @@ async def process_and_ask(
     except Exception as id_err:
         print(f"[process_and_ask] identity context build failed: {id_err}")
 
+    display_model = target_model
+    if node_key == "primary" and not images_b64:
+        spec_plan = speculative_plan_decomposition(user_query, node_url)
+        if spec_plan:
+            instruction = f"Technical Architecture & Plan from Node 2 (Fast Planner):\n{spec_plan}\n\n{instruction}"
+            display_model = f"{target_model} (Dual-Node Synergy · Node 2 Planned + Node 1 Synthesized)"
+
     payload = {
         "model": target_model,
         "prompt": full_prompt,
@@ -755,13 +874,14 @@ async def process_and_ask(
         "keep_alive": -1,
         "_effort": cfg["effort"],
         "_endpoint": target_endpoint,
+        "_display_model": display_model,
     }
     if images_b64:
         payload["images"] = images_b64
 
     log_audit("ocr_query", resolved_user, None, "chat",
               {"query": user_query[:300], "ocr_chars": len(context), "effort": cfg["effort"],
-               "model": target_model, "endpoint": target_endpoint, "user_name": resolved_user_name,
+               "model": display_model, "endpoint": target_endpoint, "user_name": resolved_user_name,
                "cluster_node": node_key})
 
     if stream:
@@ -802,18 +922,20 @@ async def process_and_ask(
                 raise remote_err
 
         data = response.json()
-        answer = data.get("response", "")
+        raw_answer = data.get("response", "")
+        answer, healed = auto_heal_response(raw_answer, target_endpoint, target_model)
         log_ollama_call(target_endpoint, target_model, "ocr_chat", len(full_prompt), len(answer), 0, True)
         return {
             "ocr_context_found": bool(context),
             "context_length": len(context),
             "answer": answer,
             "eval_count": data.get("eval_count", 0),
-            "model": target_model,
+            "model": display_model,
             "effort": cfg["effort"],
             "endpoint": target_endpoint,
             "sources": sources,
             "cluster_node": node_key,
+            "healed": healed,
         }
     except requests.exceptions.RequestException as exc:
         return {"error": f"Node request failed: {exc}"}
@@ -851,6 +973,8 @@ class ChatPayload(BaseModel):
     model: Optional[str] = None
     images: Optional[List[str]] = None
     node_url: Optional[str] = None
+    chat_id: Optional[str] = None
+
 
 
 @app.post("/api/chat")
@@ -1009,11 +1133,18 @@ async def api_chat(payload_data: ChatPayload):
         available_local_models=available_local_models,
     )
 
+    display_model = model
+    if node_key == "primary" and not payload_data.images:
+        spec_plan = speculative_plan_decomposition(question, payload_data.node_url)
+        if spec_plan:
+            system = f"Technical Architecture & Plan from Node 2 (Fast Planner):\n{spec_plan}\n\n{system}"
+            display_model = f"{model} (Dual-Node Synergy · Node 2 Planned + Node 1 Synthesized)"
+
     log_audit("chat_query", payload_data.user, None, "chat", {
         "question": question[:300], "task_type": task,
         "rag_used": bool(retrieval["chunks_retrieved"]),
         "sources": retrieval["doc_ids"], "confidence": retrieval["confidence"],
-        "model": model,
+        "model": display_model,
         "effort": cfg["effort"],
         "endpoint": target_endpoint,
         "has_images": bool(payload_data.images),
@@ -1030,16 +1161,32 @@ async def api_chat(payload_data: ChatPayload):
         "keep_alive": -1,
         "_effort": cfg["effort"],
         "_endpoint": target_endpoint,
+        "_display_model": display_model,
     }
     if payload_data.images:
         ollama_payload["images"] = payload_data.images
+
+    cached_kv_tokens = session_kv_store.get_context(payload_data.chat_id, model)
+
+    effective_prompt = full_prompt
+    if cached_kv_tokens and not payload_data.images:
+        ollama_payload["context"] = cached_kv_tokens
+        effective_prompt = question
+        print(f"[kv_cache] Reusing {len(cached_kv_tokens)} KV tokens for chat '{payload_data.chat_id}'. Prompt evaluation reduced to {len(effective_prompt)} chars.")
+
+    ollama_payload["prompt"] = effective_prompt
 
     if payload_data.stream:
         cluster_balancer.acquire_slot(node_key)
         return StreamingResponse(
             stream_with_slot_cleanup(
-                run_ollama_stream(ollama_payload, context=context,
-                                  sources=retrieval["sources"], feature="chat"),
+                run_ollama_stream(
+                    ollama_payload,
+                    context=context,
+                    sources=retrieval["sources"],
+                    feature="chat",
+                    on_done_context=lambda ctx: session_kv_store.set_context(payload_data.chat_id, model, ctx) if payload_data.chat_id else None,
+                ),
                 node_key,
             ),
             media_type="text/event-stream")
@@ -1053,13 +1200,17 @@ async def api_chat(payload_data: ChatPayload):
                                  timeout=600)
         response.raise_for_status()
         data = response.json()
-        answer = data.get("response", "")
+        raw_answer = data.get("response", "")
+        answer, healed = auto_heal_response(raw_answer, target_endpoint, model)
+        if "context" in data and isinstance(data["context"], list) and payload_data.chat_id:
+            session_kv_store.set_context(payload_data.chat_id, model, data["context"])
+
         log_ollama_call(target_endpoint, model, "chat", len(full_prompt), len(answer),
                         int((datetime.now() - started).total_seconds() * 1000), True)
         return {
             "answer": answer,
             "eval_count": data.get("eval_count", 0),
-            "model": model,
+            "model": display_model,
             "sources": retrieval["sources"],
             "source_doc_ids": retrieval["doc_ids"],
             "confidence": retrieval["confidence"],
@@ -1067,6 +1218,7 @@ async def api_chat(payload_data: ChatPayload):
             "rag_used": bool(retrieval["chunks_retrieved"]),
             "effort": cfg["effort"],
             "cluster_node": node_key,
+            "healed": healed,
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})

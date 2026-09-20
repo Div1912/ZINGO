@@ -30,7 +30,10 @@ import { useChatStore } from '../../stores/chatStore'
 import { useArtifactStore } from '../../stores/artifactStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../../utils/multiFileParser'
+import { hasSearchReplaceDiffs } from '../../utils/diffEngine'
+import { pyodideEngine, type PyodideExecutionResult } from '../../services/pyodideService'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
+
 import { exportMessageToPdf } from '../../services/pdfExport'
 
 
@@ -64,6 +67,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
   const [copiedCodeIndex, setCopiedCodeIndex] = useState<number | null>(null)
+  const [pyodideOutputs, setPyodideOutputs] = useState<Record<string, PyodideExecutionResult | null>>({})
+  const [pyodideLoading, setPyodideLoading] = useState<Record<string, boolean>>({})
   const contentRef = useRef<HTMLDivElement>(null)
 
   // Parse <think>...</think> reasoning blocks if present
@@ -115,7 +120,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   )
 
   const isUser = message.role === 'user'
-  const { virtualProjects, openSandboxCanvas, saveVirtualProject } = useProjectStore()
+  const { virtualProjects, openSandboxCanvas, saveVirtualProject, applyPatchToVirtualProject } = useProjectStore()
 
   // Detect if this message contains a runnable virtual project
   const detectedProject = React.useMemo(() => {
@@ -129,6 +134,35 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     return null
   }, [message.id, message.content, finalContent, isUser, virtualProjects])
 
+  // Detect if this message contains Search/Replace Diffs
+  const hasDiffs = React.useMemo(() => {
+    if (isUser || !message.content) return false
+    return hasSearchReplaceDiffs(finalContent || message.content)
+  }, [finalContent, message.content, isUser])
+
+  const handleApplyDiffs = () => {
+    const activeProj = virtualProjects[0]
+    if (!activeProj) {
+      addToast({ type: 'error', message: 'No active project found to apply diffs to.' })
+      return
+    }
+    const res = applyPatchToVirtualProject(activeProj.id, finalContent || message.content)
+    if (res.success) {
+      openSandboxCanvas(activeProj.id)
+      addToast({
+        type: 'success',
+        title: 'Diffs Applied',
+        message: `Successfully applied ${res.appliedCount} search/replace patch(es) to ${activeProj.title}`,
+      })
+    } else {
+      addToast({
+        type: 'error',
+        title: 'Patch Failed',
+        message: res.errors[0] || 'Could not apply search/replace patch.',
+      })
+    }
+  }
+
   const handleLaunchProjectSandbox = () => {
     if (!detectedProject) return
     const id = saveVirtualProject(detectedProject)
@@ -139,6 +173,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       message: 'Opening project in dedicated Live Sandbox...',
     })
   }
+
 
 
   const copyMessageContent = async () => {
@@ -341,6 +376,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     if (!inline && match) {
                       const lang = match[1]
                       const codeIndex = Math.random()
+                      const blockKey = `${message.id}_${codeText.slice(0, 32)}`
 
                       return (
                         <div className="my-4 rounded-xl overflow-hidden border border-border bg-[#0C0C0C]">
@@ -397,7 +433,48 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                                 </button>
                               )}
 
-                              {onRunCode && (lang === 'python' || lang === 'bash' || lang === 'py') && (
+                              {/* In-Browser Sovereign Python WebAssembly (Pyodide) Execution */}
+                              {(lang.toLowerCase() === 'python' || lang.toLowerCase() === 'py') && (
+                                <button
+                                  type="button"
+                                  disabled={pyodideLoading[blockKey]}
+                                  onClick={async () => {
+                                    setPyodideLoading((prev) => ({ ...prev, [blockKey]: true }))
+                                    try {
+                                      const res = await pyodideEngine.execute(codeText)
+                                      setPyodideOutputs((prev) => ({ ...prev, [blockKey]: res }))
+                                    } catch (err: any) {
+                                      setPyodideOutputs((prev) => ({
+                                        ...prev,
+                                        [blockKey]: {
+                                          success: false,
+                                          stdout: '',
+                                          stderr: err?.message || String(err),
+                                          executionTimeMs: 0,
+                                        },
+                                      }))
+                                    } finally {
+                                      setPyodideLoading((prev) => ({ ...prev, [blockKey]: false }))
+                                    }
+                                  }}
+                                  className="btn-glass !py-1 !px-2.5 !text-[11px] !rounded-md flex items-center gap-1.5 text-emerald-300 hover:text-white border-emerald-500/30 bg-emerald-500/15 hover:bg-emerald-500/25 transition-all shadow-xs"
+                                  title="Execute Python directly inside browser using WebAssembly Pyodide (zero server load)"
+                                >
+                                  {pyodideLoading[blockKey] ? (
+                                    <>
+                                      <span className="w-2.5 h-2.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                                      <span>Running (WASM)...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play size={11} className="text-emerald-400 fill-emerald-400" />
+                                      <span>Run (Browser WASM) ›</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+
+                              {onRunCode && (lang.toLowerCase() === 'bash' || lang.toLowerCase() === 'sh') && (
                                 <button
                                   type="button"
                                   onClick={() => onRunCode(codeText)}
@@ -441,6 +518,77 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                               </pre>
                             )}
                           </Highlight>
+
+                          {/* Pyodide In-Browser Execution Console & Matplotlib SVG Plots */}
+                          {(pyodideLoading[blockKey] || pyodideOutputs[blockKey]) && (
+                            <div className="border-t border-border bg-[#0a0a0a] p-3 text-xs font-mono">
+                              <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5 text-[11px] text-content-tertiary">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`w-2 h-2 rounded-full ${
+                                      pyodideLoading[blockKey]
+                                        ? 'bg-amber-400 animate-ping'
+                                        : pyodideOutputs[blockKey]?.success
+                                        ? 'bg-emerald-400'
+                                        : 'bg-red-400'
+                                    }`}
+                                  />
+                                  <span className="font-semibold text-content-secondary">
+                                    {pyodideLoading[blockKey] ? 'Executing in Pyodide WASM...' : 'Pyodide WASM Runtime'}
+                                  </span>
+                                  {pyodideOutputs[blockKey] && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-content-tertiary">
+                                      ⚡ {pyodideOutputs[blockKey]?.executionTimeMs}ms · 0% Server Load
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => setPyodideOutputs((prev) => ({ ...prev, [blockKey]: null }))}
+                                  className="text-content-tertiary hover:text-content-primary text-[10px] px-1"
+                                >
+                                  Clear ✕
+                                </button>
+                              </div>
+
+                              {pyodideLoading[blockKey] && (
+                                <div className="py-2.5 text-content-tertiary flex items-center gap-2">
+                                  <span className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                                  <span>Loading WebAssembly runtime & scientific packages (numpy, pandas, matplotlib)...</span>
+                                </div>
+                              )}
+
+                              {pyodideOutputs[blockKey]?.stdout && (
+                                <div className="mb-2">
+                                  <div className="text-[10px] text-content-tertiary uppercase tracking-wider mb-1">Standard Output:</div>
+                                  <pre className="p-2.5 rounded bg-black/50 text-emerald-300 overflow-x-auto whitespace-pre-wrap leading-snug border border-emerald-500/20">
+                                    {pyodideOutputs[blockKey]?.stdout}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {pyodideOutputs[blockKey]?.stderr && (
+                                <div className="mb-2">
+                                  <div className="text-[10px] text-red-400 uppercase tracking-wider mb-1">Traceback / Error:</div>
+                                  <pre className="p-2.5 rounded bg-red-950/20 text-red-300 border border-red-900/30 overflow-x-auto whitespace-pre-wrap leading-snug">
+                                    {pyodideOutputs[blockKey]?.stderr}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {pyodideOutputs[blockKey]?.plotSvg && (
+                                <div className="mt-3">
+                                  <div className="text-[10px] text-content-secondary uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                    <span>Rendered Vector Plot (Matplotlib / Seaborn):</span>
+                                    <span className="text-[9px] text-emerald-400">Vector SVG</span>
+                                  </div>
+                                  <div
+                                    className="p-3 rounded-lg bg-white flex items-center justify-center overflow-auto shadow-inner"
+                                    dangerouslySetInnerHTML={{ __html: pyodideOutputs[blockKey]!.plotSvg! }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )
                     }
@@ -514,7 +662,29 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
 
+        {/* Search/Replace Diff Action Banner */}
+        {!message.isStreaming && hasDiffs && (
+          <div className="mt-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 flex items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-center gap-2.5 min-w-0 text-xs">
+              <Sparkles size={16} className="text-emerald-400 shrink-0" />
+              <div className="truncate">
+                <span className="font-semibold text-emerald-200">Surgical Diffs Detected</span>
+                <p className="text-[11px] text-emerald-400/80 truncate">Model emitted in-place search/replace patches for your project</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleApplyDiffs}
+              className="btn-glass !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-1.5 text-white bg-emerald-600 hover:bg-emerald-500 border-emerald-500/40 transition shadow-sm shrink-0 cursor-pointer"
+            >
+              <Check size={13} />
+              <span>Apply Diffs Live ›</span>
+            </button>
+          </div>
+        )}
+
         {/* Action Toolbar & Telemetry */}
+
         {!message.isStreaming && message.content && (
 
           <div className="flex flex-wrap items-center gap-3 pt-2 text-content-tertiary text-xs select-none">

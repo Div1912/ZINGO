@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import JSZip from 'jszip'
 import type { Project, ProjectFile, VirtualProject, VirtualFile } from '../types/project'
+import { extractPatches, applySinglePatch } from '../utils/diffEngine'
 
 interface ProjectStore {
   projects: Project[]
@@ -32,7 +33,13 @@ interface ProjectStore {
   setActiveVirtualProject: (id: string | null) => void
   deleteVirtualProject: (id: string) => void
   exportProjectAsZip: (projectId: string) => Promise<Blob>
+  applyPatchToVirtualProject: (
+    projectId: string,
+    patchText: string,
+    targetFilePath?: string
+  ) => { success: boolean; appliedCount: number; errors: string[] }
 }
+
 
 
 
@@ -381,7 +388,69 @@ export const useProjectStore = create<ProjectStore>()(
 
         return await zip.generateAsync({ type: 'blob' })
       },
+
+      applyPatchToVirtualProject: (projectId, patchText, targetFilePath) => {
+        const project = get().virtualProjects.find((p) => p.id === projectId)
+        if (!project) return { success: false, appliedCount: 0, errors: ['Project not found'] }
+
+        const patches = extractPatches(patchText)
+        if (patches.length === 0) {
+          return { success: false, appliedCount: 0, errors: ['No valid search/replace blocks found'] }
+        }
+
+        let totalApplied = 0
+        const allErrors: string[] = []
+        const now = new Date().toISOString()
+        const updatedFiles = { ...project.files }
+
+        for (const patch of patches) {
+          const fileKey =
+            patch.filePath ||
+            targetFilePath ||
+            project.entryPoint ||
+            Object.keys(project.files)[0]
+
+          const file =
+            updatedFiles[fileKey] ||
+            Object.values(updatedFiles).find((f) => f.name === fileKey.split('/').pop())
+
+          if (!file) {
+            allErrors.push(`Target file "${fileKey}" not found in project`)
+            continue
+          }
+
+          const res = applySinglePatch(file.content, patch.search, patch.replace)
+          if (res.success) {
+            updatedFiles[file.path] = {
+              ...file,
+              content: res.result,
+              size: new Blob([res.result]).size,
+              updatedAt: now,
+            }
+            totalApplied++
+          } else {
+            allErrors.push(res.error || `Failed to apply diff to ${fileKey}`)
+          }
+        }
+
+        if (totalApplied > 0) {
+          set((state) => ({
+            virtualProjects: state.virtualProjects.map((p) =>
+              p.id === projectId
+                ? { ...p, files: updatedFiles, updatedAt: now, version: (p.version || 1) + 1 }
+                : p
+            ),
+          }))
+        }
+
+        return {
+          success: totalApplied > 0,
+          appliedCount: totalApplied,
+          errors: allErrors,
+        }
+      },
     }),
+
     {
       name: 'aira-projects-v1',
     }

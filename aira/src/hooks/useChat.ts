@@ -224,6 +224,7 @@ export function useChat(chatId?: string | null) {
           })
           if (effort) qp.set('effort', effort)
           if (targetNodeUrl) qp.set('node_url', targetNodeUrl)
+          qp.set('chat_id', sendToChatId)
           endpoint = `${cleanBaseUrl}/process-and-ask/?${qp.toString()}`
         } else {
           headers['Content-Type'] = 'application/json'
@@ -242,9 +243,11 @@ export function useChat(chatId?: string | null) {
             effort: effort ?? 'Fast',
             task_type: detectedTask,
             node_url: targetNodeUrl ?? undefined,
+            chat_id: sendToChatId,
           })
           endpoint = `${cleanBaseUrl}/api/chat`
         }
+
 
         const response = await fetch(endpoint, {
           method: 'POST',

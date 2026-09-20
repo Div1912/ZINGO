@@ -10,6 +10,7 @@ interface ModelBadgeProps {
 export function formatModelDisplayName(model?: string): string {
   if (!model) return 'Qwen 3 (8B)'
   const m = model.toLowerCase()
+  if (m.includes('synergy')) return 'Dual-Node Synergy (Qwen 3 + VL 3B)'
   if (m.includes('vl') || m.includes('vision')) return 'Qwen 2.5-VL'
   if (m.includes('coder')) return 'Qwen 2.5-Coder (7B)'
   if (m.includes('r1') || m.includes('deepseek')) return 'DeepSeek-R1 (8B)'
