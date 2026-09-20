@@ -111,121 +111,67 @@ Specify for each slide:
 
 def get_presentation_system_instruction(speculative_outline: Optional[str] = None) -> str:
     """
-    Constructs the system prompt that forces the LLM to plan the presentation
-    deeply before generating code, and emit both deck_manifest.json and an interactive index.html.
+    Constructs a concise, imperative system prompt that forces the LLM to output
+    exactly two fenced code blocks (deck_manifest.json and index.html).
+    Designed to work reliably with small 8B quantized models.
     """
-    outline_block = ""
+    outline_note = ""
     if speculative_outline:
-        outline_block = f"""
-[ARCHITECTURAL BLUEPRINT FROM NODE 2 FAST PLANNER]:
-{speculative_outline}
-"""
+        outline_note = f"USE THIS SLIDE STRUCTURE:\n{speculative_outline.strip()[:600]}\n\n"
 
-    return f"""
+    return f"""================================================================================
+OUTPUT FORMAT REQUIREMENT (MANDATORY — DO NOT DEVIATE)
 ================================================================================
-EXECUTIVE PRESENTATION GENERATION PROTOCOL (MCKINSEY / STRIPE STANDARD)
-================================================================================
-The user has requested an executive presentation / slide deck. You must execute this in two distinct, mandatory phases:
-{outline_block}
---------------------------------------------------------------------------------
-PHASE 1: STRATEGIC PRESENTATION PLANNING (OUTPUT THIS FIRST)
---------------------------------------------------------------------------------
-Before generating any slide code or files, you MUST provide a structured executive plan:
-1. Target Audience & Executive Objective (e.g. C-Suite, Engineering Leadership, Plant Operations)
-2. Narrative Arc & Key Conviction (e.g. Current Bottlenecks -> Quantifiable Impact -> Technical Solution -> Roadmap)
-3. Slide-by-Slide Structural Layout Plan (5 to 7 slides):
-   - Slide 1: Hero Cover (`title`)
-   - Slide 2: Strategic Challenge / Market Context (`card_grid` or `bullets`)
-   - Slide 3: Executive Metrics / KPI Impact (`kpi_metrics` - 3 big bold statistics)
-   - Slide 4: Deep Dive / Core Architecture (`card_grid` with 3 feature cards)
-   - Slide 5: Execution Roadmap / Phased Timeline (`timeline` with 3 sequential steps)
-   - Slide 6: Strategic Recommendations & Next Actions (`bullets` + strategic takeaway callout)
+You MUST output EXACTLY two fenced code blocks. Output NOTHING else — no plain text, no explanations, no "Slide 1:", no markdown headings.
 
---------------------------------------------------------------------------------
-PHASE 2: CODE & DATA MANIFEST ARTIFACTS
---------------------------------------------------------------------------------
-You must emit TWO distinct multi-file blocks that the ZINGO system compiles directly into an interactive live canvas and native Microsoft PowerPoint (.pptx) file:
-
-FILE 1: `deck_manifest.json`
-Provide a clean JSON manifest defining all slides and structured metadata:
+BLOCK 1 — deck_manifest.json:
 ```json
 <!-- filename: deck_manifest.json -->
 {{
-  "title": "Presentation Title",
-  "subtitle": "Strategic Executive Briefing",
-  "author": "ZINGO Sovereign Intelligence",
+  "title": "<Presentation Title>",
+  "subtitle": "<Subtitle>",
+  "author": "AIRA Sovereign Intelligence",
   "theme": "dark",
   "slides": [
-    {{
-      "title": "Hero Title",
-      "subtitle": "Subtitle explaining the deck",
-      "layout": "title"
-    }},
-    {{
-      "title": "Executive Performance Metrics",
-      "layout": "kpi_metrics",
-      "cards": [
-        {{ "stat": "99.8%", "title": "Plant Availability", "description": "Continuous refinery operational uptime" }},
-        {{ "stat": "14.2 ms", "title": "Inference Latency", "description": "Local sovereign response time" }},
-        {{ "stat": "0.00", "title": "Cloud Leakage", "description": "Zero external telemetry exfiltration" }}
-      ]
-    }},
-    {{
-      "title": "Strategic Pillar Comparison",
-      "layout": "card_grid",
-      "cards": [
-        {{ "title": "Pillar 1: Data Sovereignty", "description": "All telemetry confined strictly to on-premise hardware." }},
-        {{ "title": "Pillar 2: Real-Time Safety", "description": "Automated anomaly prevention for high-pressure units." }},
-        {{ "title": "Pillar 3: Autonomous Synthesis", "description": "Instant translation of raw telemetry into executive decks." }}
-      ]
-    }},
-    {{
-      "title": "Phased Implementation Roadmap",
-      "layout": "timeline",
-      "cards": [
-        {{ "title": "Phase 1: Deployment", "description": "Cluster setup and edge node pairing." }},
-        {{ "title": "Phase 2: Live Integration", "description": "SCADA / DCS data ingestion and sensor mapping." }},
-        {{ "title": "Phase 3: Autonomous Run", "description": "Zero-intervention reporting and predictive maintenance." }}
-      ]
-    }},
-    {{
-      "title": "Strategic Recommendations & Next Steps",
-      "layout": "bullets",
-      "bullets": [
-        "Immediate approval of the sovereign cluster architecture.",
-        "Commissioning secondary GPU worker node for load balancing.",
-        "Enforcing strict on-premise network isolation policies."
-      ],
-      "takeaway": "ZINGO delivers immediate operational superiority without compromising PSU data security."
+    {{"title": "<Title>", "subtitle": "<Subtitle>", "layout": "title"}},
+    {{"title": "<Title>", "layout": "kpi_metrics", "cards": [
+      {{"stat": "99.8%", "title": "<Metric>", "description": "<Detail>"}},
+      {{"stat": "2x", "title": "<Metric>", "description": "<Detail>"}},
+      {{"stat": "0ms", "title": "<Metric>", "description": "<Detail>"}}
+    ]}},
+    {{"title": "<Title>", "layout": "card_grid", "cards": [
+      {{"title": "<Point>", "description": "<Detail>"}},
+      {{"title": "<Point>", "description": "<Detail>"}},
+      {{"title": "<Point>", "description": "<Detail>"}}
+    ]}},
+    {{"title": "<Title>", "layout": "timeline", "cards": [
+      {{"title": "Phase 1", "description": "<Detail>"}},
+      {{"title": "Phase 2", "description": "<Detail>"}},
+      {{"title": "Phase 3", "description": "<Detail>"}}
+    ]}},
+    {{"title": "<Title>", "layout": "bullets",
+      "bullets": ["<Point 1>", "<Point 2>", "<Point 3>"],
+      "takeaway": "<Strategic conclusion>"
     }}
   ]
 }}
 ```
 
-FILE 2: `index.html`
-An interactive 16:9 widescreen HTML presentation deck utilizing Tailwind CSS (loaded via CDN https://cdn.tailwindcss.com) featuring:
-- Keyboard navigation (Left Arrow `←` for previous, Right Arrow `→` or Spacebar for next, 'F' for fullscreen).
-- Touch/click navigation buttons on screen with a progress bar and slide counter (`Slide X of Y`).
-- Dark executive styling (`#0B0F19` deep slate background, glassmorphic cards `#1E293B`, indigo `#6366F1` accents, crisp emerald `#10B981` metric badges).
-- No bullet-point walls. Every slide must feature spacious visual layout, 3-card grids, or bold statistics.
-
-Format `index.html` with:
+BLOCK 2 — index.html (interactive 16:9 slide deck with keyboard navigation, dark theme #0B0F19, Tailwind CDN):
 ```html
 <!-- filename: index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>Executive Presentation</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Interactive slide styling and carousel script -->
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-center items-center p-4">
-  <!-- 16:9 presentation container with slides and controls -->
+<body class="bg-slate-950 text-slate-100">
+  <!-- slide carousel with prev/next buttons and keyboard navigation -->
 </body>
 </html>
 ```
 
-Always follow this exact structure: Strategic Plan first, then `deck_manifest.json`, then `index.html`.
-================================================================================
-"""
+{outline_note}Fill in ALL placeholder values with real, specific content relevant to the user's topic. Replace every <...> with actual content. Output ONLY the two code blocks.
+================================================================================"""

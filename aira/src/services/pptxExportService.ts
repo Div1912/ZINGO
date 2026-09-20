@@ -93,6 +93,58 @@ export function extractPresentationManifest(project: VirtualProject): Presentati
     }
   }
 
+  // 3. Raw-text "Slide N:" fallback parser
+  // Handles models that output plain text like: "Slide 1: Revenue Growth\n- Point A\n- Point B\n\nSlide 2:"
+  const allContent = Object.values(project.files)
+    .filter((f) => f.language !== 'json') // skip JSON files already handled above
+    .map((f) => f.content)
+    .join('\n')
+
+  // Match patterns: "Slide 1: Title" or "## Slide 2: Title" or "**Slide 3:** Title"
+  const slideHeaderRegex = /(?:^|\n)(?:\*{0,2}|#{1,3}\s*)?(?:Slide|SLIDE)\s*(\d+)[:\.]?\*{0,2}\s*([^\n]+)/gi
+  const slidePositions: { pos: number; num: number; title: string }[] = []
+  let hm: RegExpExecArray | null
+  while ((hm = slideHeaderRegex.exec(allContent)) !== null) {
+    slidePositions.push({ pos: hm.index, num: parseInt(hm[1]), title: hm[2].replace(/\*+/g, '').trim() })
+  }
+
+  if (slidePositions.length >= 2) {
+    const rawSlides: SlideDefinition[] = []
+    for (let i = 0; i < slidePositions.length; i++) {
+      const start = slidePositions[i].pos
+      const end = i + 1 < slidePositions.length ? slidePositions[i + 1].pos : allContent.length
+      const slideBody = allContent.slice(start, end)
+
+      // Extract bullet points
+      const bulletLines = slideBody
+        .split('\n')
+        .slice(1) // skip the slide header line
+        .map((l) => l.replace(/^[-•*]\s*/, '').replace(/\*+/g, '').trim())
+        .filter((l) => l.length > 8 && !l.match(/^(?:Slide|SLIDE)\s*\d+/))
+
+      const title = slidePositions[i].title
+      const layout: SlideDefinition['layout'] =
+        i === 0 ? 'title' : bulletLines.length > 0 ? 'bullets' : 'standard'
+
+      rawSlides.push({
+        title,
+        layout,
+        bullets: layout === 'bullets' ? bulletLines.slice(0, 6) : undefined,
+        subtitle: layout === 'title' ? (bulletLines[0] || undefined) : undefined,
+      })
+    }
+
+    if (rawSlides.length >= 2) {
+      return {
+        title: project.title || 'Executive Presentation',
+        author: 'AIRA Sovereign Intelligence',
+        date: new Date().toLocaleDateString(),
+        theme: 'dark',
+        slides: rawSlides,
+      }
+    }
+  }
+
   return null
 }
 
@@ -101,9 +153,15 @@ export function extractPresentationManifest(project: VirtualProject): Presentati
  */
 export function isPresentationProject(project?: VirtualProject | null): boolean {
   if (!project || !project.files) return false
+  // 1. Explicit manifest
   if (project.files['deck_manifest.json'] || project.files['presentation.json']) return true
+  // 2. HTML slide classes
   const html = project.files['index.html']?.content || ''
-  return html.includes('class="slide') || html.includes('data-slide') || html.includes('class="presentation')
+  if (html.includes('class="slide') || html.includes('data-slide') || html.includes('class="presentation')) return true
+  // 3. Raw text slides in any file
+  const allContent = Object.values(project.files).map((f) => f.content).join('\n')
+  const slideCount = (allContent.match(/(?:^|\n)(?:#{1,3}\s*)?(?:Slide|SLIDE)\s*\d+[:\.]/gim) || []).length
+  return slideCount >= 2
 }
 
 /**
