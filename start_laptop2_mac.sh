@@ -47,7 +47,10 @@ if [ ! -f "$NGROK_BIN" ]; then
     NGROK_BIN=$(which ngrok 2>/dev/null)
 fi
 
+NGROK_AUTHTOKEN="3JXTsx7citycIzYfpuMMzFLKbec_GtXenkpnJfCHgJsXqEW5"
+
 if [ -x "$NGROK_BIN" ]; then
+    "$NGROK_BIN" config add-authtoken "$NGROK_AUTHTOKEN" >/dev/null 2>&1
     if pgrep -f "ngrok.*${PERMANENT_DOMAIN}" >/dev/null; then
         echo "[OK] Ngrok permanent tunnel is already running."
     else

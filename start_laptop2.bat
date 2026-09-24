@@ -13,28 +13,35 @@ set OLLAMA_FLASH_ATTENTION=1
 set OLLAMA_KV_CACHE_TYPE=q8_0
 set OLLAMA_NUM_PARALLEL=1
 set PERMANENT_DOMAIN=unfailing-idealism-caretaker.ngrok-free.dev
+set NGROK_AUTHTOKEN=3JXTsx7citycIzYfpuMMzFLKbec_GtXenkpnJfCHgJsXqEW5
+
+:: Locate ngrok executable directory
+set "NGROK_DIR=C:\zingo"
+if not exist "%NGROK_DIR%\ngrok.exe" (
+    if exist "%~dp0ngrok.exe" set "NGROK_DIR=%~dp0"
+)
 
 :: 2. Check if Ollama is running; if not, launch it
 tasklist /FI "IMAGENAME eq ollama.exe" 2>NUL | find /I /N "ollama.exe">NUL
 if "%ERRORLEVEL%"=="0" (
-    echo [OK] Ollama is already running.
+    echo [OK] Ollama is already running on port 11434.
 ) else (
     echo [..] Starting Ollama server (listening on 0.0.0.0:11434)...
     where ollama >nul 2>&1
-    if "%ERRORLEVEL%"=="0" (
+    if not errorlevel 1 (
         start /B "" ollama serve
     ) else if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
         start /B "" "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" serve
     ) else if exist "%PROGRAMFILES%\Ollama\ollama.exe" (
         start /B "" "%PROGRAMFILES%\Ollama\ollama.exe" serve
     ) else (
-        echo [!] Warning: ollama.exe not found in PATH or standard directories.
+        echo [!] Warning: ollama.exe not found in standard paths.
     )
-    timeout /t 4 /nobreak >nul
+    ping -n 4 127.0.0.1 >nul
 )
 
 :: 3. Verify Qwen2.5-VL Model and Aliases for Backward Compatibility
-echo [..] Verifying Qwen2.5-VL model status...
+echo [..] Checking Qwen2.5-VL model status...
 ollama list 2>nul | findstr /I "qwen2.5vl" >nul
 if "%ERRORLEVEL%"=="0" (
     echo [OK] Model 'qwen2.5vl:3b' is installed.
@@ -54,42 +61,34 @@ if "%ERRORLEVEL%"=="0" (
     )
 )
 
-:: 4. Check and Start Python Backend on Port 8000 (Optional / Node Server)
-where python >nul 2>&1
-if "%ERRORLEVEL%"=="0" (
-    netstat -ano | find "LISTENING" | find ":8000" >nul
-    if "%ERRORLEVEL%"=="0" (
-        echo [OK] Python Backend is already running on port 8000.
-    ) else (
-        echo [..] Starting Python Backend on http://localhost:8000...
-        start "ZINGO Laptop 2 Backend (:8000)" cmd /k "cd /d %~dp0 && python server.py"
-        timeout /t 3 /nobreak >nul
-    )
+:: 4. Ensure Ngrok Auth Token is saved
+if exist "%NGROK_DIR%\ngrok.exe" (
+    "%NGROK_DIR%\ngrok.exe" config add-authtoken %NGROK_AUTHTOKEN% >nul 2>&1
+) else (
+    where ngrok >nul 2>&1
+    if not errorlevel 1 ngrok config add-authtoken %NGROK_AUTHTOKEN% >nul 2>&1
 )
 
-:: 5. Check and Start Ngrok Permanent Tunnel (Port 11434)
+:: 5. Check and Start Ngrok Permanent Tunnel (Port 11434 with Host Header Rewrite)
 tasklist /FI "IMAGENAME eq ngrok.exe" 2>NUL | find /I /N "ngrok.exe">NUL
 if "%ERRORLEVEL%"=="0" (
-    echo [OK] Ngrok is already running.
+    echo [OK] Ngrok tunnel is already active.
 ) else (
-    echo [..] Starting Ngrok tunnel to %PERMANENT_DOMAIN%...
-    if exist "%~dp0ngrok.exe" (
-        start "ZINGO Laptop 2 Tunnel" cmd /k "cd /d %~dp0 && ngrok.exe http --url %PERMANENT_DOMAIN% --host-header=rewrite 11434"
+    echo [..] Starting Ngrok permanent tunnel to https://%PERMANENT_DOMAIN%...
+    if exist "%NGROK_DIR%\ngrok.exe" (
+        start "ZINGO Laptop 2 Tunnel" cmd /k "cd /d "%NGROK_DIR%" && ngrok.exe http --domain %PERMANENT_DOMAIN% --host-header=rewrite 11434"
     ) else (
-        where ngrok >nul 2>&1
-        if "%ERRORLEVEL%"=="0" (
-            start "ZINGO Laptop 2 Tunnel" cmd /k "ngrok http --url %PERMANENT_DOMAIN% --host-header=rewrite 11434"
-        ) else (
-            echo [!] Error: ngrok.exe not found in %~dp0 or PATH.
-        )
+        start "ZINGO Laptop 2 Tunnel" cmd /k "ngrok http --domain %PERMANENT_DOMAIN% --host-header=rewrite 11434"
     )
 )
 
 echo.
 echo ===================================================
-echo   Ready! Laptop 2 Multimodal Node is LIVE:
-echo   Permanent Tunnel : https://%PERMANENT_DOMAIN%
-echo   Local Ollama     : http://127.0.0.1:11434
-echo   Model Resident   : Qwen2.5-VL Multimodal
+echo   SUCCESS: Both Ollama and Ngrok Tunnel are RUNNING!
+echo   Model  : Qwen2.5-VL resident on 127.0.0.1:11434
+echo   Tunnel : https://%PERMANENT_DOMAIN%
 echo ===================================================
-timeout /t 5 /nobreak >nul
+echo.
+echo You can keep this window open or press any key to close it.
+echo The Ollama server and Ngrok tunnel will continue running.
+pause >nul
