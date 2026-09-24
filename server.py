@@ -43,12 +43,13 @@ MODEL_ENDPOINT = llm.GENERATE_ENDPOINT
 MODEL_TAGS_ENDPOINT = llm.TAGS_ENDPOINT
 MODEL_NAME = llm.DEFAULT_MODEL
 DEFAULT_LAPTOP2_TUNNEL_URL = "https://unfailing-idealism-caretaker.ngrok-free.dev"
+DEFAULT_QWEN3_4B_TUNNEL_URL = "https://yoyo-evolve-untimed.ngrok-free.dev"
 
 
 class ClusterLoadBalancer:
     """
     Thread-safe dynamic load balancer for ZINGO multi-node cluster.
-    Tracks in-flight streams across Laptop 1 (Primary: qwen3:8b) and Laptop 2 (Worker: qwen2.5-vl:3b).
+    Tracks in-flight streams across Laptop 1 (Master: qwen3:8b / Fast: qwen3:4b) and Laptop 2 (Worker: qwen2.5-vl:3b).
     Enables automatic spillover routing to idle models when the primary node is busy.
     """
     def __init__(self):
@@ -58,6 +59,7 @@ class ClusterLoadBalancer:
             "laptop2": 0,
         }
         self.laptop2_url = DEFAULT_LAPTOP2_TUNNEL_URL
+        self.qwen3_4b_url = DEFAULT_QWEN3_4B_TUNNEL_URL
 
     def acquire_slot(self, node_key: str):
         with self._lock:
@@ -103,6 +105,9 @@ class ClusterLoadBalancer:
         if not is_auto:
             if "vl" in model_req or "vision" in model_req:
                 return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+            if "4b" in model_req:
+                target_4b = "qwen3:4b" if ("qwen3:4b" in local_models or not local_models) else ([m for m in local_models if "4b" in m.lower()][0] if any("4b" in m.lower() for m in local_models) else "qwen3:4b")
+                return laptop1_endpoint, target_4b, "primary"
             if "coder" in model_req:
                 coder_name = "qwen2.5-coder:7b"
                 return (laptop2_endpoint if custom_node_url else laptop1_endpoint), coder_name, ("laptop2" if custom_node_url else "primary")
@@ -111,25 +116,50 @@ class ClusterLoadBalancer:
             # Explicit standard model
             return (laptop2_endpoint if custom_node_url else laptop1_endpoint), requested_model, ("laptop2" if custom_node_url else "primary")
 
-        # 3. Dynamic Auto Load Balancing:
+        # 3. Dynamic Auto Task Routing across the 3 models (Auto mode):
+        # Model 1: qwen2.5-vl:3b (Laptop 2) -> Vision & Multimodal (handled above)
+        # Model 2: qwen3:4b (Laptop 1 Fast Node) -> Fast Conversational, Quick Extraction & General QA
+        # Model 3: qwen3:8b (Laptop 1 Master Node) -> Deep Document Analysis, Engineering & Safety Verification
+
+        normalized_task = (task_type or "chat").lower()
         with self._lock:
             p_active = self.active_streams.get("primary", 0)
             l2_active = self.active_streams.get("laptop2", 0)
 
-        # If primary has 0 active requests (IDLE) -> Route to Laptop 1 (qwen3:8b)
-        if p_active == 0:
-            target_model = "qwen3:8b" if ("qwen3:8b" in local_models or not local_models) else local_models[0]
-            return laptop1_endpoint, target_model, "primary"
+        # Fast synthesis / general queries / extractions -> Route to Qwen3-4B
+        if normalized_task in ("general", "fast", "extraction", "summary"):
+            if "qwen3:4b" in local_models or not ("qwen3:8b" in local_models):
+                return laptop1_endpoint, "qwen3:4b", "primary"
 
-        # If primary is BUSY (p_active >= 1) and Laptop 2 is idle -> DYNAMIC SPILLOVER TO LAPTOP 2!
+        # Deep document synthesis & engineering analysis -> Prefer Qwen3-8B
+        if normalized_task in ("document", "analysis"):
+            if "qwen3:8b" in local_models:
+                return laptop1_endpoint, "qwen3:8b", "primary"
+            elif "qwen3:4b" in local_models:
+                return laptop1_endpoint, "qwen3:4b", "primary"
+
+        # Default Chat / Auto Lane:
+        # Determine available primary model
+        primary_model = "qwen3:8b" if "qwen3:8b" in local_models else ("qwen3:4b" if "qwen3:4b" in local_models else (local_models[0] if local_models else "qwen3:4b"))
+
+        # If primary has 0 active requests (IDLE) -> Route to primary model
+        if p_active == 0:
+            return laptop1_endpoint, primary_model, "primary"
+
+        # If primary is BUSY (p_active >= 1):
+        # Spill over to local fast lane qwen3:4b if available and primary model is 8b
+        if "qwen3:4b" in local_models and primary_model == "qwen3:8b" and p_active == 1:
+            print(f"[load_balancer] Laptop 1 busy ({p_active} active). Routing to fast local worker (qwen3:4b).")
+            return laptop1_endpoint, "qwen3:4b", "primary"
+
+        # Spill over to Laptop 2 (if idle)
         if l2_active == 0:
             print(f"[load_balancer] Laptop 1 is busy ({p_active} active). Dynamically spilling over to Laptop 2 (idle).")
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
         # Both are busy -> Choose whichever has fewer active requests
         if p_active <= l2_active:
-            target_model = "qwen3:8b" if ("qwen3:8b" in local_models or not local_models) else local_models[0]
-            return laptop1_endpoint, target_model, "primary"
+            return laptop1_endpoint, primary_model, "primary"
         else:
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
@@ -761,6 +791,7 @@ async def process_and_ask(
     stream: Optional[bool] = Query(None, description="Stream response via Server-Sent Events (SSE)"),
     effort: Optional[str] = Form(None, description="Reasoning effort: Fast | Deep Research | Max Effort"),
     model: Optional[str] = Form(None, description="Model ID or 'auto' for smart routing"),
+    task_type: Optional[str] = Form(None, description="Task category: general | fast | document | analysis | vision | code"),
     node_url: Optional[str] = Query(None, description="Direct URL of the target node (e.g. http://192.168.1.15:11434)"),
     user: Optional[str] = Form(None, description="User ID"),
     user_name: Optional[str] = Form(None, description="Full Name of User"),
@@ -777,6 +808,7 @@ async def process_and_ask(
 
     effort = effort or q.get("effort") or "Fast"
     model = model or q.get("model") or None
+    task_type = task_type or q.get("task_type") or ("vision" if file and file.content_type and file.content_type.startswith("image/") else ("document" if file else "chat"))
     node_url = node_url or q.get("node_url") or None
     resolved_user = user or q.get("user") or "default_user"
     resolved_user_name = user_name or q.get("user_name")
@@ -894,7 +926,7 @@ async def process_and_ask(
         has_images=bool(images_b64),
         requested_model=model,
         custom_node_url=node_url,
-        task_type="vision" if images_b64 else "chat",
+        task_type="vision" if images_b64 else task_type,
         available_local_models=available_local_models,
     )
 

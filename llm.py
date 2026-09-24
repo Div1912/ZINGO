@@ -30,10 +30,12 @@ DEFAULT_MODEL = "qwen3:8b"
 # Task-type routing. Falls back to DEFAULT_MODEL when the preferred model is not pulled.
 TASK_MODEL_MAP = {
     "chat": "qwen3:8b",
-    "general": "qwen3:8b",
+    "general": "qwen3:4b",
+    "fast": "qwen3:4b",
+    "summary": "qwen3:4b",
+    "extraction": "qwen3:4b",
     "document": "qwen3:8b",
     "analysis": "qwen3:8b",
-    "extraction": "qwen3:8b",
     "code": "qwen2.5-coder:7b",
     "vision": "qwen2.5vl:3b",
 }
@@ -70,6 +72,12 @@ def resolve_model(task_type: str = "chat", requested: Optional[str] = None) -> s
             return requested
         if requested in available:
             return requested
+        # Explicit 4b match
+        if "4b" in req_clean:
+            for m in available:
+                if "4b" in m.lower():
+                    return m
+            return "qwen3:4b"
         # Fuzzy match for requested model variants (e.g. qwen2.5vl, qwen2.5-vl)
         for m in available:
             m_clean = m.lower()
@@ -84,6 +92,12 @@ def resolve_model(task_type: str = "chat", requested: Optional[str] = None) -> s
     if normalized_task == "vision":
         for m in available:
             if "vl" in m.lower() or "vision" in m.lower() or "llava" in m.lower():
+                return m
+
+    # Fast / general conversational routing -> prefer qwen3:4b
+    if normalized_task in ("general", "fast", "summary", "extraction"):
+        for m in available:
+            if "4b" in m.lower():
                 return m
 
     preferred = TASK_MODEL_MAP.get(normalized_task, DEFAULT_MODEL)

@@ -78,12 +78,14 @@ export function useChat(chatId?: string | null) {
       const isAuto = !forcedModel || forcedModel === 'auto' || forcedModel === 'Auto (Cluster Smart Router)'
       let selectedModel: ModelId = isAuto ? (settings.defaultModel || 'qwen3:8b') : (forcedModel as ModelId)
 
-      // Auto-route to Multimodal (Laptop 2) when an image is uploaded, or Coder for code tasks
-      if (hasImageFile) {
+      // Auto-route based on specialized task across the 3 models:
+      if (hasImageFile || detectedTask === 'vision') {
         selectedModel = 'qwen2.5vl:3b'
       } else if (settings.autoRouteModel && isAuto) {
         if (detectedTask === 'code') {
           selectedModel = 'qwen2.5-coder:7b'
+        } else if (detectedTask === 'general' || detectedTask === 'fast') {
+          selectedModel = 'qwen3:4b'
         } else {
           selectedModel = 'qwen3:8b'
         }
@@ -180,6 +182,8 @@ export function useChat(chatId?: string | null) {
           detectedTask === 'vision'
         ) {
           targetNodeUrl = server.vision_url || server.g15_2_url || 'http://127.0.0.1:11434'
+        } else if (selectedModel.includes('4b')) {
+          targetNodeUrl = server.fast_4b_url || 'http://127.0.0.1:11434'
         } else if (selectedModel.includes('coder')) {
           targetNodeUrl = server.coderStatus === 'connected' ? server.g15_2_url : undefined
         } else if (selectedModel.includes('r1')) {
@@ -204,6 +208,7 @@ export function useChat(chatId?: string | null) {
           })
           if (effectiveModel) fd.append('model', effectiveModel)
           if (effort) fd.append('effort', effort)
+          if (detectedTask) fd.append('task_type', detectedTask)
           if (targetNodeUrl) fd.append('node_url', targetNodeUrl)
           fd.append('user', userInfo.userId)
           fd.append('user_name', userInfo.userName)
@@ -221,6 +226,7 @@ export function useChat(chatId?: string | null) {
             preferred_name: userInfo.preferredName,
             work_role: userInfo.workRole,
             model: effectiveModel,
+            task_type: detectedTask,
           })
           if (effort) qp.set('effort', effort)
           if (targetNodeUrl) qp.set('node_url', targetNodeUrl)

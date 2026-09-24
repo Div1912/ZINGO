@@ -19,6 +19,12 @@ export function detectTaskType(content: string): TaskType {
     'corrosion', 'fouling', 'root cause', 'efficiency', 'loss'
   ]
 
+  const visionKeywords = [
+    'image', 'picture', 'photo', 'diagram', 'blueprint', 'p&id', 'drawing',
+    'schematic', 'visual', 'chart', 'layout'
+  ]
+
+  if (visionKeywords.some((k) => text.includes(k))) return 'vision'
   if (codeKeywords.some((k) => text.includes(k))) return 'code'
   if (documentKeywords.some((k) => text.includes(k))) return 'document'
   if (analysisKeywords.some((k) => text.includes(k))) return 'analysis'

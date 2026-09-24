@@ -46,7 +46,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { useServerStore, DEFAULT_LAPTOP2_VISION_TUNNEL_URL } from '../../stores/serverStore'
+import { useServerStore, DEFAULT_LAPTOP2_VISION_TUNNEL_URL, DEFAULT_QWEN3_4B_TUNNEL_URL } from '../../stores/serverStore'
 import { useTheme } from '../../hooks/useTheme'
 import { useToastStore } from '../../stores/toastStore'
 import { useZingoStore } from '../../stores/zingoStore'
@@ -200,6 +200,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const [g15Primary, setG15Primary] = useState(server.g15_1_url)
   const [g15Coder, setG15Coder] = useState(server.g15_2_url)
   const [g15Vision, setG15Vision] = useState(server.vision_url || DEFAULT_LAPTOP2_VISION_TUNNEL_URL)
+  const [g15Fast4b, setG15Fast4b] = useState(server.fast_4b_url || DEFAULT_QWEN3_4B_TUNNEL_URL)
   const [g15Reasoning, setG15Reasoning] = useState(server.reasoning_url || 'http://192.168.1.17:11434')
 
   // Knowledge base state
@@ -683,12 +684,13 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
       g15_1_url: g15Primary,
       g15_2_url: g15Coder,
       vision_url: g15Vision,
+      fast_4b_url: g15Fast4b,
       reasoning_url: g15Reasoning,
     })
     addToast({
       type: 'success',
       title: 'Cluster Configuration Saved',
-      message: 'All 4 GPU cluster node endpoints updated.',
+      message: 'All GPU cluster node endpoints updated.',
     })
   }
 
@@ -1839,10 +1841,13 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                     {/* Node 1: Master Node */}
                     <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
                       <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-content-primary">Laptop 1: Master Node</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-content-primary">Laptop 1: Master & Fast Synthesis Node</span>
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 text-primary border border-primary/20">
-                            Qwen3-8B (Chat & Orchestration)
+                            Qwen3-8B (Document Analysis)
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            Qwen3-4B (Fast Conversational)
                           </span>
                         </div>
                         <button
@@ -1864,6 +1869,38 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
                           <span className={`w-2 h-2 rounded-full ${server.primaryStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
                           <span className="capitalize text-[11px]">{server.primaryStatus || 'online'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Node 1b: Qwen3-4B Fast Synthesis Node */}
+                    <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-content-primary">Laptop 1: Fast Synthesis Node</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            Qwen3-4B (Fast Conversational & General QA)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => checkIndividual('fast4b')}
+                          disabled={server.fast4bStatus === 'checking'}
+                          className="btn-ghost !py-0.5 !px-2 !text-[11px]"
+                        >
+                          {server.fast4bStatus === 'checking' ? 'Testing...' : 'Test connection'}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={g15Fast4b}
+                          placeholder="e.g. https://yoyo-evolve-untimed.ngrok-free.dev"
+                          onChange={(e) => setG15Fast4b(e.target.value)}
+                          className="flex-1 px-3 py-1.5 bg-surface border border-border rounded-lg text-xs font-mono text-content-primary outline-none"
+                        />
+                        <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-surface border border-border">
+                          <span className={`w-2 h-2 rounded-full ${server.fast4bStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
+                          <span className="capitalize text-[11px]">{server.fast4bStatus || 'online'}</span>
                         </span>
                       </div>
                     </div>

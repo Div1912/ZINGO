@@ -33,7 +33,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationsEnabled: true,
   autoRouteRules: [
     { id: '1', keywords: 'code, script, python, debug, function, bash, algorithm, calculate, yield', targetModel: 'qwen2.5-coder-7b' },
-    { id: '2', keywords: 'document, SOP, report, search, find, permit, inspection, OISD, CDU, valve', targetModel: 'qwen3:8b' },
+    { id: '2', keywords: 'document, SOP, report, search, find, permit, inspection, OISD, CDU, valve, audit', targetModel: 'qwen3:8b' },
+    { id: '3', keywords: 'general, chat, hello, hi, quick, summary, explain, overview, brief, tell me', targetModel: 'qwen3:4b' },
+    { id: '4', keywords: 'image, picture, photo, diagram, blueprint, visual, schematic, chart', targetModel: 'qwen2.5vl:3b' },
   ],
 }
 

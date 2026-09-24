@@ -1,5 +1,7 @@
 export type ModelId =
   | 'auto'
+  | 'qwen3:4b'
+  | 'qwen3-4b'
   | 'qwen3:8b'
   | 'qwen3-8b'
   | 'qwen2.5-7b'
@@ -10,7 +12,7 @@ export type ModelId =
   | 'qwen2.5-vl:7b'
   | 'llava:7b'
   | 'deepseek-r1:8b'
-export type TaskType = 'document' | 'code' | 'analysis' | 'general' | 'vision'
+export type TaskType = 'document' | 'code' | 'analysis' | 'general' | 'vision' | 'fast'
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -81,12 +83,14 @@ export * from './project'
 export interface ServerConfig {
   g15_1_url: string      // Master / Chat Node (default: Live tunnel or http://127.0.0.1:8000)
   g15_2_url: string      // Laptop 2: Coder Node (default: http://192.168.1.15:11434)
-  vision_url?: string    // Laptop 3: Vision Node (default: http://192.168.1.16:11434)
+  vision_url?: string    // Laptop 2: Vision Node (default: https://unfailing-idealism-caretaker.ngrok-free.dev)
+  fast_4b_url?: string   // Fast Synthesis Node: Qwen3-4B (default: https://yoyo-evolve-untimed.ngrok-free.dev)
   reasoning_url?: string // Laptop 4: Reasoning Node (default: http://192.168.1.17:11434)
   connectionStatus: 'connected' | 'disconnected' | 'checking'
   primaryStatus?: 'connected' | 'disconnected' | 'checking'
   coderStatus?: 'connected' | 'disconnected' | 'checking'
   visionStatus?: 'connected' | 'disconnected' | 'checking'
+  fast4bStatus?: 'connected' | 'disconnected' | 'checking'
   reasoningStatus?: 'connected' | 'disconnected' | 'checking'
 }
 

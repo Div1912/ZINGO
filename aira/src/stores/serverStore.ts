@@ -4,7 +4,7 @@ import type { ServerConfig } from '../types'
 import { useToastStore } from './toastStore'
 import { checkServerHealth } from '../services/qwenApi'
 
-export type ClusterNodeKey = 'primary' | 'coder' | 'vision' | 'reasoning'
+export type ClusterNodeKey = 'primary' | 'coder' | 'vision' | 'fast4b' | 'reasoning'
 
 interface ServerStore {
   server: ServerConfig
@@ -17,16 +17,19 @@ interface ServerStore {
 
 export const DEFAULT_TUNNEL_URL = 'https://splendid-sensibly-primate.ngrok-free.app'
 export const DEFAULT_LAPTOP2_VISION_TUNNEL_URL = 'https://unfailing-idealism-caretaker.ngrok-free.dev'
+export const DEFAULT_QWEN3_4B_TUNNEL_URL = 'https://yoyo-evolve-untimed.ngrok-free.dev'
 
 const DEFAULT_SERVER: ServerConfig = {
   g15_1_url: DEFAULT_TUNNEL_URL,
   g15_2_url: DEFAULT_LAPTOP2_VISION_TUNNEL_URL, // Laptop 2: Multimodal & Vision Node (Permanent Ngrok Tunnel)
   vision_url: DEFAULT_LAPTOP2_VISION_TUNNEL_URL,
+  fast_4b_url: DEFAULT_QWEN3_4B_TUNNEL_URL, // Fast Synthesis Node: Qwen3-4B (Permanent Ngrok Tunnel)
   reasoning_url: 'http://192.168.1.17:11434',
   connectionStatus: 'connected',
   primaryStatus: 'connected',
   coderStatus: 'connected',
   visionStatus: 'connected',
+  fast4bStatus: 'connected',
   reasoningStatus: 'disconnected',
 }
 
@@ -49,6 +52,7 @@ export const useServerStore = create<ServerStore>()(
             primaryStatus: 'checking',
             coderStatus: 'checking',
             visionStatus: 'checking',
+            fast4bStatus: 'checking',
             reasoningStatus: 'checking',
           },
         }))
@@ -56,18 +60,20 @@ export const useServerStore = create<ServerStore>()(
         const cur = get().server
         const proxyHost = cur.g15_1_url
 
-        const [primaryRes, coderRes, visionRes, reasoningRes] = await Promise.all([
+        const [primaryRes, coderRes, visionRes, fast4bRes, reasoningRes] = await Promise.all([
           checkServerHealth(cur.g15_1_url, proxyHost),
           checkServerHealth(cur.g15_2_url, proxyHost),
           cur.vision_url ? checkServerHealth(cur.vision_url, proxyHost) : Promise.resolve({ connected: false }),
+          cur.fast_4b_url ? checkServerHealth(cur.fast_4b_url, proxyHost) : Promise.resolve({ connected: false }),
           cur.reasoning_url ? checkServerHealth(cur.reasoning_url, proxyHost) : Promise.resolve({ connected: false }),
         ])
 
         const primarySuccess = primaryRes.connected
         const coderSuccess = coderRes.connected
         const visionSuccess = visionRes.connected
+        const fast4bSuccess = fast4bRes.connected
         const reasoningSuccess = reasoningRes.connected
-        const overall = primarySuccess || coderSuccess || visionSuccess ? 'connected' : 'disconnected'
+        const overall = primarySuccess || coderSuccess || visionSuccess || fast4bSuccess ? 'connected' : 'disconnected'
 
         set({
           isChecking: false,
@@ -78,16 +84,17 @@ export const useServerStore = create<ServerStore>()(
             primaryStatus: primarySuccess ? 'connected' : 'disconnected',
             coderStatus: coderSuccess ? 'connected' : 'disconnected',
             visionStatus: visionSuccess ? 'connected' : 'disconnected',
+            fast4bStatus: fast4bSuccess ? 'connected' : 'disconnected',
             reasoningStatus: reasoningSuccess ? 'connected' : 'disconnected',
           },
         })
 
         const addToast = useToastStore.getState().addToast
-        const activeCount = [primarySuccess, coderSuccess, visionSuccess, reasoningSuccess].filter(Boolean).length
+        const activeCount = [primarySuccess, coderSuccess, visionSuccess, fast4bSuccess, reasoningSuccess].filter(Boolean).length
         addToast({
           type: activeCount > 0 ? 'success' : 'warning',
-          title: `Cluster Check Complete (${activeCount}/4 Online)`,
-          message: `Primary: ${primarySuccess ? 'OK' : 'Offline'} | Vision (Laptop 2): ${visionSuccess ? 'OK' : 'Offline'} | Coder: ${coderSuccess ? 'OK' : 'Offline'} | Reasoning: ${reasoningSuccess ? 'OK' : 'Offline'}`,
+          title: `Cluster Check Complete (${activeCount}/5 Online)`,
+          message: `Primary: ${primarySuccess ? 'OK' : 'Offline'} | Vision: ${visionSuccess ? 'OK' : 'Offline'} | Fast 4B: ${fast4bSuccess ? 'OK' : 'Offline'} | Coder: ${coderSuccess ? 'OK' : 'Offline'}`,
         })
       },
       checkIndividual: async (node: ClusterNodeKey) => {
@@ -95,11 +102,13 @@ export const useServerStore = create<ServerStore>()(
           primary: 'primaryStatus',
           coder: 'coderStatus',
           vision: 'visionStatus',
+          fast4b: 'fast4bStatus',
           reasoning: 'reasoningStatus',
         }
         const labelMap: Record<ClusterNodeKey, string> = {
           primary: 'Master Node (Chat)',
           vision: 'Laptop 2 (Multimodal / Vision Node)',
+          fast4b: 'Fast Synthesis Node (Qwen3-4B)',
           coder: 'Laptop 3 (Coder Node)',
           reasoning: 'Laptop 4 (Reasoning Node)',
         }
@@ -112,6 +121,7 @@ export const useServerStore = create<ServerStore>()(
         const cur = get().server
         let url = cur.g15_1_url
         if (node === 'vision') url = cur.vision_url || cur.g15_2_url || 'http://127.0.0.1:11434'
+        else if (node === 'fast4b') url = cur.fast_4b_url || 'http://127.0.0.1:11434'
         else if (node === 'coder') url = cur.g15_2_url
         else if (node === 'reasoning') url = cur.reasoning_url || ''
 
@@ -141,7 +151,7 @@ export const useServerStore = create<ServerStore>()(
       },
     }),
     {
-      name: 'aira-server-config-v5',
+      name: 'aira-server-config-v6',
       onRehydrateStorage: () => (state) => {
         if (state && state.server) {
           if (!state.server.g15_1_url || state.server.g15_1_url.includes('trycloudflare.com')) {

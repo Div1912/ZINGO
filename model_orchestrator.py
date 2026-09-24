@@ -88,6 +88,14 @@ def get_ollama_memory_footprint(ollama_host: str = "http://127.0.0.1:11434") -> 
 # ---------------------------------------------------------------------------
 
 MODEL_SPECS = {
+    "qwen3:4b": {
+        "tier": "Tier 1: Fast Conversational Synthesis & General QA",
+        "params": "4B Dense",
+        "quant": "Q4_K_M (~2.5 GB)",
+        "bytes_per_token_kv": 64 * 1024,
+        "base_vram_gb": 2.8,
+        "recommended_min_ram_gb": 6.0,
+    },
     "qwen3:8b": {
         "tier": "Tier 1: Fast Sovereign Synthesis",
         "params": "8B Dense",

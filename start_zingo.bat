@@ -17,7 +17,16 @@ if "%ERRORLEVEL%"=="0" (
     echo [OK] Ollama is already running.
 ) else (
     echo [..] Starting Ollama server...
-    start /B "" "C:\Users\rajdi\AppData\Local\Programs\Ollama\ollama.exe" serve
+    where ollama >nul 2>&1
+    if "%ERRORLEVEL%"=="0" (
+        start /B "" ollama serve
+    ) else if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
+        start /B "" "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" serve
+    ) else if exist "C:\Users\rajdi\AppData\Local\Programs\Ollama\ollama.exe" (
+        start /B "" "C:\Users\rajdi\AppData\Local\Programs\Ollama\ollama.exe" serve
+    ) else (
+        echo [!] Warning: ollama.exe not found in PATH or standard directories.
+    )
     timeout /t 3 /nobreak >nul
 )
 

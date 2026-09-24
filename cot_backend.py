@@ -34,10 +34,10 @@ except ImportError:
 try:
     import llm
     DEFAULT_ENDPOINT = llm.GENERATE_ENDPOINT
-    DEFAULT_MODEL = llm.DEFAULT_MODEL
+    DEFAULT_MODEL = llm.resolve_model("chat") or llm.DEFAULT_MODEL
 except ImportError:
     DEFAULT_ENDPOINT = "http://127.0.0.1:11434/api/generate"
-    DEFAULT_MODEL = "qwen3:8b"
+    DEFAULT_MODEL = "qwen3:4b"
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +164,14 @@ def run_ollama_stream_cot(
                     alt_model = "qwen2.5-vl:3b"
                 elif cur_model == "qwen2.5-vl:3b":
                     alt_model = "qwen2.5vl:3b"
+                elif cur_model == "qwen3-4b":
+                    alt_model = "qwen3:4b"
+                elif cur_model == "qwen3:4b":
+                    alt_model = "qwen3-4b"
+                elif cur_model == "qwen3-8b":
+                    alt_model = "qwen3:8b"
+                elif cur_model == "qwen3:8b":
+                    alt_model = "qwen3-8b"
                 if alt_model:
                     clean_payload["model"] = alt_model
                     model_name = alt_model
@@ -176,12 +184,18 @@ def run_ollama_stream_cot(
                     )
             req.raise_for_status()
         except Exception as remote_err:
-            if clean_payload.get("model") != DEFAULT_MODEL or endpoint != DEFAULT_ENDPOINT:
-                print(f"[cluster/model fallback] Error with model {clean_payload.get('model')} at {endpoint}: {remote_err}. Falling back to {DEFAULT_MODEL}.")
-                clean_payload["model"] = DEFAULT_MODEL
-                model_name = DEFAULT_MODEL
+            fallback = DEFAULT_MODEL
+            try:
+                import llm
+                fallback = llm.resolve_model("chat") or DEFAULT_MODEL
+            except Exception:
+                pass
+            if clean_payload.get("model") != fallback or endpoint != DEFAULT_ENDPOINT:
+                print(f"[cluster/model fallback] Error with model {clean_payload.get('model')} at {endpoint}: {remote_err}. Falling back to {fallback}.")
+                clean_payload["model"] = fallback
+                model_name = fallback
                 endpoint = DEFAULT_ENDPOINT
-                # DEFAULT_MODEL (qwen3:8b) is text-only. Remove 'images' so prompt with OCR text still answers cleanly.
+                # fallback model is text-only. Remove 'images' so prompt with OCR text still answers cleanly.
                 clean_payload.pop("images", None)
                 req = requests.post(
                     endpoint,
