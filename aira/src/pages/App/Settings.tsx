@@ -1873,11 +1873,11 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Node 1b: Qwen3-4B Fast Synthesis Node */}
+                    {/* Node 3: Qwen3-4B Fast Synthesis Node (Laptop 3) */}
                     <div className="p-3.5 rounded-xl bg-elevated border border-border space-y-2">
                       <div className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-content-primary">Laptop 1: Fast Synthesis Node</span>
+                          <span className="font-semibold text-content-primary">Laptop 3: Fast Synthesis Node</span>
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                             Qwen3-4B (Fast Conversational & General QA)
                           </span>

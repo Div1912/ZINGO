@@ -106,11 +106,11 @@ export const useServerStore = create<ServerStore>()(
           reasoning: 'reasoningStatus',
         }
         const labelMap: Record<ClusterNodeKey, string> = {
-          primary: 'Master Node (Chat)',
-          vision: 'Laptop 2 (Multimodal / Vision Node)',
-          fast4b: 'Fast Synthesis Node (Qwen3-4B)',
-          coder: 'Laptop 3 (Coder Node)',
-          reasoning: 'Laptop 4 (Reasoning Node)',
+          primary: 'Laptop 1 (Master Node - Qwen3-8B)',
+          vision: 'Laptop 2 (Multimodal / Vision Node - Qwen2.5-VL)',
+          fast4b: 'Laptop 3 (Fast Synthesis Node - Qwen3-4B)',
+          coder: 'Coder Node (Optional)',
+          reasoning: 'Reasoning Node (Optional)',
         }
 
         const updateKey = statusMap[node]
@@ -164,6 +164,9 @@ export const useServerStore = create<ServerStore>()(
           ) {
             state.server.vision_url = DEFAULT_LAPTOP2_VISION_TUNNEL_URL
             state.server.g15_2_url = DEFAULT_LAPTOP2_VISION_TUNNEL_URL
+          }
+          if (!state.server.fast_4b_url) {
+            state.server.fast_4b_url = DEFAULT_QWEN3_4B_TUNNEL_URL
           }
           if (!state.server.reasoning_url) {
             state.server.reasoning_url = 'http://192.168.1.17:11434'

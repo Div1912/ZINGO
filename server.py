@@ -57,6 +57,7 @@ class ClusterLoadBalancer:
         self.active_streams = {
             "primary": 0,
             "laptop2": 0,
+            "laptop3": 0,
         }
         self.laptop2_url = DEFAULT_LAPTOP2_TUNNEL_URL
         self.qwen3_4b_url = DEFAULT_QWEN3_4B_TUNNEL_URL
@@ -86,6 +87,8 @@ class ClusterLoadBalancer:
         """
         local_models = available_local_models or []
         laptop1_endpoint = MODEL_ENDPOINT
+
+        # Laptop 2: Multimodal & Vision Node (Qwen2.5-VL:3b)
         laptop2_base = (custom_node_url or self.laptop2_url).strip().rstrip("/")
         if laptop2_base.endswith("/api/generate"):
             laptop2_endpoint = laptop2_base
@@ -93,6 +96,18 @@ class ClusterLoadBalancer:
             laptop2_endpoint = laptop2_base.replace("/api/chat", "/api/generate")
         else:
             laptop2_endpoint = f"{laptop2_base}/api/generate"
+
+        # Laptop 3: Fast Synthesis Node (Qwen3:4b)
+        laptop3_base = (custom_node_url if custom_node_url and ("yoyo" in custom_node_url or "4b" in custom_node_url) else self.qwen3_4b_url).strip().rstrip("/")
+        if laptop3_base.endswith("/api/generate"):
+            laptop3_endpoint = laptop3_base
+        elif laptop3_base.endswith("/api/chat"):
+            laptop3_endpoint = laptop3_base.replace("/api/chat", "/api/generate")
+        else:
+            laptop3_endpoint = f"{laptop3_base}/api/generate"
+
+        # Use local loopback if qwen3:4b is resident on this machine and no remote URL forced
+        laptop3_target_endpoint = laptop1_endpoint if ("qwen3:4b" in local_models and not custom_node_url) else laptop3_endpoint
 
         model_req = (requested_model or "").strip().lower()
         is_auto = not model_req or model_req in ("auto", "auto (recommended)", "auto (cluster smart router)")
@@ -107,7 +122,7 @@ class ClusterLoadBalancer:
                 return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
             if "4b" in model_req:
                 target_4b = "qwen3:4b" if ("qwen3:4b" in local_models or not local_models) else ([m for m in local_models if "4b" in m.lower()][0] if any("4b" in m.lower() for m in local_models) else "qwen3:4b")
-                return laptop1_endpoint, target_4b, "primary"
+                return laptop3_target_endpoint, target_4b, "laptop3"
             if "coder" in model_req:
                 coder_name = "qwen2.5-coder:7b"
                 return (laptop2_endpoint if custom_node_url else laptop1_endpoint), coder_name, ("laptop2" if custom_node_url else "primary")
@@ -116,22 +131,22 @@ class ClusterLoadBalancer:
             # Explicit standard model
             return (laptop2_endpoint if custom_node_url else laptop1_endpoint), requested_model, ("laptop2" if custom_node_url else "primary")
 
-        # 3. Dynamic Auto Task Routing across the 3 models (Auto mode):
-        # Model 1: qwen2.5-vl:3b (Laptop 2) -> Vision & Multimodal (handled above)
-        # Model 2: qwen3:4b (Laptop 1 Fast Node) -> Fast Conversational, Quick Extraction & General QA
-        # Model 3: qwen3:8b (Laptop 1 Master Node) -> Deep Document Analysis, Engineering & Safety Verification
+        # 3. Dynamic Auto Task Routing across the 3 models on 3 laptops:
+        # Laptop 1 (Master Node): qwen3:8b -> Deep Document Analysis, Engineering & Safety Verification
+        # Laptop 2 (Vision Node): qwen2.5-vl:3b -> Vision, Blueprints, Schematics, Multimodal QA
+        # Laptop 3 (Fast Node):   qwen3:4b -> Fast Conversational, Quick Extraction & General QA
 
         normalized_task = (task_type or "chat").lower()
         with self._lock:
             p_active = self.active_streams.get("primary", 0)
             l2_active = self.active_streams.get("laptop2", 0)
+            l3_active = self.active_streams.get("laptop3", 0)
 
-        # Fast synthesis / general queries / extractions -> Route to Qwen3-4B
+        # Fast synthesis / general queries / extractions -> Route to Laptop 3 (Qwen3-4B)
         if normalized_task in ("general", "fast", "extraction", "summary"):
-            if "qwen3:4b" in local_models or not ("qwen3:8b" in local_models):
-                return laptop1_endpoint, "qwen3:4b", "primary"
+            return laptop3_target_endpoint, "qwen3:4b", "laptop3"
 
-        # Deep document synthesis & engineering analysis -> Prefer Qwen3-8B
+        # Deep document synthesis & engineering analysis -> Prefer Laptop 1 (Qwen3-8B)
         if normalized_task in ("document", "analysis"):
             if "qwen3:8b" in local_models:
                 return laptop1_endpoint, "qwen3:8b", "primary"
@@ -147,21 +162,25 @@ class ClusterLoadBalancer:
             return laptop1_endpoint, primary_model, "primary"
 
         # If primary is BUSY (p_active >= 1):
-        # Spill over to local fast lane qwen3:4b if available and primary model is 8b
-        if "qwen3:4b" in local_models and primary_model == "qwen3:8b" and p_active == 1:
-            print(f"[load_balancer] Laptop 1 busy ({p_active} active). Routing to fast local worker (qwen3:4b).")
-            return laptop1_endpoint, "qwen3:4b", "primary"
+        # Spill over to Laptop 3 (Fast Synthesis Node) if idle
+        if l3_active == 0:
+            print(f"[load_balancer] Laptop 1 busy ({p_active} active). Dynamically spilling over to Laptop 3 (idle).")
+            return laptop3_target_endpoint, "qwen3:4b", "laptop3"
 
-        # Spill over to Laptop 2 (if idle)
+        # Spill over to Laptop 2 (Vision Node) if idle
         if l2_active == 0:
-            print(f"[load_balancer] Laptop 1 is busy ({p_active} active). Dynamically spilling over to Laptop 2 (idle).")
+            print(f"[load_balancer] Laptop 1 & Laptop 3 busy. Dynamically spilling over to Laptop 2 (idle).")
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
-        # Both are busy -> Choose whichever has fewer active requests
-        if p_active <= l2_active:
-            return laptop1_endpoint, primary_model, "primary"
-        else:
-            return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+        # All 3 nodes busy -> Route to the least loaded node
+        node_candidates = [
+            (p_active, laptop1_endpoint, primary_model, "primary"),
+            (l3_active, laptop3_target_endpoint, "qwen3:4b", "laptop3"),
+            (l2_active, laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"),
+        ]
+        node_candidates.sort(key=lambda x: x[0])
+        _, chosen_endpoint, chosen_model, chosen_key = node_candidates[0]
+        return chosen_endpoint, chosen_model, chosen_key
 
 
 cluster_balancer = ClusterLoadBalancer()

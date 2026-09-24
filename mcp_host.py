@@ -145,17 +145,23 @@ def execute_cluster_status(args: Dict[str, Any]) -> Dict[str, Any]:
         streams = dict(cluster_balancer.active_streams)
     return {
         "status": "online",
-        "primary_node": {
-            "role": "Synthesis & Reasoning",
+        "laptop1_master_node": {
+            "role": "Master Node - Synthesis, Deep Document Analysis & Engineering Verification",
             "model": "qwen3:8b",
             "active_streams": streams.get("primary", 0),
         },
-        "laptop2_node": {
-            "role": "Fast Speculative Planning & Multimodal Vision",
+        "laptop2_vision_node": {
+            "role": "Multimodal Node - Vision, P&ID Blueprints & OCR",
             "model": "qwen2.5-vl:3b",
             "active_streams": streams.get("laptop2", 0),
             "endpoint": cluster_balancer.laptop2_url,
-        }
+        },
+        "laptop3_fast_node": {
+            "role": "Fast Synthesis Node - Quick QA, Conversational & Summarization",
+            "model": "qwen3:4b",
+            "active_streams": streams.get("laptop3", 0),
+            "endpoint": cluster_balancer.qwen3_4b_url,
+        },
     }
 
 TOOL_REGISTRY = {
