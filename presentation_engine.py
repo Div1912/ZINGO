@@ -214,56 +214,271 @@ def build_deck_manifest(
     return json.dumps(manifest, indent=2, ensure_ascii=False)
 
 
-def get_html_generation_instruction(manifest_json: str) -> str:
+def compile_pptx_deck(manifest: Dict[str, Any], output_path: str) -> str:
     """
-    Stage 3: System instruction for Node 1 to generate ONLY the index.html.
-    The manifest is provided so Node 1 doesn't need to think about content structure.
+    Compiles a genuine Microsoft PowerPoint (.pptx) widescreen 16:9 file
+    directly on the server using python-pptx.
+    Supports layouts: title, kpi_metrics, card_grid, timeline, bullets.
     """
-    # Trim manifest for context window efficiency
+    import pptx
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.shapes import MSO_SHAPE
+
+    prs = pptx.Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    title_text = manifest.get("title", "Executive Presentation")
+    slides_data = manifest.get("slides", [])
+
+    for idx, s in enumerate(slides_data):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+        # Solid background (Obsidian Dark #0B0F19)
+        bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), Inches(7.5))
+        bg.fill.solid()
+        bg.fill.fore_color.rgb = RGBColor(11, 15, 25)
+        bg.line.fill.background()
+
+        layout = s.get("layout", "standard")
+
+        if layout == "title" or idx == 0:
+            # Decorative top accent stripe
+            top_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1.2), Inches(1.8), Inches(1.5), Inches(0.08))
+            top_bar.fill.solid()
+            top_bar.fill.fore_color.rgb = RGBColor(245, 158, 11)
+            top_bar.line.fill.background()
+
+            tb = slide.shapes.add_textbox(Inches(1.2), Inches(2.2), Inches(10.9), Inches(3.2))
+            tf = tb.text_frame
+            tf.word_wrap = True
+
+            p = tf.paragraphs[0]
+            p.text = s.get("title", title_text)
+            p.font.size = Pt(40)
+            p.font.bold = True
+            p.font.color.rgb = RGBColor(255, 255, 255)
+
+            sub = s.get("subtitle", manifest.get("subtitle", "Executive Strategic Briefing"))
+            if sub:
+                p2 = tf.add_paragraph()
+                p2.text = sub
+                p2.font.size = Pt(20)
+                p2.font.color.rgb = RGBColor(148, 163, 184)
+                p2.space_before = Pt(14)
+
+            # Footer badge
+            fb = slide.shapes.add_textbox(Inches(1.2), Inches(6.0), Inches(10.9), Inches(0.8))
+            ff = fb.text_frame
+            fp = ff.paragraphs[0]
+            fp.text = f"{manifest.get('author', 'AIRA Sovereign Intelligence')}  •  {manifest.get('date', 'MRPL Executive Deck')}"
+            fp.font.size = Pt(12)
+            fp.font.color.rgb = RGBColor(100, 116, 139)
+
+        else:
+            # Header
+            tb = slide.shapes.add_textbox(Inches(1.0), Inches(0.6), Inches(11.333), Inches(1.0))
+            tf = tb.text_frame
+            p = tf.paragraphs[0]
+            p.text = s.get("title", f"Slide {idx + 1}")
+            p.font.size = Pt(28)
+            p.font.bold = True
+            p.font.color.rgb = RGBColor(255, 255, 255)
+
+            if s.get("subtitle"):
+                sp = tf.add_paragraph()
+                sp.text = s["subtitle"]
+                sp.font.size = Pt(14)
+                sp.font.color.rgb = RGBColor(148, 163, 184)
+                sp.space_before = Pt(4)
+
+            # Footer
+            ftb = slide.shapes.add_textbox(Inches(1.0), Inches(6.8), Inches(11.333), Inches(0.5))
+            ftf = ftb.text_frame
+            ftp = ftf.paragraphs[0]
+            ftp.text = f"MRPL Sovereign AI Workbench  |  Slide {idx + 1} of {len(slides_data)}"
+            ftp.font.size = Pt(10)
+            ftp.font.color.rgb = RGBColor(71, 85, 105)
+
+            if layout == "kpi_metrics" and s.get("cards"):
+                cards = s.get("cards", [])
+                n = min(len(cards), 3)
+                card_w = Inches(3.5)
+                card_h = Inches(4.3)
+                start_x = Inches(1.0)
+                gap = Inches(0.4)
+                y = Inches(2.0)
+                for ci in range(n):
+                    c = cards[ci]
+                    cx = start_x + ci * (card_w + gap)
+                    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, cx, y, card_w, card_h)
+                    card.fill.solid()
+                    card.fill.fore_color.rgb = RGBColor(19, 27, 46)
+                    card.line.color.rgb = RGBColor(31, 41, 61)
+
+                    ctb = slide.shapes.add_textbox(cx + Inches(0.35), y + Inches(0.4), card_w - Inches(0.7), card_h - Inches(0.8))
+                    ctf = ctb.text_frame
+                    ctf.word_wrap = True
+
+                    sp = ctf.paragraphs[0]
+                    sp.text = str(c.get("stat", "—"))
+                    sp.font.size = Pt(44)
+                    sp.font.bold = True
+                    sp.font.color.rgb = RGBColor(245, 158, 11)
+
+                    tp = ctf.add_paragraph()
+                    tp.text = c.get("title", "")
+                    tp.font.size = Pt(16)
+                    tp.font.bold = True
+                    tp.font.color.rgb = RGBColor(255, 255, 255)
+                    tp.space_before = Pt(12)
+
+                    dp = ctf.add_paragraph()
+                    dp.text = c.get("description", "")
+                    dp.font.size = Pt(12)
+                    dp.font.color.rgb = RGBColor(148, 163, 184)
+                    dp.space_before = Pt(8)
+
+            elif layout in ("card_grid", "timeline") and s.get("cards"):
+                cards = s.get("cards", [])
+                n = min(len(cards), 3)
+                card_w = Inches(3.5)
+                card_h = Inches(4.3)
+                start_x = Inches(1.0)
+                gap = Inches(0.4)
+                y = Inches(2.0)
+                for ci in range(n):
+                    c = cards[ci]
+                    cx = start_x + ci * (card_w + gap)
+                    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, cx, y, card_w, card_h)
+                    card.fill.solid()
+                    card.fill.fore_color.rgb = RGBColor(19, 27, 46)
+                    card.line.color.rgb = RGBColor(56, 189, 248) if ci == 0 else RGBColor(31, 41, 61)
+
+                    ctb = slide.shapes.add_textbox(cx + Inches(0.35), y + Inches(0.4), card_w - Inches(0.7), card_h - Inches(0.8))
+                    ctf = ctb.text_frame
+                    ctf.word_wrap = True
+
+                    tp = ctf.paragraphs[0]
+                    tp.text = c.get("title", f"Pillar {ci + 1}")
+                    tp.font.size = Pt(18)
+                    tp.font.bold = True
+                    tp.font.color.rgb = RGBColor(255, 255, 255)
+
+                    dp = ctf.add_paragraph()
+                    dp.text = c.get("description", "")
+                    dp.font.size = Pt(13)
+                    dp.font.color.rgb = RGBColor(203, 213, 225)
+                    dp.space_before = Pt(12)
+
+            else:
+                # Bullets + Takeaway
+                bullets = s.get("bullets", [])
+                takeaway = s.get("takeaway", "")
+
+                has_takeaway = bool(takeaway)
+                bw = Inches(7.2) if has_takeaway else Inches(11.333)
+
+                if bullets:
+                    btb = slide.shapes.add_textbox(Inches(1.0), Inches(2.0), bw, Inches(4.4))
+                    btf = btb.text_frame
+                    btf.word_wrap = True
+                    for bi, b in enumerate(bullets):
+                        bp = btf.paragraphs[0] if bi == 0 else btf.add_paragraph()
+                        bp.text = f"•  {b}"
+                        bp.font.size = Pt(15)
+                        bp.font.color.rgb = RGBColor(226, 232, 240)
+                        bp.space_before = Pt(14)
+
+                if has_takeaway:
+                    tx = Inches(8.6)
+                    ty = Inches(2.0)
+                    tw = Inches(3.7)
+                    th = Inches(4.3)
+                    tcard = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, tx, ty, tw, th)
+                    tcard.fill.solid()
+                    tcard.fill.fore_color.rgb = RGBColor(30, 27, 75)
+                    tcard.line.color.rgb = RGBColor(245, 158, 11)
+
+                    ttb = slide.shapes.add_textbox(tx + Inches(0.3), ty + Inches(0.4), tw - Inches(0.6), th - Inches(0.8))
+                    ttf = ttb.text_frame
+                    ttf.word_wrap = True
+
+                    tp0 = ttf.paragraphs[0]
+                    tp0.text = "EXECUTIVE TAKEAWAY"
+                    tp0.font.size = Pt(12)
+                    tp0.font.bold = True
+                    tp0.font.color.rgb = RGBColor(245, 158, 11)
+
+                    tp1 = ttf.add_paragraph()
+                    tp1.text = takeaway
+                    tp1.font.size = Pt(14)
+                    tp1.font.bold = True
+                    tp1.font.color.rgb = RGBColor(254, 243, 199)
+                    tp1.space_before = Pt(14)
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    prs.save(output_path)
+    return output_path
+
+
+def get_presentation_briefing_instruction(manifest_json: str) -> str:
+    """
+    System instruction for Node 1 to generate an executive presentation briefing and script.
+    Guarantees that NO HTML CODE is emitted in the chat.
+    """
     manifest_preview = manifest_json[:2000]
 
     return f"""================================================================================
-GENERATE ONLY THE index.html CODE BLOCK — NOTHING ELSE
+EXECUTIVE PRESENTATION BRIEFING & SPEAKER SCRIPT (MANDATORY FORMAT)
 ================================================================================
-The slide data (deck_manifest.json) has already been generated. Your ONLY task is to create an interactive HTML slide presentation using the data below.
+The presentation slide deck has been compiled by the sovereign engine.
+Your task is to present an executive walkthrough and speaker script for this presentation.
 
-SLIDE DATA:
-```
-{manifest_preview}
-```
+DO NOT output any HTML code (no <html>, no <!DOCTYPE>, no <script>, no CSS).
+Write in professional executive Markdown format:
 
-Output EXACTLY ONE fenced code block:
-```html index.html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Executive Presentation</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-[#0B0F19] text-white flex flex-col items-center justify-center min-h-screen">
-  <!-- 
-    Requirements:
-    - Display slides from the JSON data above (title, layout, cards, bullets etc.)
-    - 16:9 slide aspect ratio, dark theme #0B0F19
-    - Prev/Next arrow navigation buttons
-    - Keyboard arrow key navigation
-    - Slide counter (e.g. "2 / 5")
-    - Each layout renders differently:
-      * title: large centered title + subtitle
-      * kpi_metrics: 3 stat cards with large number
-      * card_grid: 3 cards in a grid
-      * timeline: horizontal steps
-      * bullets: bullet list + highlighted takeaway box
-  -->
-</body>
-</html>
-```
+# <Presentation Title>
+> **Executive Briefing & Strategic Overview**
 
-Use REAL content from the slide data above. Fill in actual titles, stats, bullets. DO NOT use placeholders.
-Output ONLY the html code block. No explanation text before or after.
+## Strategic Context
+<2-3 concise sentences on why this topic matters right now for MRPL leadership>
+
+---
+
+## Slide-by-Slide Walkthrough
+
+### Slide 1: <Slide Title>
+- **Layout**: Title Slide
+- **Speaker Talking Points**: Key introductory points
+
+### Slide 2: <Slide Title>
+- **Layout**: KPI Metrics / Core Data
+- **Key Metrics**: Specific statistics, percentages, or operational targets
+- **Talking Points**: What these numbers indicate for plant operations
+
+### Slide 3: <Slide Title>
+- **Layout**: Strategic Pillars / Core Initiatives
+- **Key Points**: Critical operational or technical details
+
+### Slide 4: <Slide Title>
+- **Layout**: Implementation Roadmap
+- **Phases**: Timeline and milestone expectations
+
+### Slide 5: <Slide Title>
+- **Layout**: Executive Recommendations & Takeaways
+- **Recommendations**: Concrete action items for leadership
+- **Strategic Conclusion**: The high-impact closing takeaway
+
+End with a short summary of next steps. Output ONLY Markdown. NO HTML.
 ================================================================================"""
+
+
+def get_html_generation_instruction(manifest_json: str) -> str:
+    """Legacy alias redirecting to executive briefing instruction."""
+    return get_presentation_briefing_instruction(manifest_json)
 
 
 # ─── Legacy compatibility ────────────────────────────────────────────────────

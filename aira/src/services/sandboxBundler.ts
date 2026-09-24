@@ -106,6 +106,24 @@ export function bundleVirtualProject(project: VirtualProject): BundleResult {
   }
 
   // -------------------------------------------------------------------------
+  // Case P: Presentation Slide Deck (deck_manifest.json)
+  // -------------------------------------------------------------------------
+  const manifestFile =
+    files['deck_manifest.json'] ||
+    files['presentation.json'] ||
+    Object.values(files).find(
+      (f) =>
+        f.language === 'json' &&
+        f.content.includes('"slides"') &&
+        (f.content.includes('"title"') || f.content.includes('"layout"'))
+    )
+
+  if (manifestFile && (!entryFile || entryPath === 'deck_manifest.json')) {
+    const html = buildPresentationShell(project.title, manifestFile.content)
+    return { html, entryPoint: manifestFile.path, warnings, isReact: false, isPython: false }
+  }
+
+  // -------------------------------------------------------------------------
   // Case C: Standard Web Project (HTML + CSS + JS)
   // -------------------------------------------------------------------------
   let rawHtml = entryFile ? entryFile.content : buildDefaultHtml(project.title)
@@ -366,6 +384,205 @@ function buildPythonShell(title: string, pythonCode: string): string {
       }
     }
     runPy();
+  </script>
+</body>
+</html>`
+}
+
+/**
+ * Builds the interactive 16:9 executive presentation carousel sandbox wrapper.
+ */
+function buildPresentationShell(title: string, manifestJson: string): string {
+  let cleanJson = manifestJson.trim()
+  cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  cleanJson = cleanJson.replace(/^<!--[\s\S]*?-->\s*/, '')
+  cleanJson = cleanJson.replace(/^\/\*[\s\S]*?\*\/\s*/, '')
+  cleanJson = cleanJson.replace(/^\/\/.*?\n\s*/, '')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title)}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { margin: 0; background: #070A11; color: #F8FAFC; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .slide-card { aspect-ratio: 16 / 9; }
+  </style>
+  ${buildTelemetryScript()}
+</head>
+<body class="flex flex-col h-screen select-none overflow-hidden bg-[#070A11]">
+  <!-- Top Navigation & Controls Bar -->
+  <header class="h-12 border-b border-slate-800/80 bg-slate-950/80 px-4 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+      <h1 class="text-xs font-bold text-slate-200 truncate max-w-xs sm:max-w-md" id="deckTitle">${escapeHtml(title)}</h1>
+      <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">16:9 Presentation</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="text-xs font-mono text-slate-400" id="slideCounter">1 / 1</span>
+      <div class="flex items-center gap-1">
+        <button id="prevBtn" class="p-1.5 rounded-md hover:bg-slate-800 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <button id="nextBtn" class="p-1.5 rounded-md hover:bg-slate-800 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Slide Display Viewport -->
+  <main class="flex-1 flex items-center justify-center p-4 sm:p-8 overflow-hidden">
+    <div id="slideViewport" class="slide-card w-full max-w-5xl rounded-2xl border border-slate-800/80 bg-[#0B0F19] shadow-2xl p-6 sm:p-12 flex flex-col justify-between relative overflow-hidden transition-all duration-300">
+      <!-- Rendered dynamically -->
+    </div>
+  </main>
+
+  <!-- Footer Navigation Help -->
+  <footer class="h-8 border-t border-slate-900 bg-slate-950/60 px-4 flex items-center justify-between text-[11px] text-slate-500 shrink-0">
+    <div>Use <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">←</kbd> <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">→</kbd> keys to navigate slides</div>
+    <div>AIRA Sovereign Presentation Engine</div>
+  </footer>
+
+  <script>
+    let manifest = { title: ${JSON.stringify(title)}, slides: [] };
+    try {
+      const raw = ${JSON.stringify(cleanJson)};
+      const jsonMatch = raw.match(/\\{[\\s\\S]*"slides"[\\s\\S]*\\}/);
+      const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+      if (parsed && Array.isArray(parsed.slides)) manifest = parsed;
+    } catch(err) {
+      console.error("[SlideDeck] Parse error:", err);
+    }
+
+    if (!manifest.slides || manifest.slides.length === 0) {
+      manifest.slides = [
+        { title: manifest.title || "Executive Presentation", subtitle: "Strategic Briefing", layout: "title" },
+        { title: "Key Performance Indicators", layout: "kpi_metrics", cards: [{ stat: "100%", title: "Readiness", description: "All parameters nominal" }] }
+      ];
+    }
+
+    let curIdx = 0;
+    const total = manifest.slides.length;
+    const vp = document.getElementById('slideViewport');
+    const counter = document.getElementById('slideCounter');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const deckTitle = document.getElementById('deckTitle');
+
+    if (manifest.title) deckTitle.textContent = manifest.title;
+
+    function renderSlide(idx) {
+      curIdx = Math.max(0, Math.min(idx, total - 1));
+      const s = manifest.slides[curIdx];
+      counter.textContent = (curIdx + 1) + ' / ' + total;
+      prevBtn.disabled = curIdx === 0;
+      nextBtn.disabled = curIdx === total - 1;
+
+      const layout = s.layout || (curIdx === 0 ? 'title' : 'standard');
+
+      if (layout === 'title' || curIdx === 0) {
+        vp.innerHTML = \`
+          <div class="h-1.5 w-16 bg-amber-500 rounded-full mb-4"></div>
+          <div class="my-auto space-y-4">
+            <h1 class="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">\${escapeHtml(s.title || manifest.title)}</h1>
+            \${s.subtitle ? \`<p class="text-lg sm:text-xl text-slate-400 font-normal">\${escapeHtml(s.subtitle)}</p>\` : ''}
+          </div>
+          <div class="flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs text-slate-500">
+            <span>\${escapeHtml(manifest.author || 'AIRA Sovereign Intelligence')}</span>
+            <span>\${escapeHtml(manifest.date || new Date().toLocaleDateString())}</span>
+          </div>
+        \`;
+      } else if (layout === 'kpi_metrics' && s.cards && s.cards.length > 0) {
+        const cardsHtml = s.cards.slice(0, 3).map(c => \`
+          <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 flex flex-col justify-between">
+            <div class="text-4xl sm:text-5xl font-black text-amber-400 font-mono tracking-tight">\${escapeHtml(c.stat || '—')}</div>
+            <div class="mt-4">
+              <div class="text-base font-bold text-white mb-1">\${escapeHtml(c.title || '')}</div>
+              <div class="text-xs text-slate-400 leading-relaxed">\${escapeHtml(c.description || '')}</div>
+            </div>
+          </div>
+        \`).join('');
+
+        vp.innerHTML = \`
+          <div>
+            <div class="text-[10px] uppercase font-mono tracking-wider text-amber-400 mb-1">Key Performance Indicators</div>
+            <h2 class="text-2xl sm:text-3xl font-black text-white">\${escapeHtml(s.title || '')}</h2>
+            \${s.subtitle ? \`<p class="text-xs text-slate-400 mt-1">\${escapeHtml(s.subtitle)}</p>\` : ''}
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 my-auto">\${cardsHtml}</div>
+          <div class="text-[11px] text-slate-600 flex justify-between border-t border-slate-900 pt-3">
+            <span>MRPL Sovereign Operations Benchmark</span>
+            <span>Slide \${curIdx + 1} of \${total}</span>
+          </div>
+        \`;
+      } else if ((layout === 'card_grid' || layout === 'timeline') && s.cards && s.cards.length > 0) {
+        const cardsHtml = s.cards.slice(0, 3).map((c, i) => \`
+          <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 flex flex-col justify-between \${i === 0 ? 'border-sky-500/40 shadow-lg shadow-sky-950/20' : ''}">
+            <div class="text-xs font-mono font-bold text-sky-400 mb-2">\${layout === 'timeline' ? 'PHASE ' + (i + 1) : 'PILLAR ' + (i + 1)}</div>
+            <div class="text-base font-bold text-white mb-2">\${escapeHtml(c.title || '')}</div>
+            <div class="text-xs text-slate-400 leading-relaxed">\${escapeHtml(c.description || '')}</div>
+          </div>
+        \`).join('');
+
+        vp.innerHTML = \`
+          <div>
+            <div class="text-[10px] uppercase font-mono tracking-wider text-sky-400 mb-1">\${layout === 'timeline' ? 'Execution Roadmap' : 'Strategic Architecture'}</div>
+            <h2 class="text-2xl sm:text-3xl font-black text-white">\${escapeHtml(s.title || '')}</h2>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 my-auto">\${cardsHtml}</div>
+          <div class="text-[11px] text-slate-600 flex justify-between border-t border-slate-900 pt-3">
+            <span>Strategic Framework</span>
+            <span>Slide \${curIdx + 1} of \${total}</span>
+          </div>
+        \`;
+      } else {
+        const bulletsHtml = (s.bullets || []).map(b => \`
+          <li class="flex items-start gap-3 text-sm text-slate-200 leading-relaxed">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 mt-2 shrink-0"></span>
+            <span>\${escapeHtml(b)}</span>
+          </li>
+        \`).join('');
+
+        const takeawayHtml = s.takeaway ? \`
+          <div class="rounded-xl border border-amber-500/30 bg-amber-950/20 p-5 flex flex-col justify-center">
+            <div class="text-[10px] font-mono uppercase font-bold text-amber-400 tracking-wider mb-2">Executive Takeaway</div>
+            <div class="text-sm font-semibold text-amber-100 leading-relaxed">\${escapeHtml(s.takeaway)}</div>
+          </div>
+        \` : '';
+
+        vp.innerHTML = \`
+          <div>
+            <div class="text-[10px] uppercase font-mono tracking-wider text-amber-400 mb-1">Executive Summary</div>
+            <h2 class="text-2xl sm:text-3xl font-black text-white">\${escapeHtml(s.title || '')}</h2>
+          </div>
+          <div class="grid grid-cols-1 \${s.takeaway ? 'sm:grid-cols-3' : ''} gap-6 my-auto items-center">
+            <ul class="space-y-3 \${s.takeaway ? 'sm:col-span-2' : ''}">\${bulletsHtml}</ul>
+            \${takeawayHtml}
+          </div>
+          <div class="text-[11px] text-slate-600 flex justify-between border-t border-slate-900 pt-3">
+            <span>AIRA Industrial Intelligence</span>
+            <span>Slide \${curIdx + 1} of \${total}</span>
+          </div>
+        \`;
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    prevBtn.addEventListener('click', () => renderSlide(curIdx - 1));
+    nextBtn.addEventListener('click', () => renderSlide(curIdx + 1));
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') renderSlide(curIdx - 1);
+      if (e.key === 'ArrowRight' || e.key === ' ') renderSlide(curIdx + 1);
+    });
+
+    renderSlide(0);
   </script>
 </body>
 </html>`

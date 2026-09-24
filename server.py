@@ -30,7 +30,7 @@ import json
 import requests
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from pydantic import BaseModel
 
 import llm
@@ -328,6 +328,8 @@ from presentation_engine import (
     generate_slide_structure_node2,
     build_deck_manifest,
     get_html_generation_instruction,
+    compile_pptx_deck,
+    get_presentation_briefing_instruction,
 )  # noqa: E402
 
 app.include_router(ingestion_router)
@@ -464,6 +466,48 @@ async def cluster_ping(node_url: str = Query(..., description="Target node URL t
         return {"connected": False, "error": str(e)}
 
     return {"connected": False, "error": "Node returned non-200 status"}
+
+
+# --------------------------------------------------------------------------------------
+# Executive Presentation Native Deliverables (.pptx)
+# --------------------------------------------------------------------------------------
+
+import os
+EXPORTS_PRESENTATIONS_DIR = os.path.join(os.path.dirname(__file__), "exports", "presentations")
+os.makedirs(EXPORTS_PRESENTATIONS_DIR, exist_ok=True)
+
+
+@app.get("/api/presentations/{deck_id}/download")
+async def download_presentation_file(deck_id: str):
+    """Download a compiled native Microsoft PowerPoint (.pptx) file."""
+    safe_id = re.sub(r"[^a-zA-Z0-9_\-]", "", deck_id)
+    file_path = os.path.join(EXPORTS_PRESENTATIONS_DIR, f"{safe_id}.pptx")
+    if not os.path.exists(file_path):
+        return JSONResponse({"error": "Presentation file not found"}, status_code=404)
+    return FileResponse(
+        file_path,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=f"{safe_id}.pptx",
+    )
+
+
+@app.post("/api/presentations/compile")
+async def compile_presentation_api(request: Request):
+    """Compile a deck_manifest JSON directly into a native Microsoft PowerPoint (.pptx) file."""
+    try:
+        body = await request.json()
+        manifest = body.get("manifest") or body
+        deck_id = f"deck_{int(time.time())}"
+        file_path = os.path.join(EXPORTS_PRESENTATIONS_DIR, f"{deck_id}.pptx")
+        compile_pptx_deck(manifest, file_path)
+        safe_title = re.sub(r"[^a-zA-Z0-9_\-]", "_", manifest.get("title", "presentation")).lower()
+        return FileResponse(
+            file_path,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            filename=f"{safe_title}.pptx",
+        )
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to compile presentation: {e}"}, status_code=500)
 
 
 # --------------------------------------------------------------------------------------
@@ -896,15 +940,23 @@ async def process_and_ask(
             # Node 2 offline or failed: build default structure
             from presentation_engine import build_default_slides
             slides = build_default_slides(user_query)
-        manifest_json = build_deck_manifest(user_query, slides)
+        manifest_dict = json.loads(build_deck_manifest(user_query, slides))
+        manifest_json = json.dumps(manifest_dict, indent=2, ensure_ascii=False)
+        try:
+            deck_id = f"deck_{int(time.time())}"
+            pptx_path = os.path.join(EXPORTS_PRESENTATIONS_DIR, f"{deck_id}.pptx")
+            compile_pptx_deck(manifest_dict, pptx_path)
+        except Exception as p_err:
+            print(f"[server] Native pptx compile error: {p_err}")
+
         # Build the prefix that will be prepended to Node 1's stream
         ppt_manifest_prefix = (
             f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
-        # Node 1 only needs to generate the HTML
-        instruction = f"{instruction}\n\n{get_html_generation_instruction(manifest_json)}"
+        # Node 1 generates an executive briefing and speaker script (NO HTML!)
+        instruction = f"{instruction}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        display_model = f"{target_model} (Dual-Node · Node 2 JSON + Node 1 HTML)"
+        display_model = f"{target_model} (Dual-Node Executive PPT Engine)"
 
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
@@ -1198,13 +1250,21 @@ async def api_chat(payload_data: ChatPayload):
         if slides is None:
             from presentation_engine import build_default_slides
             slides = build_default_slides(question)
-        manifest_json = build_deck_manifest(question, slides)
+        manifest_dict = json.loads(build_deck_manifest(question, slides))
+        manifest_json = json.dumps(manifest_dict, indent=2, ensure_ascii=False)
+        try:
+            deck_id = f"deck_{int(time.time())}"
+            pptx_path = os.path.join(EXPORTS_PRESENTATIONS_DIR, f"{deck_id}.pptx")
+            compile_pptx_deck(manifest_dict, pptx_path)
+        except Exception as p_err:
+            print(f"[server] Native pptx compile error: {p_err}")
+
         ppt_manifest_prefix = (
             f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
-        system = f"{system}\n\n{get_html_generation_instruction(manifest_json)}"
+        system = f"{system}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        display_model = f"{model} (Dual-Node · Node 2 JSON + Node 1 HTML)"
+        display_model = f"{model} (Dual-Node Executive PPT Engine)"
 
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
