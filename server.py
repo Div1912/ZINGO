@@ -325,6 +325,9 @@ from presentation_engine import (
     is_presentation_intent,
     generate_presentation_speculative_plan,
     get_presentation_system_instruction,
+    generate_slide_structure_node2,
+    build_deck_manifest,
+    get_html_generation_instruction,
 )  # noqa: E402
 
 app.include_router(ingestion_router)
@@ -884,13 +887,24 @@ async def process_and_ask(
         if test_spec:
             instruction = f"{instruction}\n\n{format_tot_instruction(test_spec)}"
 
-    # Autonomous Presentation Engine integration
+    # Autonomous Presentation Engine — Dual-Node Pipeline
+    ppt_manifest_prefix = ""
     if is_presentation_intent(user_query):
-        ppt_spec_plan = generate_presentation_speculative_plan(user_query, node_url, cluster_balancer.laptop2_url)
-        instruction = f"{instruction}\n\n{get_presentation_system_instruction(ppt_spec_plan)}"
+        l2_url = cluster_balancer.laptop2_url
+        slides = generate_slide_structure_node2(user_query, l2_url)
+        if slides is None:
+            # Node 2 offline or failed: build default structure
+            from presentation_engine import build_default_slides
+            slides = build_default_slides(user_query)
+        manifest_json = build_deck_manifest(user_query, slides)
+        # Build the prefix that will be prepended to Node 1's stream
+        ppt_manifest_prefix = (
+            f"```json\n<!-- filename: deck_manifest.json -->\n{manifest_json}\n```\n\n"
+        )
+        # Node 1 only needs to generate the HTML
+        instruction = f"{instruction}\n\n{get_html_generation_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        if ppt_spec_plan:
-            display_model = f"{target_model} (Dual-Node Synergy · Node 2 PPT Planned + Node 1 Synthesized)"
+        display_model = f"{target_model} (Dual-Node · Node 2 JSON + Node 1 HTML)"
 
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
@@ -921,7 +935,7 @@ async def process_and_ask(
         cluster_balancer.acquire_slot(node_key)
         return StreamingResponse(
             stream_with_slot_cleanup(
-                run_ollama_stream(payload, context=context, sources=sources, feature="ocr_chat"),
+                run_ollama_stream(payload, context=context, sources=sources, feature="ocr_chat", content_prefix=ppt_manifest_prefix),
                 node_key,
             ),
             media_type="text/event-stream"
@@ -1176,13 +1190,21 @@ async def api_chat(payload_data: ChatPayload):
         if test_spec:
             system = f"{system}\n\n{format_tot_instruction(test_spec)}"
 
-    # Autonomous Presentation Engine integration
+    # Autonomous Presentation Engine — Dual-Node Pipeline
+    ppt_manifest_prefix = ""
     if is_presentation_intent(question):
-        ppt_spec_plan = generate_presentation_speculative_plan(question, payload_data.node_url, cluster_balancer.laptop2_url)
-        system = f"{system}\n\n{get_presentation_system_instruction(ppt_spec_plan)}"
+        l2_url = cluster_balancer.laptop2_url
+        slides = generate_slide_structure_node2(question, l2_url)
+        if slides is None:
+            from presentation_engine import build_default_slides
+            slides = build_default_slides(question)
+        manifest_json = build_deck_manifest(question, slides)
+        ppt_manifest_prefix = (
+            f"```json\n<!-- filename: deck_manifest.json -->\n{manifest_json}\n```\n\n"
+        )
+        system = f"{system}\n\n{get_html_generation_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        if ppt_spec_plan:
-            display_model = f"{model} (Dual-Node Synergy · Node 2 PPT Planned + Node 1 Synthesized)"
+        display_model = f"{model} (Dual-Node · Node 2 JSON + Node 1 HTML)"
 
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
@@ -1226,6 +1248,7 @@ async def api_chat(payload_data: ChatPayload):
                     context=context,
                     sources=retrieval["sources"],
                     feature="chat",
+                    content_prefix=ppt_manifest_prefix,
                 ),
                 node_key,
             ),

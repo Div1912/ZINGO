@@ -97,6 +97,7 @@ def run_ollama_stream_cot(
     feature: str = "chat",
     log_ollama_call=None,
     on_done_context=None,
+    content_prefix: str = "",
 ) -> Generator[str, None, None]:
 
     """
@@ -124,6 +125,14 @@ def run_ollama_stream_cot(
         "thinking_enabled": bool(think_enabled),
     }
     yield f"data: {json.dumps(meta_payload)}\n\n"
+
+    # ── Prepend guaranteed content (e.g. deck_manifest.json for PPT) ──────────
+    if content_prefix:
+        # Stream the prefix in chunks so the frontend renders it progressively
+        chunk_size = 120
+        for i in range(0, len(content_prefix), chunk_size):
+            chunk = content_prefix[i:i + chunk_size]
+            yield f"data: {json.dumps({'type': 'chunk', 'chunk': chunk, 'done': False})}\n\n"
 
     if context:
         yield f"data: {json.dumps({'type': 'context', 'context_length': len(context), 'sources': sources or []})}\n\n"
