@@ -899,7 +899,7 @@ async def process_and_ask(
         manifest_json = build_deck_manifest(user_query, slides)
         # Build the prefix that will be prepended to Node 1's stream
         ppt_manifest_prefix = (
-            f"```json\n<!-- filename: deck_manifest.json -->\n{manifest_json}\n```\n\n"
+            f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
         # Node 1 only needs to generate the HTML
         instruction = f"{instruction}\n\n{get_html_generation_instruction(manifest_json)}"
@@ -1200,7 +1200,7 @@ async def api_chat(payload_data: ChatPayload):
             slides = build_default_slides(question)
         manifest_json = build_deck_manifest(question, slides)
         ppt_manifest_prefix = (
-            f"```json\n<!-- filename: deck_manifest.json -->\n{manifest_json}\n```\n\n"
+            f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
         system = f"{system}\n\n{get_html_generation_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)

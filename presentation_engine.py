@@ -233,8 +233,7 @@ SLIDE DATA:
 ```
 
 Output EXACTLY ONE fenced code block:
-```html
-<!-- filename: index.html -->
+```html index.html
 <!DOCTYPE html>
 <html lang="en">
 <head>

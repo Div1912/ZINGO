@@ -113,22 +113,33 @@ export function extractProjectFromMessage(
     if (!blockCode) continue
 
     let detectedName = headerFilename || fenceFilename
+    let cleanCode = blockCode
 
-    // If no explicit filename in fence or header, check first 2 lines for comment
+    // If no explicit filename in fence or header, check first 3 lines for comment
     if (!detectedName) {
       const lines = blockCode.split('\n').slice(0, 3)
-      for (const line of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
         const commentMatch =
-          line.match(/<!--\s*([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)\s*-->/) ||
-          line.match(/\/\*\s*([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)\s*\*\//) ||
-          line.match(/\/\/\s*([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)/) ||
-          line.match(/#\s*([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)/)
+          line.match(/<!--\s*(?:(?:file(?:name)?|path)\s*[:=]\s*)?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)\s*-->/i) ||
+          line.match(/\/\*\s*(?:(?:file(?:name)?|path)\s*[:=]\s*)?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)\s*\*\//i) ||
+          line.match(/\/\/\s*(?:(?:file(?:name)?|path)\s*[:=]\s*)?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)/i) ||
+          line.match(/#\s*(?:(?:file(?:name)?|path)\s*[:=]\s*)?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)/i)
 
         if (commentMatch && commentMatch[1]) {
           detectedName = commentMatch[1].trim()
+          // Strip the matched comment line from cleanCode so JSON/Python/code syntax is valid
+          const allLines = blockCode.split('\n')
+          allLines.splice(i, 1)
+          cleanCode = allLines.join('\n').trim()
           break
         }
       }
+    } else {
+      // Strip leading comment if it duplicates the filename
+      cleanCode = cleanCode.replace(/^<!--\s*(?:(?:file(?:name)?|path)\s*[:=]\s*)?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+\s*-->\s*\n?/i, '')
+      cleanCode = cleanCode.replace(/^\/\*\s*(?:(?:file(?:name)?|path)\s*[:=]\s*)?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+\s*\*\/\s*\n?/i, '')
+      cleanCode = cleanCode.replace(/^\/\/\s*(?:(?:file(?:name)?|path)\s*[:=]\s*)?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+\s*\n?/i, '')
     }
 
     if (detectedName) {
@@ -138,14 +149,14 @@ export function extractProjectFromMessage(
       filesMap[cleanPath] = {
         name: fileName,
         path: cleanPath,
-        content: blockCode,
+        content: cleanCode,
         language: normalizeLanguage(rawLang || ext),
       }
     } else {
       // Keep for heuristic fallback
       fallbackBlocks.push({
         lang: normalizeLanguage(rawLang),
-        code: blockCode,
+        code: cleanCode,
         index: fenceMatch.index,
       })
     }
@@ -192,6 +203,20 @@ export function extractProjectFromMessage(
           }
           jsAssigned = true
         }
+      }
+    }
+
+    // Also check for unassigned JSON slide manifests in fallback blocks
+    const jsonSlideBlock = fallbackBlocks.find((b) => (b.lang === 'json' || b.code.startsWith('{')) && b.code.includes('"slides"'))
+    if (jsonSlideBlock && !filesMap['deck_manifest.json']) {
+      let jsonCode = jsonSlideBlock.code.trim()
+      jsonCode = jsonCode.replace(/^<!--[\s\S]*?-->\s*/, '')
+      jsonCode = jsonCode.replace(/^\/\*[\s\S]*?\*\/\s*/, '')
+      filesMap['deck_manifest.json'] = {
+        name: 'deck_manifest.json',
+        path: 'deck_manifest.json',
+        content: jsonCode,
+        language: 'json',
       }
     }
   }
