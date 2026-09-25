@@ -15,8 +15,8 @@ import { useProjectStore } from '../stores/projectStore'
 import { useArtifactStore } from '../stores/artifactStore'
 import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../utils/multiFileParser'
 import { getActiveUserInfo } from '../stores/authStore'
-import type { Message, ModelId, TaskType, UploadedFile, CouncilMeta } from '../types'
-import { detectTaskType, isComplexTask, classifyTaskIntensity } from '../services/qwenApi'
+import type { Message, ModelId, TaskType, UploadedFile, CouncilMeta, ThinkStep } from '../types'
+import { classifyTaskIntensity } from '../services/qwenApi'
 
 export function useChat(chatId?: string | null) {
   const {
