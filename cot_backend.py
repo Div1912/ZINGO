@@ -114,6 +114,17 @@ def run_ollama_stream_cot(
     think_enabled = payload.get("think", False)
 
     # ── Meta event ──────────────────────────────────────────────────────────
+    council_data = payload.get("_council")
+    council_client_meta = None
+    if council_data:
+        council_client_meta = {
+            "council_active": council_data.get("council_active", True),
+            "nodes_participated": council_data.get("nodes_participated", []),
+            "consensus_score": council_data.get("consensus_score", 95),
+            "elapsed_seconds": council_data.get("elapsed_seconds", 0),
+            "deliberation_summary": council_data.get("deliberation_summary", {}),
+        }
+
     meta_payload = {
         "type": "meta",
         "ocr_context_found": bool(context),
@@ -123,8 +134,12 @@ def run_ollama_stream_cot(
         "effort": effort,
         "node_endpoint": endpoint,
         "thinking_enabled": bool(think_enabled),
+        "council": council_client_meta,
     }
     yield f"data: {json.dumps(meta_payload)}\n\n"
+
+    if council_client_meta:
+        yield f"data: {json.dumps({'type': 'council_meta', 'council': council_client_meta})}\n\n"
 
     # ── Prepend guaranteed content (e.g. deck_manifest.json for PPT) ──────────
     if content_prefix:

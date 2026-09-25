@@ -309,7 +309,7 @@ function AttachmentGalleryModal({
 export interface PromptInputProps {
   onSubmit?: (
     value: string,
-    meta: { model: string; effort: string; attachments: File[] }
+    meta: { model: string; effort: string; attachments: File[]; enableCouncil?: boolean }
   ) => void;
   placeholder?: string;
   className?: string;
@@ -330,6 +330,9 @@ export interface PromptInputProps {
   thinkingStatus?: string;
   maxWidthCollapsed?: number | string;
   maxWidthExpanded?: number | string;
+  // Model Council additions
+  isCouncilEnabled?: boolean;
+  onToggleCouncil?: () => void;
 }
 
 export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
@@ -354,6 +357,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       thinkingStatus: _thinkingStatus,
       maxWidthCollapsed = 540,
       maxWidthExpanded = 780,
+      isCouncilEnabled,
+      onToggleCouncil,
     },
     ref
   ) => {
@@ -361,6 +366,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     const [expanded, setExpanded] = useState(false);
     const [isSmoothResize, setIsSmoothResize] = useState(false);
     const [localValue, setLocalValue] = useState(defaultValue);
+    const [localCouncilEnabled, setLocalCouncilEnabled] = useState(false);
+    const effectiveCouncil = isCouncilEnabled !== undefined ? isCouncilEnabled : localCouncilEnabled;
 
     useEffect(() => {
       if (defaultValue) {
@@ -713,7 +720,12 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     const handleSubmit = () => {
       if (value.trim() === "" && !hasAttachments) return;
       setIsSmoothResize(false);
-      onSubmit?.(value, { model: selectedModel, effort: efforts[effortIndex], attachments: attachments.map((a) => a.file) });
+      onSubmit?.(value, {
+        model: selectedModel,
+        effort: efforts[effortIndex],
+        attachments: attachments.map((a) => a.file),
+        enableCouncil: effectiveCouncil,
+      });
       handleValueChange("");
       attachments.forEach((a) => URL.revokeObjectURL(a.url));
       setAttachments([]);
@@ -1033,6 +1045,33 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               >
                 <DynamicBarsIcon level={efforts[effortIndex]} />
                 <span className="text-xs font-semibold select-none transition-colors"><MorphingText text={efforts[effortIndex]} /></span>
+              </button>
+
+              {/* Perplexity-style Model Council Deliberation Toggle */}
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onToggleCouncil) {
+                    onToggleCouncil();
+                  } else {
+                    setLocalCouncilEnabled((prev) => !prev);
+                  }
+                }}
+                className={cn(
+                  "group flex items-center gap-1 rounded-full px-2.5 py-1 transition-all duration-200 outline-none cursor-pointer select-none",
+                  effectiveCouncil
+                    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-medium shadow-xs"
+                    : "text-foreground/70 hover:bg-muted hover:text-foreground border border-transparent"
+                )}
+                title={effectiveCouncil ? "Model Council: Active (3-node consensus & peer review across cluster)" : "Model Council: Disabled (Direct fast routing)"}
+              >
+                <span className="text-xs">⚖️</span>
+                <span className="text-xs font-semibold select-none">Council</span>
+                {effectiveCouncil && (
+                  <span className="size-1.5 rounded-full bg-amber-500 animate-pulse ml-0.5" />
+                )}
               </button>
 
               <button

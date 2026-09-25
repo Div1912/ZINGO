@@ -57,6 +57,9 @@ interface ChatStore {
   toggleSourcePanel: (open?: boolean) => void
   setAbortController: (controller: AbortController | null) => void
   setPendingAIFix: (message: string | null) => void
+  isCouncilEnabled: boolean
+  setIsCouncilEnabled: (enabled: boolean) => void
+  toggleCouncil: () => void
 }
 
 // Sample engineering conversations that users can optionally load
@@ -245,6 +248,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   isSourcePanelOpen: false,
   abortController: null,
   pendingAIFix: null,
+  isCouncilEnabled: false,
 
   loadUserChats: async (userId: string) => {
     set({ currentUserId: userId, isLoadingChats: true })
@@ -750,4 +754,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   setAbortController: (controller) => set({ abortController: controller }),
   setPendingAIFix: (message) => set({ pendingAIFix: message }),
+  setIsCouncilEnabled: (enabled) => set({ isCouncilEnabled: enabled }),
+  toggleCouncil: () => set((state) => ({ isCouncilEnabled: !state.isCouncilEnabled })),
 }))

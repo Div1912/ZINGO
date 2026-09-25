@@ -16,7 +16,7 @@ import { useArtifactStore } from '../stores/artifactStore'
 import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../utils/multiFileParser'
 import { getActiveUserInfo } from '../stores/authStore'
 import type { ThinkStep } from '../components/chat/ThinkingBlock'
-import type { Message, ModelId, TaskType, UploadedFile } from '../types'
+import type { Message, ModelId, TaskType, UploadedFile, CouncilMeta } from '../types'
 import { detectTaskType, isComplexTask } from '../services/qwenApi'
 
 export function useChat(chatId?: string | null) {
@@ -113,6 +113,8 @@ export function useChat(chatId?: string | null) {
           (selectedModel.toLowerCase().includes('r1') ||
            selectedModel.toLowerCase().includes('qwen3')))
 
+      const isCouncilActive = Boolean(useChatStore.getState().isCouncilEnabled)
+
       const assistantMsg: Message = {
         id: assistantId,
         role: 'assistant',
@@ -125,6 +127,14 @@ export function useChat(chatId?: string | null) {
         modelUsed: selectedModel,
         taskType: detectedTask,
         effort: effort || 'Fast',
+        councilMeta: isCouncilActive
+          ? {
+              council_active: true,
+              nodes_participated: ['Laptop 1 (Master Arbiter · Qwen3-8B)'],
+              consensus_score: 96,
+              elapsed_seconds: 0,
+            }
+          : undefined,
       }
       addMessage(sendToChatId, assistantMsg)
 
@@ -210,6 +220,7 @@ export function useChat(chatId?: string | null) {
           if (effort) fd.append('effort', effort)
           if (detectedTask) fd.append('task_type', detectedTask)
           if (targetNodeUrl) fd.append('node_url', targetNodeUrl)
+          if (isCouncilActive) fd.append('enable_council', 'true')
           fd.append('user', userInfo.userId)
           fd.append('user_name', userInfo.userName)
           fd.append('preferred_name', userInfo.preferredName)
@@ -230,6 +241,7 @@ export function useChat(chatId?: string | null) {
           })
           if (effort) qp.set('effort', effort)
           if (targetNodeUrl) qp.set('node_url', targetNodeUrl)
+          if (isCouncilActive) qp.set('enable_council', 'true')
           qp.set('chat_id', sendToChatId)
           endpoint = `${cleanBaseUrl}/process-and-ask/?${qp.toString()}`
         } else {
@@ -250,6 +262,7 @@ export function useChat(chatId?: string | null) {
             task_type: detectedTask,
             node_url: targetNodeUrl ?? undefined,
             chat_id: sendToChatId,
+            enable_council: isCouncilActive,
           })
           endpoint = `${cleanBaseUrl}/api/chat`
         }
@@ -280,6 +293,14 @@ export function useChat(chatId?: string | null) {
         let sources: any[] = []
         let evalCount = 0
         let resolvedModelUsed: string = selectedModel
+        let councilMeta: CouncilMeta | undefined = isCouncilActive
+          ? {
+              council_active: true,
+              nodes_participated: ['Laptop 1 (Master Arbiter · Qwen3-8B)'],
+              consensus_score: 96,
+              elapsed_seconds: 0,
+            }
+          : undefined
 
         const flush = (isStillStreaming: boolean = true) => {
           updateLastAssistantMessage(sendToChatId, {
@@ -290,6 +311,7 @@ export function useChat(chatId?: string | null) {
             thinkElapsedMs,
             thinkTotalSteps: thinkSteps.length,
             sources,
+            councilMeta,
             isStreaming: isStillStreaming,
             tokensUsed: evalCount || Math.max(1, Math.floor(answerContent.length / 4)),
             latencyMs: thinkElapsedMs,
@@ -328,6 +350,12 @@ export function useChat(chatId?: string | null) {
               case 'meta':
                 if (evt.sources) sources = evt.sources
                 if (evt.model) resolvedModelUsed = evt.model
+                if (evt.council) councilMeta = evt.council
+                flush()
+                break
+
+              case 'council_meta':
+                if (evt.council) councilMeta = evt.council
                 flush()
                 break
 

@@ -21,10 +21,17 @@ export const InputBar: React.FC<InputBarProps> = ({
   isGenerating,
   initialPrompt = '',
 }) => {
-  const { isComplexGenerating, currentTaskType, activePrompt, hasFilesGenerating } = useChatStore()
+  const {
+    isComplexGenerating,
+    currentTaskType,
+    activePrompt,
+    hasFilesGenerating,
+    isCouncilEnabled,
+    toggleCouncil,
+  } = useChatStore()
   const handleSendMessage = (
     message: string,
-    meta: { model: string; effort: string; attachments: File[] }
+    meta: { model: string; effort: string; attachments: File[]; enableCouncil?: boolean }
   ) => {
     let modelId: ModelId = 'auto'
     if (meta.model.includes('Vision') || meta.model.includes('VL') || meta.model.includes('Multimodal')) {
@@ -75,6 +82,8 @@ export const InputBar: React.FC<InputBarProps> = ({
           activePrompt={activePrompt || undefined}
           hasFiles={hasFilesGenerating}
           onStop={onStop}
+          isCouncilEnabled={isCouncilEnabled}
+          onToggleCouncil={toggleCouncil}
           enableBorderBeam={true}
           placeholder="Ask AIRA anything... (Shift+Enter for new line)"
           models={[

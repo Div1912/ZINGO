@@ -342,6 +342,27 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               taskType={message.taskType}
             />
           )}
+          {(message.councilMeta?.council_active || (message.modelUsed && message.modelUsed.includes('Council'))) && (
+            <div
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25 shadow-2xs select-none"
+              title={
+                message.councilMeta
+                  ? `Consensus Index: ${message.councilMeta.consensus_score}%\nNodes: ${message.councilMeta.nodes_participated?.join(', ')}\nElapsed: ${message.councilMeta.elapsed_seconds}s`
+                  : 'Deliberated via 3-Node Model Council'
+              }
+            >
+              <span className="text-xs">⚖️</span>
+              <span>Council Deliberated</span>
+              <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 font-mono">
+                · {message.councilMeta?.nodes_participated?.length || 3} Nodes
+              </span>
+              {Boolean(message.councilMeta?.consensus_score) && (
+                <span className="text-[10px] font-mono font-semibold bg-amber-500/20 px-1 py-0.2 rounded text-amber-800 dark:text-amber-200">
+                  {message.councilMeta?.consensus_score}%
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Content Body / Streaming Indicator / Error */}

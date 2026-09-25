@@ -60,6 +60,7 @@ class ClusterLoadBalancer:
             "laptop3": 0,
         }
         self.laptop2_url = DEFAULT_LAPTOP2_TUNNEL_URL
+        self.laptop3_url = DEFAULT_QWEN3_4B_TUNNEL_URL
         self.qwen3_4b_url = DEFAULT_QWEN3_4B_TUNNEL_URL
 
     def acquire_slot(self, node_key: str):
@@ -838,6 +839,9 @@ async def process_and_ask(
         raw_stream = q.get("stream")
         stream = str(raw_stream).lower() in ("true", "1", "yes") if raw_stream is not None else False
 
+    raw_council = q.get("enable_council")
+    is_council_enabled = str(raw_council).lower() in ("true", "1", "yes")
+
     context = ""
     images_b64 = []
     sources = []
@@ -1009,6 +1013,24 @@ async def process_and_ask(
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
         display_model = f"{target_model} (Dual-Node Executive PPT Engine)"
 
+    # ── Model Council Deliberation (Opt-in via search bar) ────────────────────
+    council_result = None
+    if is_council_enabled:
+        try:
+            from council_engine import run_council_deliberation
+            council_result = run_council_deliberation(
+                query=user_query,
+                context=context,
+                l2_url=cluster_balancer.laptop2_url,
+                l3_url=cluster_balancer.laptop3_url,
+                timeout=3.8,
+            )
+            if council_result and council_result.get("formatted_context"):
+                instruction = f"{instruction}\n\n{council_result['formatted_context']}"
+                display_model = f"{target_model} (Model Council · {len(council_result['nodes_participated'])} Nodes Deliberated)"
+        except Exception as c_err:
+            print(f"[process_and_ask] Model Council execution error: {c_err}")
+
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
     safe_ctx = calculate_safe_num_ctx(target_model, ram_info["available_gb"])
@@ -1025,6 +1047,7 @@ async def process_and_ask(
         "_effort": cfg["effort"],
         "_endpoint": target_endpoint,
         "_display_model": display_model,
+        "_council": council_result,
     }
     if images_b64:
         payload["images"] = images_b64
@@ -1125,6 +1148,7 @@ class ChatPayload(BaseModel):
     images: Optional[List[str]] = None
     node_url: Optional[str] = None
     chat_id: Optional[str] = None
+    enable_council: bool = False
 
 
 
@@ -1317,6 +1341,24 @@ async def api_chat(payload_data: ChatPayload):
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
         display_model = f"{model} (Dual-Node Executive PPT Engine)"
 
+    # ── Model Council Deliberation (Opt-in via search bar) ────────────────────
+    council_result = None
+    if payload_data.enable_council:
+        try:
+            from council_engine import run_council_deliberation
+            council_result = run_council_deliberation(
+                query=question,
+                context=context,
+                l2_url=cluster_balancer.laptop2_url,
+                l3_url=cluster_balancer.laptop3_url,
+                timeout=3.8,
+            )
+            if council_result and council_result.get("formatted_context"):
+                system = f"{system}\n\n{council_result['formatted_context']}"
+                display_model = f"{model} (Model Council · {len(council_result['nodes_participated'])} Nodes Deliberated)"
+        except Exception as c_err:
+            print(f"[api_chat] Model Council execution error: {c_err}")
+
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
     safe_ctx = calculate_safe_num_ctx(model, ram_info["available_gb"])
@@ -1344,6 +1386,7 @@ async def api_chat(payload_data: ChatPayload):
         "_effort": cfg["effort"],
         "_endpoint": target_endpoint,
         "_display_model": display_model,
+        "_council": council_result,
     }
     if payload_data.images:
         ollama_payload["images"] = payload_data.images
@@ -1394,6 +1437,7 @@ async def api_chat(payload_data: ChatPayload):
             "cluster_node": node_key,
             "healed": healed,
             "tot_spec": test_spec,
+            "council": council_result,
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})

@@ -64,6 +64,19 @@ export interface Message {
   // Tree-of-Thought (ToT) Automated Verification additions
   totSpec?: any
   totResult?: any
+  // Model Council additions
+  councilMeta?: CouncilMeta
+}
+
+export interface CouncilMeta {
+  council_active: boolean
+  nodes_participated: string[]
+  consensus_score: number
+  elapsed_seconds: number
+  deliberation_summary?: {
+    adversary: boolean
+    auditor: boolean
+  }
 }
 
 export interface Chat {
