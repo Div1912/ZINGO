@@ -94,7 +94,10 @@ def ideate_presentation_outline_node3(
         "You are an executive presentation ideator and strategist. "
         "Create a structured 5-6 slide presentation concept outline for the user's topic. "
         "Outline each slide concisely: Slide Number, Slide Title, Key Metrics or Content Points. "
-        "Be specific, quantitative, and relevant. Do not include markdown code fences or conversational filler."
+        "Be specific, quantitative, and relevant. Do not include markdown code fences or conversational filler. "
+        "STRICT NEGATIVE CONSTRAINT: DO NOT generate or suggest any icons, emojis, or inline SVGs. "
+        "Do not use decorative symbols or icons in cards, headers, or bullet points. "
+        "Use clean corporate typography, numbers, and professional text only."
     )
     prompt = f"Topic: {query.strip()[:500]}\nGenerate a structured executive presentation outline:"
     return _call_node_sync(l3_url, "qwen3:4b", prompt, system, num_predict=450, timeout=(1.5, 3.5))
@@ -115,6 +118,12 @@ def audit_and_structure_slides_node2(
 {context_outline}
 Output ONLY a valid JSON array. No other text before or after the JSON.
 Each slide must have 'title' and 'layout'. Use 5-6 slides.
+
+STRICT NEGATIVE CONSTRAINTS:
+- DO NOT include any icon fields, icon names, or icon properties.
+- DO NOT use any emojis (e.g. no 🚀, 💡, 📊, ⚡, ⚙️, ✅) anywhere in titles, stats, or text.
+- DO NOT include inline SVGs or ASCII art.
+- Use clean executive corporate typography and quantitative metrics only.
 
 Available layouts and their required fields:
 - title: {{"title": "...", "subtitle": "...", "layout": "title"}}
@@ -138,6 +147,7 @@ Now generate the JSON array for: {query.strip()[:400]}"""
         "You are a JSON generator for executive presentations. "
         "Output ONLY valid JSON array. No markdown fences, no explanations, no extra text. "
         "Start your response with '[' and end with ']'. "
+        "MANDATORY: Absolutely NO icons, emojis, or inline SVGs. Only clean text and numbers."
     )
 
     raw = _call_node_sync(l2_url, "qwen2.5-vl:3b", prompt, system, num_predict=800, timeout=(1.5, 4.0))
@@ -242,6 +252,30 @@ def build_default_slides(query: str) -> List[Dict]:
     ]
 
 
+EMOJI_REGEX = re.compile(
+    r"[\U00010000-\U0010ffff\u2600-\u27bf\u2300-\u23ff\u2b50-\u2b55\ufe0e\ufe0f]"
+)
+
+
+def strip_icons_and_emojis(val: Any) -> Any:
+    """Recursively removes emojis, inline SVGs, and icon fields from slide data structures."""
+    if isinstance(val, str):
+        val = EMOJI_REGEX.sub("", val)
+        val = re.sub(r"<svg[\s\S]*?</svg>", "", val, flags=re.IGNORECASE)
+        val = re.sub(r" +", " ", val).strip()
+        return val
+    elif isinstance(val, list):
+        return [strip_icons_and_emojis(item) for item in val]
+    elif isinstance(val, dict):
+        cleaned = {}
+        for k, v in val.items():
+            if k.lower() in ("icon", "icon_name", "iconname", "svg", "glyph", "emoji"):
+                continue
+            cleaned[k] = strip_icons_and_emojis(v)
+        return cleaned
+    return val
+
+
 def build_deck_manifest(
     query: str,
     slides: List[Dict],
@@ -250,9 +284,10 @@ def build_deck_manifest(
     """
     Stage 2: Build the complete deck_manifest.json from validated slide list.
     This is pure deterministic Python — no model involved.
-    Returns the formatted JSON string.
+    Returns the formatted JSON string with zero emojis, icons, or inline SVGs.
     """
-    title = query.strip()[:80] if query else "Executive Presentation"
+    slides = strip_icons_and_emojis(slides)
+    title = strip_icons_and_emojis(query.strip()[:80]) if query else "Executive Presentation"
     # Ensure first slide is a title slide with proper subtitle
     if slides and slides[0].get("layout") != "title":
         slides = [{"title": title, "subtitle": "Executive Strategic Briefing", "layout": "title"}] + slides
@@ -272,7 +307,9 @@ def compile_pptx_deck(manifest: Dict[str, Any], output_path: str) -> str:
     Compiles a genuine Microsoft PowerPoint (.pptx) widescreen 16:9 file
     directly on the server using python-pptx.
     Supports layouts: title, kpi_metrics, card_grid, timeline, bullets.
+    Ensures zero emojis or AI-generated icons in all shapes.
     """
+    manifest = strip_icons_and_emojis(manifest)
     import pptx
     from pptx.util import Inches, Pt
     from pptx.dml.color import RGBColor
@@ -326,7 +363,7 @@ def compile_pptx_deck(manifest: Dict[str, Any], output_path: str) -> str:
             fb = slide.shapes.add_textbox(Inches(1.2), Inches(6.0), Inches(10.9), Inches(0.8))
             ff = fb.text_frame
             fp = ff.paragraphs[0]
-            fp.text = f"{manifest.get('author', 'AIRA Sovereign Intelligence')}  •  {manifest.get('date', 'MRPL Executive Deck')}"
+            fp.text = f"{manifest.get('author', 'AIRA Sovereign Intelligence')}  |  {manifest.get('date', 'MRPL Executive Deck')}"
             fp.font.size = Pt(12)
             fp.font.color.rgb = RGBColor(100, 116, 139)
 

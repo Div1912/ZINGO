@@ -22,6 +22,7 @@ import {
   Eye,
   ShieldCheck,
   Presentation,
+  Scale,
 } from 'lucide-react'
 import type { Message } from '../../types'
 import { ModelBadge, formatModelDisplayName } from './ModelBadge'
@@ -106,6 +107,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       .replace(/(?:^|\n)={3,}\s*\nAIRA MODEL COUNCIL DELIBERATION BRIEF[\s\S]*?={3,}\s*\n/gi, '')
       .replace(/(?:^|\n)\[PERSPECTIVE [AB]:[\s\S]*?(?=\n\[PERSPECTIVE|\nARBITER INSTRUCTIONS:|\n={3,}|\n\n[A-Z]|$)/gi, '')
       .replace(/(?:^|\n)ARBITER INSTRUCTIONS:[\s\S]*?(?=\n={3,}|\n\n|$)/gi, '')
+
+    // 4. Strip decorative AI-generated emojis and pseudo-icons from headers, bullets, and lists
+    clean = clean
+      .replace(/^(#{1,6}\s*)[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+\s*/gmu, '$1')
+      .replace(/^(\s*[-*•]\s*)[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+\s*/gmu, '$1')
+      .replace(/^(\s*\d+\.\s*)[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+\s*/gmu, '$1')
+      .replace(/^(#{1,6}\s*.*?)\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+$/gmu, '$1')
 
     return {
       sanitizedContent: clean.trim(),
@@ -368,7 +376,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   : 'Deliberated via 3-Node Model Council'
               }
             >
-              <span className="text-xs">⚖️</span>
+              <Scale size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />
               <span>Council Deliberated</span>
               <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 font-mono">
                 · {message.councilMeta?.nodes_participated?.length || 3} Nodes

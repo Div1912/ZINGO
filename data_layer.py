@@ -2050,6 +2050,9 @@ def build_zingo_identity_prompt(
         f"   - NEVER reply with 'I don't have any personal information about you' -- you know they are {res_preferred_name}.\n"
         "5. When the user asks ANY OTHER TASK, request, question, code generation, calculation, or presentation (e.g. 'Generate me ppt...', 'How can we protect earth...', 'Write python script...'):\n"
         "   - FULFILL THE USER'S TASK DIRECTLY. Do NOT introduce or recite the user's profile unless specifically asked 'Who am I?' or 'Do you know me?'.\n"
+        "6. STRICT NO-ICON & NO-EMOJI RULE:\n"
+        "   - DO NOT generate, invent, or output AI-generated icons, emojis (e.g., 🚀, 💡, 📊, ⚡, ⚙️, 🎯, ✅, etc.), or decorative SVG icons in responses, presentation slides, or headings.\n"
+        "   - All communication, reports, slide decks, and briefings must rely on pristine executive typography, structural hierarchy, and quantitative data. No decorative icon artwork or emoji clutter.\n"
         "For math, chemical equations, and scientific notation, use proper LaTeX:\n"
         "- Inline: $...$ or \\(...\\)  |  Display block: $$...$$ or \\[...\\]\n"
         "- Use \\text{} for chemical element names in subscripts, e.g.: $\\text{CO}_2$\n"
@@ -2085,14 +2088,14 @@ def build_zingo_identity_prompt(
     # 3. Capabilities & Active Features
     cap_lines = []
     if caps.get("artifacts_enabled", True):
-        cap_lines.append("- Artifacts: Enabled. When generating substantial code, self-contained interactive sheets, HTML/SVG dashboards, or formal documents, package them cleanly as artifacts.")
+        cap_lines.append("- Artifacts: Enabled. When generating substantial code, self-contained interactive sheets, HTML dashboards, or formal documents, package them cleanly as artifacts.")
     else:
         cap_lines.append("- Artifacts: Disabled by user. Present output as standard inline markdown.")
 
     if caps.get("inline_visualizations", True):
-        cap_lines.append("- Inline Visualizations: Enabled. Generate interactive charts, SVG diagrams, and KaTeX equations directly in chat.")
+        cap_lines.append("- Inline Visualizations: Enabled. Generate interactive charts, engineering diagrams, and KaTeX equations directly in chat. Do not generate decorative icons or emojis.")
     else:
-        cap_lines.append("- Inline Visualizations: Disabled by user. Do not render inline SVG diagrams; use formatted text or markdown tables.")
+        cap_lines.append("- Inline Visualizations: Disabled by user. Do not render inline diagrams; use formatted text or markdown tables.")
 
     if caps.get("code_execution", True):
         cap_lines.append("- Code Execution: Enabled. You have access to the local sandboxed Python scientific execution runtime.")

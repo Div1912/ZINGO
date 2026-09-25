@@ -694,7 +694,8 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
             "think": False,
             "instruction": (
                 "The user is sending a friendly greeting or ping. Respond politely, warmly, and concisely as ZINGO, "
-                "mentioning your role as their on-premise engineering assistant. Keep it brief and ready for their task."
+                "mentioning your role as their on-premise engineering assistant. Keep it brief and ready for their task. "
+                "Do not use decorative emojis or icons."
             ),
         }
 
@@ -711,7 +712,8 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
                 "Executive Summary, Fundamental Principles/Mechanisms, Detailed Step-by-Step Breakdown, "
                 "Formulas & Calculations (with KaTeX math if applicable), Real-World Industrial/Operational Examples, "
                 "Failure Modes & Challenges, and Engineering Best-Practice Checklists. "
-                "Never truncate, abbreviate, or stop at a one-sentence definition. Fully write out every section."
+                "Never truncate, abbreviate, or stop at a one-sentence definition. Fully write out every section. "
+                "STRICT FORMAT RULE: DO NOT use emojis or AI-generated icons (no 🚀, 💡, 📊, ⚡, ⚙️, etc.) in headings, lists, or text. Use clean markdown typography."
             ),
         }
     elif "deep" in eff or "reason" in eff or "research" in eff:
@@ -725,7 +727,8 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
                 "Include: 1) Definition and Core Conceptual Overview, 2) The Complete Process / Mechanism (broken down step-by-step), "
                 "3) Types, Classifications, and Key Components, 4) Practical Concrete Examples, "
                 "5) Why It Matters (Importance, Benefits, Impact), and 6) Common Pitfalls, Challenges, or Edge Cases. "
-                "Never provide a brief or one-sentence answer when Deep Research is active. Write out the full explanation with technical depth."
+                "Never provide a brief or one-sentence answer when Deep Research is active. Write out the full explanation with technical depth. "
+                "STRICT FORMAT RULE: DO NOT use emojis or AI-generated icons in headings, lists, or text. Use clean corporate typography."
             ),
         }
     else:
@@ -736,7 +739,7 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
             "think": False,
             "instruction": (
                 "Operating in FAST mode. Provide an immediate, direct, concise, and accurate answer. "
-                "Answer directly without conversational filler, preamble, or repetition."
+                "Answer directly without conversational filler, preamble, repetition, emojis, or AI-generated icons."
             ),
         }
 
