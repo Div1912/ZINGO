@@ -276,9 +276,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               return c
             })
           if (filtered.length > 0) {
+            const currentActive = get().activeChatId
+            const activeExists = filtered.some((c) => c.id === currentActive)
             set({
               chats: filtered,
-              activeChatId: filtered[0]?.id || null,
+              activeChatId: activeExists ? currentActive : null,
             })
           }
         }
@@ -317,7 +319,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (activeDbChats.length > 0) {
         const currentActive = get().activeChatId
         const activeExists = activeDbChats.some((c) => c.id === currentActive)
-        const nextActive = activeExists ? currentActive : activeDbChats[0].id
+        // Retain current active chat if valid, but DO NOT force old chat upon loading user history
+        const emptyChat = get().chats.find((c) => c.messages.length === 0)
+        const nextActive = activeExists ? currentActive : (emptyChat?.id || null)
 
         set({
           chats: activeDbChats,

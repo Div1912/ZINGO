@@ -143,8 +143,8 @@ class ClusterLoadBalancer:
             l2_active = self.active_streams.get("laptop2", 0)
             l3_active = self.active_streams.get("laptop3", 0)
 
-        # Fast synthesis / general queries / extractions -> Route to Laptop 3 (Qwen3-4B)
-        if normalized_task in ("general", "fast", "extraction", "summary"):
+        # Fast synthesis / quick lookups -> Route to Laptop 3 (Qwen3-4B)
+        if normalized_task in ("fast", "lightweight", "quick"):
             return laptop3_target_endpoint, "qwen3:4b", "laptop3"
 
         # Deep document synthesis & engineering analysis -> Prefer Laptop 1 (Qwen3-8B)

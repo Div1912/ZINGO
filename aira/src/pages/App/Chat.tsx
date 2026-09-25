@@ -49,23 +49,18 @@ export const ChatPage: React.FC = () => {
         navigate(`/app/chat/${newId}`, { replace: true })
       } else {
         // Chat no longer exists (e.g. Supabase sync replaced local chats)
-        // Navigate to the actual current active chat
-        if (activeChatId) {
+        // Navigate to the actual current active chat or create a fresh one
+        if (activeChatId && chats.some((c) => c.id === activeChatId)) {
           navigate(`/app/chat/${activeChatId}`, { replace: true })
-        } else if (chats.length > 0) {
-          navigate(`/app/chat/${chats[0].id}`, { replace: true })
         } else {
           const newId = createChat()
           navigate(`/app/chat/${newId}`, { replace: true })
         }
       }
     } else if (!id) {
-      if (chats.length > 0) {
-        navigate(`/app/chat/${chats[0].id}`, { replace: true })
-      } else {
-        const newId = createChat()
-        navigate(`/app/chat/${newId}`, { replace: true })
-      }
+      // When user signs in or opens /app, always open fresh clean chat workspace
+      const newId = createChat()
+      navigate(`/app/chat/${newId}`, { replace: true })
     }
   }, [id, activeChatId, chats, setActiveChat, createChat, navigate, isLoadingChats])
 

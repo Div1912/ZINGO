@@ -15,9 +15,8 @@ import { useProjectStore } from '../stores/projectStore'
 import { useArtifactStore } from '../stores/artifactStore'
 import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../utils/multiFileParser'
 import { getActiveUserInfo } from '../stores/authStore'
-import type { ThinkStep } from '../components/chat/ThinkingBlock'
 import type { Message, ModelId, TaskType, UploadedFile, CouncilMeta } from '../types'
-import { detectTaskType, isComplexTask } from '../services/qwenApi'
+import { detectTaskType, isComplexTask, classifyTaskIntensity } from '../services/qwenApi'
 
 export function useChat(chatId?: string | null) {
   const {
@@ -74,22 +73,16 @@ export function useChat(chatId?: string | null) {
           })
       )
 
-      let detectedTask: TaskType = hasImageFile ? 'vision' : detectTaskType(content || '')
       const isAuto = !forcedModel || forcedModel === 'auto' || forcedModel === 'Auto (Cluster Smart Router)'
-      let selectedModel: ModelId = isAuto ? (settings.defaultModel || 'qwen3:8b') : (forcedModel as ModelId)
+      const taskClassification = classifyTaskIntensity(
+        content || '',
+        hasImageFile,
+        files?.length || 0,
+        effort
+      )
 
-      // Auto-route based on specialized task across the 3 models:
-      if (hasImageFile || detectedTask === 'vision') {
-        selectedModel = 'qwen2.5vl:3b'
-      } else if (settings.autoRouteModel && isAuto) {
-        if (detectedTask === 'code') {
-          selectedModel = 'qwen2.5-coder:7b'
-        } else if (detectedTask === 'general' || detectedTask === 'fast') {
-          selectedModel = 'qwen3:4b'
-        } else {
-          selectedModel = 'qwen3:8b'
-        }
-      }
+      let detectedTask: TaskType = taskClassification.taskType
+      let selectedModel: ModelId = isAuto ? taskClassification.recommendedModel : (forcedModel as ModelId)
 
       // 1. Add User Message
       const userMsgId = 'usr-' + Date.now()
@@ -138,7 +131,7 @@ export function useChat(chatId?: string | null) {
       }
       addMessage(sendToChatId, assistantMsg)
 
-      const isComplex = isComplexTask(content, files?.length || 0, effort)
+      const isComplex = taskClassification.isComplex
       setIsComplexGenerating(isComplex, detectedTask, content, (files?.length || 0) > 0)
 
       const activeProject = useProjectStore.getState().getActiveProject()

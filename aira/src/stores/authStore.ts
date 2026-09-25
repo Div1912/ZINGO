@@ -113,6 +113,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
         // Load isolated chats for this authenticated user
         await useChatStore.getState().loadUserChats(newSession.user.id)
+
+        // Always activate a fresh new conversation on sign-in
+        useChatStore.getState().createChat()
       } else if (event === 'SIGNED_OUT') {
         useChatStore.getState().clearUserChats()
         localStorage.removeItem('aira_client_user_id')

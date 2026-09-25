@@ -83,6 +83,136 @@ export function isComplexTask(
   return false
 }
 
+export type TaskIntensity = 'light' | 'moderate' | 'high' | 'code' | 'vision'
+
+export interface TaskClassification {
+  intensity: TaskIntensity
+  recommendedModel: ModelId
+  taskType: TaskType
+  reason: string
+  isComplex: boolean
+}
+
+/**
+ * Intelligent Complexity & Intensity Classifier
+ * Classifies incoming query based on cognitive load, technical depth, and domain context
+ * to allocate the optimal node across the cluster:
+ *  - Low intensity / conversational / fast queries -> Node 3 (Qwen3-4B Fast Synthesis)
+ *  - Moderate & High intensity / engineering / reasoning -> Node 1 (Qwen3-8B Master Arbiter)
+ *  - Code syntax & implementation -> Qwen2.5-Coder-7B
+ *  - Visuals, OCR & schematics -> Qwen2.5-VL Multimodal
+ */
+export function classifyTaskIntensity(
+  content: string,
+  hasImages: boolean = false,
+  filesCount: number = 0,
+  effort?: string
+): TaskClassification {
+  const text = (content || '').toLowerCase().trim()
+  const detectedTask = detectTaskType(content || '')
+  const eff = (effort || '').toLowerCase()
+
+  // 1. Multimodal / Vision
+  if (hasImages || detectedTask === 'vision') {
+    return {
+      intensity: 'vision',
+      recommendedModel: 'qwen2.5vl:3b',
+      taskType: 'vision',
+      reason: 'Visual inspection, diagram analysis & OCR extraction',
+      isComplex: true,
+    }
+  }
+
+  // 2. Code implementation & debugging
+  if (detectedTask === 'code') {
+    return {
+      intensity: 'code',
+      recommendedModel: 'qwen2.5-coder:7b',
+      taskType: 'code',
+      reason: 'Programming syntax, script generation & code debugging',
+      isComplex: true,
+    }
+  }
+
+  // 3. User explicitly requested Deep Research / Max Effort
+  if (eff.includes('deep') || eff.includes('reason') || eff.includes('research') || eff.includes('max')) {
+    return {
+      intensity: 'high',
+      recommendedModel: 'qwen3:8b',
+      taskType: detectedTask,
+      reason: 'Deep multi-step reasoning & thorough cognitive synthesis',
+      isComplex: true,
+    }
+  }
+
+  // 4. File attachments -> Requires Master reasoning & document extraction
+  if (filesCount > 0) {
+    return {
+      intensity: 'high',
+      recommendedModel: 'qwen3:8b',
+      taskType: 'document',
+      reason: 'Document grounding, structural extraction & cross-referencing',
+      isComplex: true,
+    }
+  }
+
+  // 5. Engineering, Industrial, Regulatory, Mathematical, or System Troubleshooting keywords
+  const heavyKeywords = [
+    'calculate', 'formula', 'mass balance', 'heat balance', 'pressure drop',
+    'exchanger', 'cdu', 'vdu', 'distillation', 'refinery', 'oisd', 'pipeline',
+    'corrosion', 'fouling', 'root cause', 'troubleshoot', 'simulation',
+    'reboiler', 'hydraulic', 'thermodynamic', 'furnace', 'flange', 'iso',
+    'turnaround', 'inspection', 'hazard', 'safety limit', 'interlock', 'trips',
+    'step by step', 'compare', 'contrast', 'explain how', 'why does', 'architecture',
+    'specification', 'standard', 'sop', 'permit', 'ptw'
+  ]
+
+  const matchesHeavy = heavyKeywords.some((k) => text.includes(k))
+  const hasFormulasOrMath = /[0-9]+\s*[\+\-\*\/\^=><]\s*[0-9]+/.test(text)
+  const isLongDetailedQuery = text.length > 130
+
+  if (matchesHeavy || hasFormulasOrMath || isLongDetailedQuery) {
+    return {
+      intensity: 'high',
+      recommendedModel: 'qwen3:8b',
+      taskType: detectedTask === 'general' ? 'analysis' : detectedTask,
+      reason: 'High-intensity industrial engineering, calculations & technical reasoning',
+      isComplex: true,
+    }
+  }
+
+  // 6. Fast / Lightweight queries -> Route to Qwen3-4B to save time and give ultra-fast sub-second answers!
+  // Simple greetings, casual chit-chat, quick factual questions, short summaries, or simple definitions
+  const simpleGreetings = [
+    'hi', 'hii', 'hiii', 'hello', 'hey', 'heyy', 'who are you', 'who r u',
+    'what is your name', 'how are you', 'good morning', 'good evening',
+    'good afternoon', 'what can you do', 'test', 'ping', 'thanks', 'thank you',
+    'ok', 'okay', 'bye', 'good night', 'help', 'sup'
+  ]
+
+  const isGreeting = simpleGreetings.includes(text) || (text.length <= 15 && !/[0-9]/.test(text))
+  const isShortLookup = text.length <= 70 && !matchesHeavy && !hasFormulasOrMath
+
+  if (isGreeting || isShortLookup || eff.includes('fast')) {
+    return {
+      intensity: 'light',
+      recommendedModel: 'qwen3:4b',
+      taskType: 'fast',
+      reason: 'Fast synthesis, low-latency response & conversational agility',
+      isComplex: false,
+    }
+  }
+
+  // 7. Moderate queries: Default to Master Node (Qwen3-8B) for high-quality standard responses
+  return {
+    intensity: 'moderate',
+    recommendedModel: 'qwen3:8b',
+    taskType: detectedTask,
+    reason: 'Standard knowledge synthesis & balanced cognitive response',
+    isComplex: isComplexTask(content, filesCount, effort),
+  }
+}
+
 /**
  * Ping backend node health directly with server proxy fallback to bypass CORS
  */
