@@ -74,28 +74,45 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const [pyodideLoading, setPyodideLoading] = useState<Record<string, boolean>>({})
   const contentRef = useRef<HTMLDivElement>(null)
 
-  // Parse <think>...</think> reasoning blocks if present
-  let thinkingText = ''
-  let finalContent = message.content || ''
-  let isThinkingComplete = false
+  // Strictly parse & isolate thinking blocks, while keeping finalContent pristine
+  const { sanitizedContent: finalContent, extractedThinking: thinkingText, isThinkingComplete } = React.useMemo(() => {
+    const raw = message.content || ''
+    let thinking = ''
+    let isComplete = true
 
-  if (message.content && message.content.includes('<think>')) {
-    const thinkEndIndex = message.content.indexOf('</think>')
-    if (thinkEndIndex !== -1) {
-      thinkingText = message.content.substring(
-        message.content.indexOf('<think>') + 7,
-        thinkEndIndex
-      ).trim()
-      finalContent = message.content.substring(thinkEndIndex + 8).trim()
-      isThinkingComplete = true
-    } else {
-      thinkingText = message.content.substring(
-        message.content.indexOf('<think>') + 7
-      ).trim()
-      finalContent = ''
-      isThinkingComplete = false
+    // 1. Extract closed <think>...</think> or <thought>...</thought> blocks
+    const closedThinkRegex = /<(?:think|thought)>([\s\S]*?)<\/(?:think|thought)>/gi
+    let match: RegExpExecArray | null
+    while ((match = closedThinkRegex.exec(raw)) !== null) {
+      if (match[1]?.trim()) {
+        thinking += (thinking ? '\n\n' : '') + match[1].trim()
+      }
     }
-  }
+    let clean = raw.replace(closedThinkRegex, '')
+
+    // 2. Check for in-flight unclosed <think> or <thought> block
+    const unclosedMatch = clean.match(/<(?:think|thought)>([\s\S]*)$/i)
+    if (unclosedMatch) {
+      if (unclosedMatch[1]?.trim()) {
+        thinking += (thinking ? '\n\n' : '') + unclosedMatch[1].trim()
+      }
+      clean = clean.replace(/<(?:think|thought)>[\s\S]*$/i, '')
+      isComplete = false
+    }
+
+    // 3. Strip internal model deliberations / council briefs so user NEVER sees raw debate
+    clean = clean
+      .replace(/(?:^|\n)Technical Architecture & Plan from Node 2[^\n]*\n[\s\S]*?(?=\n\n|$)/gi, '')
+      .replace(/(?:^|\n)={3,}\s*\nAIRA MODEL COUNCIL DELIBERATION BRIEF[\s\S]*?={3,}\s*\n/gi, '')
+      .replace(/(?:^|\n)\[PERSPECTIVE [AB]:[\s\S]*?(?=\n\[PERSPECTIVE|\nARBITER INSTRUCTIONS:|\n={3,}|\n\n[A-Z]|$)/gi, '')
+      .replace(/(?:^|\n)ARBITER INSTRUCTIONS:[\s\S]*?(?=\n={3,}|\n\n|$)/gi, '')
+
+    return {
+      sanitizedContent: clean.trim(),
+      extractedThinking: thinking.trim(),
+      isThinkingComplete: isComplete,
+    }
+  }, [message.content])
 
   // Unified think steps: use message.thinkSteps if available, or parse thinkingText
   const displaySteps = React.useMemo(() => {
@@ -428,6 +445,24 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       const lang = match[1]
                       const codeIndex = Math.random()
                       const blockKey = `${message.id}_${codeText.slice(0, 32)}`
+
+                      // Claude/Gemini style: Suppress raw JSON manifest dump; presentation banner renders below
+                      if (
+                        (lang === 'json' || (className && className.includes('json'))) &&
+                        codeText.includes('"slides"') &&
+                        (codeText.includes('"title"') || codeText.includes('"layout"'))
+                      ) {
+                        return (
+                          <div className="my-3 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-xs text-amber-300 shadow-sm">
+                            <div className="flex items-center gap-2">
+                              <Presentation size={15} className="text-amber-400" />
+                              <span className="font-semibold text-slate-100">Executive Slide Deck Compiled</span>
+                              <span className="text-[11px] text-amber-200/80 font-mono">· 16:9 Widescreen</span>
+                            </div>
+                            <span className="text-[11px] text-amber-400 font-mono font-medium">Ready for PPTX Export ↓</span>
+                          </div>
+                        )
+                      }
 
                       return (
                         <div className="my-4 rounded-xl overflow-hidden border border-border bg-[#0C0C0C]">

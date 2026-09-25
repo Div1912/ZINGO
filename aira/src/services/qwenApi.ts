@@ -1,10 +1,21 @@
 import type { Message, ModelId, Source, TaskType, UploadedFile } from '../types'
 
 /**
+ * Check if the query is requesting a PowerPoint / slide deck / presentation deliverable
+ */
+export function isPresentationQuery(content: string): boolean {
+  if (!content) return false
+  const text = content.toLowerCase().trim()
+  return /\b(ppt|pptx|powerpoint|presentation|slide deck|slides|pitch deck|deck|keynote|slideshow)\b/i.test(text)
+}
+
+/**
  * Detect task category for badge / routing
  */
 export function detectTaskType(content: string): TaskType {
   const text = content.toLowerCase()
+
+  if (isPresentationQuery(text)) return 'analysis'
 
   const codeKeywords = [
     'code', 'script', 'python', 'bash', 'function', 'def ', 'import ', 'sql',
@@ -39,6 +50,8 @@ export function isComplexTask(
   filesCount: number = 0,
   effort?: string
 ): boolean {
+  if (isPresentationQuery(content)) return true
+
   // 1. Files / documents uploaded -> OCR & deep extraction needed
   if (filesCount > 0) return true
 
@@ -111,6 +124,18 @@ export function classifyTaskIntensity(
   const text = (content || '').toLowerCase().trim()
   const detectedTask = detectTaskType(content || '')
   const eff = (effort || '').toLowerCase()
+
+  // 0. Presentation & Slide Deck Intent -> Always 3-Node Cluster Synergy on Master Node (Qwen3-8B)
+  // Coordinates: Node 3 (Qwen3-4B Outline) + Node 2 (Qwen2.5-VL Layout) + Node 1 (Qwen3-8B Synthesis)
+  if (isPresentationQuery(content)) {
+    return {
+      intensity: 'high',
+      recommendedModel: 'qwen3:8b',
+      taskType: 'analysis',
+      reason: '3-Node Collaborative PPT Engine (Node 3 Ideation + Node 2 Layout + Node 1 Synthesis)',
+      isComplex: true,
+    }
+  }
 
   // 1. Multimodal / Vision
   if (hasImages || detectedTask === 'vision') {

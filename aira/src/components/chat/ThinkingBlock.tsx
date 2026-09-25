@@ -56,7 +56,8 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
   totalSteps,
   elapsedMs,
 }) => {
-  const [expanded, setExpanded] = useState(true)
+  // Claude/Gemini style: Keep internal reasoning collapsed by default so chat stays clean
+  const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 

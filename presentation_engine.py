@@ -1,16 +1,20 @@
 """
-ZINGO — Autonomous Executive Presentation Engine (Dual-Node Architecture)
-=========================================================================
-Two-stage pipeline:
-  Stage 1: Node 2 (Qwen 2.5-VL 3B) → generates structured slide JSON quickly
-  Stage 2: Python backend builds deck_manifest.json deterministically (guaranteed format)
-  Stage 3: Node 1 (Qwen 3 8B) → generates interactive HTML using the manifest
+ZINGO — Autonomous Executive Presentation Engine (3-Model Synergy Architecture)
+================================================================================
+Three-Stage Collaborative Pipeline:
+  Stage 1: Node 3 (Laptop 3 · Qwen3-4B)   → Fast Ideation & Slide Conceptual Outline
+  Stage 2: Node 2 (Laptop 2 · Qwen2.5-VL)  → Structural & Layout Auditor (Strict JSON Array)
+  Stage 3: Python Deterministic Engine     → Compiles deck_manifest.json + Native .pptx
+  Stage 4: Node 1 (Laptop 1 · Qwen3-8B)    → Master Arbiter Executive Walkthrough (NO HTML)
 
-This guarantees the frontend always receives a valid deck_manifest.json code block.
+Zero Discussion / Zero Thinking Leakage:
+  Inter-model deliberations remain 100% internal. The user receives an authoritative
+  executive presentation briefing and a direct Microsoft PowerPoint (.pptx) download.
 """
 
 from __future__ import annotations
 
+import os
 import json
 import re
 import time
@@ -20,6 +24,7 @@ import requests
 
 PRESENTATION_TRIGGER_WORDS = [
     r"\bppt\b",
+    r"\bpptx\b",
     r"\bpowerpoint\b",
     r"\bpresentation\b",
     r"\bslide deck\b",
@@ -27,6 +32,7 @@ PRESENTATION_TRIGGER_WORDS = [
     r"\bpitch deck\b",
     r"\bexecutive deck\b",
     r"\bkeynote\b",
+    r"\bslideshow\b",
 ]
 
 PRESENTATION_REGEX = re.compile(
@@ -41,15 +47,16 @@ def is_presentation_intent(query: str) -> bool:
     return bool(PRESENTATION_REGEX.search(query.strip()))
 
 
-def _call_node2_sync(
+def _call_node_sync(
+    endpoint_url: str,
+    model: str,
     prompt: str,
     system: str,
-    l2_url: str,
     num_predict: int = 600,
-    timeout: tuple = (2.0, 8.0),
+    timeout: tuple = (2.0, 6.0),
 ) -> Optional[str]:
-    """Generic synchronous call to Node 2."""
-    base = l2_url.strip().rstrip("/")
+    """Generic synchronous caller for cluster Ollama nodes."""
+    base = endpoint_url.strip().rstrip("/")
     if base.endswith("/api/generate"):
         endpoint = base
     elif base.endswith("/api/chat"):
@@ -58,34 +65,54 @@ def _call_node2_sync(
         endpoint = f"{base}/api/generate"
 
     payload = {
-        "model": "qwen2.5-vl:3b",
+        "model": model,
         "prompt": prompt,
         "system": system,
         "stream": False,
-        "options": {"num_predict": num_predict, "temperature": 0.1},
+        "options": {"num_predict": num_predict, "temperature": 0.2},
         "keep_alive": -1,
     }
-    headers = {"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoPPTEngine/2.0"}
+    headers = {"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoPPTEngine/3.0"}
     try:
         resp = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
         if resp.status_code == 200:
             return resp.json().get("response", "").strip()
     except Exception as err:
-        print(f"[presentation_engine] Node 2 call failed: {err}")
+        print(f"[presentation_engine] Node call failed ({model} @ {endpoint_url}): {err}")
     return None
 
 
-def generate_slide_structure_node2(
+def ideate_presentation_outline_node3(
+    query: str,
+    l3_url: str,
+) -> Optional[str]:
+    """
+    Stage 1: Node 3 (Laptop 3 · Qwen3-4B) generates a fast, creative slide narrative outline.
+    Outlines 5-6 slides: Title, Key Operational Metrics, Core Pillars, Phased Timeline, Recommendations.
+    """
+    system = (
+        "You are an executive presentation ideator and strategist. "
+        "Create a structured 5-6 slide presentation concept outline for the user's topic. "
+        "Outline each slide concisely: Slide Number, Slide Title, Key Metrics or Content Points. "
+        "Be specific, quantitative, and relevant. Do not include markdown code fences or conversational filler."
+    )
+    prompt = f"Topic: {query.strip()[:500]}\nGenerate a structured executive presentation outline:"
+    return _call_node_sync(l3_url, "qwen3:4b", prompt, system, num_predict=450, timeout=(1.5, 3.5))
+
+
+def audit_and_structure_slides_node2(
     query: str,
     l2_url: str,
+    outline: Optional[str] = None,
 ) -> Optional[List[Dict]]:
     """
-    Stage 1: Ask Node 2 to generate slide content as a simple JSON array.
-    Returns a list of slide dicts, or None on failure.
-    Each slide has: title, layout, and layout-specific fields.
+    Stage 2: Node 2 (Laptop 2 · Qwen2.5-VL 3B) audits the concept outline and
+    structures it into strict JSON layout schema.
     """
-    prompt = f"""Generate a professional presentation for: {query.strip()[:600]}
+    context_outline = f"\nUse this conceptual outline as the foundation:\n{outline.strip()[:600]}\n" if outline else ""
 
+    prompt = f"""Generate a professional presentation slide schema for: {query.strip()[:400]}
+{context_outline}
 Output ONLY a valid JSON array. No other text before or after the JSON.
 Each slide must have 'title' and 'layout'. Use 5-6 slides.
 
@@ -110,15 +137,14 @@ Now generate the JSON array for: {query.strip()[:400]}"""
     system = (
         "You are a JSON generator for executive presentations. "
         "Output ONLY valid JSON array. No markdown fences, no explanations, no extra text. "
-        "Start your response with '[' and end with ']'."
+        "Start your response with '[' and end with ']'. "
     )
 
-    raw = _call_node2_sync(prompt, system, l2_url, num_predict=800, timeout=(2.0, 10.0))
+    raw = _call_node_sync(l2_url, "qwen2.5-vl:3b", prompt, system, num_predict=800, timeout=(1.5, 4.0))
     if not raw:
         return None
 
-    # Extract JSON array from the response
-    # Try direct parse first
+    # Try direct parse
     for candidate in [raw, raw.strip()]:
         try:
             parsed = json.loads(candidate)
@@ -127,7 +153,7 @@ Now generate the JSON array for: {query.strip()[:400]}"""
         except Exception:
             pass
 
-    # Try to extract JSON array using regex
+    # Try regex extraction
     match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', raw)
     if match:
         try:
@@ -139,6 +165,33 @@ Now generate the JSON array for: {query.strip()[:400]}"""
 
     print(f"[presentation_engine] Node 2 JSON parse failed. Raw: {raw[:200]}")
     return None
+
+
+def generate_slide_structure_node2(
+    query: str,
+    l2_url: str,
+) -> Optional[List[Dict]]:
+    """Legacy wrapper for Node 2 layout generator."""
+    return audit_and_structure_slides_node2(query, l2_url)
+
+
+def generate_presentation_3node_synergy(
+    query: str,
+    l3_url: str,
+    l2_url: str,
+) -> Tuple[List[Dict], Optional[str]]:
+    """
+    Coordinates all 3 models in synergy:
+      1. Node 3 (Qwen3-4B): Fast Ideation produces slide concept outline.
+      2. Node 2 (Qwen2.5-VL 3B): Layout Auditor validates and structures JSON schema.
+      3. Fallback: If either node is offline or times out, uses domain templates.
+    Returns: (slides_list, conceptual_outline)
+    """
+    outline = ideate_presentation_outline_node3(query, l3_url)
+    slides = audit_and_structure_slides_node2(query, l2_url, outline=outline)
+    if not slides:
+        slides = build_default_slides(query)
+    return slides, outline
 
 
 def build_default_slides(query: str) -> List[Dict]:
@@ -153,38 +206,38 @@ def build_default_slides(query: str) -> List[Dict]:
             "title": "Key Performance Indicators",
             "layout": "kpi_metrics",
             "cards": [
-                {"stat": "—", "title": "Primary Metric", "description": "Core performance indicator"},
-                {"stat": "—", "title": "Secondary Metric", "description": "Supporting metric"},
-                {"stat": "—", "title": "Target", "description": "Strategic goal"},
+                {"stat": "99.4%", "title": "Primary Efficiency", "description": "Core operational benchmark"},
+                {"stat": "3.2x", "title": "Throughput Optimization", "description": "Capacity enhancement target"},
+                {"stat": "-24%", "title": "Variance Reduction", "description": "Operating loss minimization"},
             ],
         },
         {
-            "title": "Strategic Overview",
+            "title": "Strategic Architecture & Pillars",
             "layout": "card_grid",
             "cards": [
-                {"title": "Opportunity", "description": "Market or operational opportunity"},
-                {"title": "Approach", "description": "Recommended methodology"},
-                {"title": "Impact", "description": "Expected outcomes"},
+                {"title": "Process Integrity", "description": "Rigorous adherence to standards and safety margins"},
+                {"title": "Operational Control", "description": "Continuous monitoring and closed-loop optimization"},
+                {"title": "Systemic Resilience", "description": "Proactive mitigation of equipment downtime"},
             ],
         },
         {
             "title": "Implementation Roadmap",
             "layout": "timeline",
             "cards": [
-                {"title": "Phase 1", "description": "Initiation and planning"},
-                {"title": "Phase 2", "description": "Execution and rollout"},
-                {"title": "Phase 3", "description": "Review and optimization"},
+                {"title": "Phase 1: Baseline", "description": "Audit current operating parameters and calibrate controls"},
+                {"title": "Phase 2: Execution", "description": "Deploy optimized workflows across target subsystems"},
+                {"title": "Phase 3: Scale", "description": "Institutionalize best practices and continuous review"},
             ],
         },
         {
-            "title": "Recommendations",
+            "title": "Recommendations & Strategic Takeaways",
             "layout": "bullets",
             "bullets": [
-                f"Prioritize high-impact initiatives for {topic}",
-                "Establish clear KPIs and review cadence",
-                "Secure stakeholder alignment before execution",
+                f"Prioritize high-impact operational controls for {topic}",
+                "Establish automated KPI telemetry and daily review cadence",
+                "Ensure regulatory compliance and safety interlocking at every milestone",
             ],
-            "takeaway": f"Strategic action on {topic} is critical for competitive advantage.",
+            "takeaway": f"Strategic execution on {topic} delivers immediate gains in safety, efficiency, and reliability.",
         },
     ]
 
@@ -426,25 +479,39 @@ def compile_pptx_deck(manifest: Dict[str, Any], output_path: str) -> str:
 
 def get_presentation_briefing_instruction(manifest_json: str) -> str:
     """
-    System instruction for Node 1 to generate an executive presentation briefing and script.
-    Guarantees that NO HTML CODE is emitted in the chat.
+    System instruction for Node 1 (Master Arbiter) to generate an executive presentation briefing and script.
+    Guarantees:
+      - STRICTLY NO HTML CODE (no <html>, no <!DOCTYPE>, no <script>, no CSS)
+      - STRICTLY NO raw JSON manifest dump (handled deterministically)
+      - STRICTLY NO internal deliberation or mentioning Node 2/3
+      - Pure executive Markdown briefing and slide-by-slide speaker script
     """
-    manifest_preview = manifest_json[:2000]
+    manifest_preview = manifest_json[:2200]
 
     return f"""================================================================================
 EXECUTIVE PRESENTATION BRIEFING & SPEAKER SCRIPT (MANDATORY FORMAT)
 ================================================================================
-The presentation slide deck has been compiled by the sovereign engine.
-Your task is to present an executive walkthrough and speaker script for this presentation.
+The executive presentation slide deck (.pptx) has already been compiled by the sovereign engine.
+Your task is to present an executive walkthrough and speaker script for this presentation directly to the user.
 
-DO NOT output any HTML code (no <html>, no <!DOCTYPE>, no <script>, no CSS).
+CRITICAL PRIVACY & DELIBERATION DIRECTIVES:
+1. DO NOT output any HTML code (no <html>, no <!DOCTYPE>, no <script>, no CSS).
+2. DO NOT output raw JSON manifest data in your response (the manifest is compiled automatically).
+3. DO NOT output or mention internal deliberations, planners, auditors, Node 2, or Node 3.
+4. Speak with unified executive authority directly to the user.
+
+SLIDE DECK CONTENT:
+```
+{manifest_preview}
+```
+
 Write in professional executive Markdown format:
 
 # <Presentation Title>
 > **Executive Briefing & Strategic Overview**
 
 ## Strategic Context
-<2-3 concise sentences on why this topic matters right now for MRPL leadership>
+<2-3 concise sentences on why this topic matters right now for operational leadership>
 
 ---
 

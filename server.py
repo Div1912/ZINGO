@@ -27,6 +27,9 @@ warnings.filterwarnings("ignore", message=".*quant_min and quant_max.*")
 
 import base64
 import json
+import os
+import re
+import time
 import requests
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -147,8 +150,8 @@ class ClusterLoadBalancer:
         if normalized_task in ("fast", "lightweight", "quick"):
             return laptop3_target_endpoint, "qwen3:4b", "laptop3"
 
-        # Deep document synthesis & engineering analysis -> Prefer Laptop 1 (Qwen3-8B)
-        if normalized_task in ("document", "analysis"):
+        # Deep document synthesis, presentations & engineering analysis -> Prefer Laptop 1 (Qwen3-8B)
+        if normalized_task in ("document", "analysis", "presentation", "ppt"):
             if "qwen3:8b" in local_models:
                 return laptop1_endpoint, "qwen3:8b", "primary"
             elif "qwen3:4b" in local_models:
@@ -376,6 +379,7 @@ from presentation_engine import (
     generate_presentation_speculative_plan,
     get_presentation_system_instruction,
     generate_slide_structure_node2,
+    generate_presentation_3node_synergy,
     build_deck_manifest,
     get_html_generation_instruction,
     compile_pptx_deck,
@@ -977,24 +981,18 @@ async def process_and_ask(
 
     display_model = target_model
     test_spec = None
-    if node_key == "primary" and not images_b64:
-        spec_plan = speculative_plan_decomposition(user_query, node_url)
-        if spec_plan:
-            instruction = f"Technical Architecture & Plan from Node 2 (Fast Planner):\n{spec_plan}\n\n{instruction}"
-            display_model = f"{target_model} (Dual-Node Synergy · Node 2 Planned + Node 1 Synthesized)"
-        test_spec = generate_test_specification(user_query, node_url, cluster_balancer.laptop2_url)
-        if test_spec:
-            instruction = f"{instruction}\n\n{format_tot_instruction(test_spec)}"
+    is_ppt = is_presentation_intent(user_query)
 
-    # Autonomous Presentation Engine — Dual-Node Pipeline
-    ppt_manifest_prefix = ""
-    if is_presentation_intent(user_query):
-        l2_url = cluster_balancer.laptop2_url
-        slides = generate_slide_structure_node2(user_query, l2_url)
-        if slides is None:
-            # Node 2 offline or failed: build default structure
-            from presentation_engine import build_default_slides
-            slides = build_default_slides(user_query)
+    if is_ppt:
+        # Autonomous Presentation Deliverables: Master Node (Qwen3-8B) orchestrates 3-Node Synergy
+        target_endpoint = MODEL_ENDPOINT
+        target_model = "qwen3:8b"
+        node_key = "primary"
+        slides, outline = generate_presentation_3node_synergy(
+            query=user_query,
+            l3_url=cluster_balancer.laptop3_url,
+            l2_url=cluster_balancer.laptop2_url,
+        )
         manifest_dict = json.loads(build_deck_manifest(user_query, slides))
         manifest_json = json.dumps(manifest_dict, indent=2, ensure_ascii=False)
         try:
@@ -1004,14 +1002,24 @@ async def process_and_ask(
         except Exception as p_err:
             print(f"[server] Native pptx compile error: {p_err}")
 
-        # Build the prefix that will be prepended to Node 1's stream
+        # Prepend guaranteed manifest code block (rendered as interactive canvas + PPTX download banner)
         ppt_manifest_prefix = (
             f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
         # Node 1 generates an executive briefing and speaker script (NO HTML!)
         instruction = f"{instruction}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        display_model = f"{target_model} (Dual-Node Executive PPT Engine)"
+        display_model = f"{target_model} (3-Model Synergy · Node 3 Ideation + Node 2 Layout + Node 1 Synthesis)"
+    else:
+        ppt_manifest_prefix = ""
+        if node_key == "primary" and not images_b64:
+            spec_plan = speculative_plan_decomposition(user_query, node_url)
+            if spec_plan:
+                instruction = f"INTERNAL ARCHITECTURAL CONTEXT (DO NOT REPEAT TO USER OR MENTION NODE 2):\n{spec_plan}\n\n{instruction}"
+                display_model = f"{target_model} (Dual-Node Synergy · Node 2 Planned + Node 1 Synthesized)"
+            test_spec = generate_test_specification(user_query, node_url, cluster_balancer.laptop2_url)
+            if test_spec:
+                instruction = f"{instruction}\n\n{format_tot_instruction(test_spec)}"
 
     # ── Model Council Deliberation (Opt-in via search bar) ────────────────────
     council_result = None
@@ -1308,23 +1316,18 @@ async def api_chat(payload_data: ChatPayload):
 
     display_model = model
     test_spec = None
-    if node_key == "primary" and not payload_data.images:
-        spec_plan = speculative_plan_decomposition(question, payload_data.node_url)
-        if spec_plan:
-            system = f"Technical Architecture & Plan from Node 2 (Fast Planner):\n{spec_plan}\n\n{system}"
-            display_model = f"{model} (Dual-Node Synergy · Node 2 Planned + Node 1 Synthesized)"
-        test_spec = generate_test_specification(question, payload_data.node_url, cluster_balancer.laptop2_url)
-        if test_spec:
-            system = f"{system}\n\n{format_tot_instruction(test_spec)}"
+    is_ppt = is_presentation_intent(question)
 
-    # Autonomous Presentation Engine — Dual-Node Pipeline
-    ppt_manifest_prefix = ""
-    if is_presentation_intent(question):
-        l2_url = cluster_balancer.laptop2_url
-        slides = generate_slide_structure_node2(question, l2_url)
-        if slides is None:
-            from presentation_engine import build_default_slides
-            slides = build_default_slides(question)
+    if is_ppt:
+        # Autonomous Presentation Deliverables: Master Node (Qwen3-8B) orchestrates 3-Node Synergy
+        target_endpoint = MODEL_ENDPOINT
+        model = "qwen3:8b"
+        node_key = "primary"
+        slides, outline = generate_presentation_3node_synergy(
+            query=question,
+            l3_url=cluster_balancer.laptop3_url,
+            l2_url=cluster_balancer.laptop2_url,
+        )
         manifest_dict = json.loads(build_deck_manifest(question, slides))
         manifest_json = json.dumps(manifest_dict, indent=2, ensure_ascii=False)
         try:
@@ -1334,12 +1337,23 @@ async def api_chat(payload_data: ChatPayload):
         except Exception as p_err:
             print(f"[server] Native pptx compile error: {p_err}")
 
+        # Prepend guaranteed manifest code block (rendered as interactive canvas + PPTX download banner)
         ppt_manifest_prefix = (
             f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
         system = f"{system}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        display_model = f"{model} (Dual-Node Executive PPT Engine)"
+        display_model = f"{model} (3-Model Synergy · Node 3 Ideation + Node 2 Layout + Node 1 Synthesis)"
+    else:
+        ppt_manifest_prefix = ""
+        if node_key == "primary" and not payload_data.images:
+            spec_plan = speculative_plan_decomposition(question, payload_data.node_url)
+            if spec_plan:
+                system = f"INTERNAL ARCHITECTURAL CONTEXT (DO NOT REPEAT TO USER OR MENTION NODE 2):\n{spec_plan}\n\n{system}"
+                display_model = f"{model} (Dual-Node Synergy · Node 2 Planned + Node 1 Synthesized)"
+            test_spec = generate_test_specification(question, payload_data.node_url, cluster_balancer.laptop2_url)
+            if test_spec:
+                system = f"{system}\n\n{format_tot_instruction(test_spec)}"
 
     # ── Model Council Deliberation (Opt-in via search bar) ────────────────────
     council_result = None

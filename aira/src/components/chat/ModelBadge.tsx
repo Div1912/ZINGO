@@ -1,5 +1,5 @@
 import React from 'react'
-import { Cpu, FileText, Code, BarChart2, Sparkles } from 'lucide-react'
+import { Cpu, FileText, Code, BarChart2, Sparkles, Presentation } from 'lucide-react'
 import type { ModelId, TaskType } from '../../types'
 
 interface ModelBadgeProps {
@@ -10,6 +10,9 @@ interface ModelBadgeProps {
 export function formatModelDisplayName(model?: string): string {
   if (!model) return 'Qwen 3 (8B)'
   const m = model.toLowerCase()
+  if (m.includes('3-node') || m.includes('3-model') || (m.includes('ppt') && (m.includes('synergy') || m.includes('engine')))) {
+    return '3-Node PPT Synergy (Qwen3-4B + VL-3B + Qwen3-8B)'
+  }
   if (m.includes('synergy')) return 'Dual-Node Synergy (Qwen 3 + VL 3B)'
   if (m.includes('4b')) return 'Qwen 3 (4B)'
   if (m.includes('vl') || m.includes('vision')) return 'Qwen 2.5-VL'
@@ -25,27 +28,33 @@ export const ModelBadge: React.FC<ModelBadgeProps> = ({
   taskType = 'document',
 }) => {
   const modelName = formatModelDisplayName(model)
+  const isPpt = (model || '').toLowerCase().includes('ppt')
 
   let taskIcon = <FileText size={11} className="text-content-secondary" />
   let taskLabel = 'Document'
 
-  switch (taskType) {
-    case 'code':
-      taskIcon = <Code size={11} className="text-content-secondary" />
-      taskLabel = 'Code'
-      break
-    case 'analysis':
-      taskIcon = <BarChart2 size={11} className="text-content-secondary" />
-      taskLabel = 'Analysis'
-      break
-    case 'general':
-      taskIcon = <Sparkles size={11} className="text-content-secondary" />
-      taskLabel = 'General'
-      break
-    case 'fast':
-      taskIcon = <Sparkles size={11} className="text-content-secondary" />
-      taskLabel = 'Fast QA'
-      break
+  if (isPpt) {
+    taskIcon = <Presentation size={11} className="text-amber-400" />
+    taskLabel = '16:9 Presentation Deck'
+  } else {
+    switch (taskType) {
+      case 'code':
+        taskIcon = <Code size={11} className="text-content-secondary" />
+        taskLabel = 'Code'
+        break
+      case 'analysis':
+        taskIcon = <BarChart2 size={11} className="text-content-secondary" />
+        taskLabel = 'Analysis'
+        break
+      case 'general':
+        taskIcon = <Sparkles size={11} className="text-content-secondary" />
+        taskLabel = 'General'
+        break
+      case 'fast':
+        taskIcon = <Sparkles size={11} className="text-content-secondary" />
+        taskLabel = 'Fast QA'
+        break
+    }
   }
 
   return (
