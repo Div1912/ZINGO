@@ -31,6 +31,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fontSize: 'base',
   enterToSend: true,
   notificationsEnabled: true,
+  codeExecution: true,
+  sandboxNetworkEgress: true,
+  subagentsEnabled: true,
   autoRouteRules: [
     { id: '1', keywords: 'code, script, python, debug, function, bash, algorithm, calculate, yield', targetModel: 'qwen2.5-coder-7b' },
     { id: '2', keywords: 'document, SOP, report, search, find, permit, inspection, OISD, CDU, valve, audit', targetModel: 'qwen3:8b' },

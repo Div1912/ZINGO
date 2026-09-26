@@ -21,15 +21,23 @@ import {
   ChevronUp,
   ChevronDown,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  Share2,
+  Save,
+  GitBranch,
+  FileText,
+  History,
 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
-import { Highlight, themes } from 'prism-react-renderer'
 import { useArtifactStore } from '../../stores/artifactStore'
 import { useToastStore } from '../../stores/toastStore'
 import { zingoApi } from '../../services/zingoApi'
+
+type DeviceMode = 'desktop' | 'tablet' | 'mobile'
 
 interface ConsoleLog {
   id: string
@@ -38,10 +46,16 @@ interface ConsoleLog {
   timestamp: string
 }
 
-type DeviceMode = 'desktop' | 'tablet' | 'mobile'
-
 export const ArtifactViewer: React.FC = () => {
-  const { artifacts, activeArtifactId, isViewerOpen, closeArtifact } = useArtifactStore()
+  const {
+    artifacts,
+    activeArtifactId,
+    isViewerOpen,
+    closeArtifact,
+    setArtifactVersion,
+    addArtifactVersion,
+    updateActiveVersionContent,
+  } = useArtifactStore()
   const { addToast } = useToastStore()
 
   const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview')
@@ -51,10 +65,25 @@ export const ArtifactViewer: React.FC = () => {
   const [reloadKey, setReloadKey] = useState(0)
   const [logs, setLogs] = useState<ConsoleLog[]>([])
   const [isConsoleOpen, setIsConsoleOpen] = useState(false)
+  const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false)
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false)
+
+  // In-panel live editing state
+  const [editableCode, setEditableCode] = useState('')
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
   const consoleBottomRef = useRef<HTMLDivElement>(null)
+  const editorTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const artifact = artifacts.find((a) => a.id === activeArtifactId)
+
+  // Sync editor content when active artifact or version changes
+  useEffect(() => {
+    if (artifact) {
+      setEditableCode(artifact.content)
+      setHasUnsavedChanges(false)
+    }
+  }, [artifact?.id, artifact?.currentVersionIndex, artifact?.content])
 
   // Listen for calculation saves and console logs from sandboxed iframe
   useEffect(() => {
@@ -113,15 +142,26 @@ export const ArtifactViewer: React.FC = () => {
 
   if (!isViewerOpen || !artifact) return null
 
+  const versions = artifact.versions && artifact.versions.length > 0
+    ? artifact.versions
+    : [{ version: 1, content: artifact.content, title: artifact.title, timestamp: artifact.createdAt }]
+  const currentIdx = typeof artifact.currentVersionIndex === 'number' && artifact.currentVersionIndex < versions.length
+    ? artifact.currentVersionIndex
+    : versions.length - 1
+  const currentVerNum = versions[currentIdx]?.version || (currentIdx + 1)
+  const totalVersions = versions.length
+
   const isInteractive =
     artifact.type === 'html' ||
     artifact.type === 'svg' ||
     artifact.type === 'react' ||
+    artifact.type === 'mermaid' ||
     artifact.language === 'html' ||
     artifact.language === 'jsx' ||
     artifact.language === 'tsx' ||
     artifact.language === 'javascript' ||
     artifact.language === 'js' ||
+    artifact.language === 'mermaid' ||
     artifact.content.includes('<html') ||
     artifact.content.includes('<!DOCTYPE') ||
     (artifact.content.includes('<div') && artifact.content.includes('</div>'))
@@ -144,6 +184,7 @@ export const ArtifactViewer: React.FC = () => {
     else if (artifact.type === 'svg') ext = '.svg'
     else if (artifact.type === 'react' || artifact.language === 'jsx' || artifact.language === 'tsx') ext = '.tsx'
     else if (artifact.type === 'markdown') ext = '.md'
+    else if (artifact.type === 'mermaid') ext = '.mmd'
     else if (artifact.language === 'python' || artifact.language === 'py') ext = '.py'
 
     const blob = new Blob([artifact.content], { type: 'text/plain;charset=utf-8' })
@@ -164,10 +205,30 @@ export const ArtifactViewer: React.FC = () => {
 <head>
   <meta charset="UTF-8">
   <title>${artifact.title}</title>
-  <style>body { margin: 0; background: #0b0f19; display: flex; align-items: center; justify-content: center; min-height: 100vh; }</style>
+  <style>
+    body { margin: 0; padding: 24px; background: #0b0f19; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .svg-wrapper { background: #ffffff; padding: 24px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 95%; max-height: 85vh; display: flex; align-items: center; justify-content: center; overflow: auto; }
+    svg { max-width: 100%; height: auto; }
+  </style>
 </head>
 <body>
-  ${artifact.content}
+  <div class="svg-wrapper">
+    ${artifact.content}
+  </div>
+</body>
+</html>`
+    } else if (artifact.type === 'mermaid') {
+      htmlPayload = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${artifact.title}</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>body { margin: 0; padding: 24px; background: #0b0f19; color: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; }</style>
+</head>
+<body>
+  <div class="mermaid">${artifact.content}</div>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'dark' });</script>
 </body>
 </html>`
     } else if (!htmlPayload.includes('<html') && !htmlPayload.includes('<!DOCTYPE')) {
@@ -191,24 +252,24 @@ export const ArtifactViewer: React.FC = () => {
     addToast({ type: 'info', message: 'Launched live page in new window' })
   }
 
+  // Save in-panel edits into current version
+  const handleApplyEdits = () => {
+    updateActiveVersionContent(artifact.id, editableCode)
+    setHasUnsavedChanges(false)
+    setReloadKey((k) => k + 1)
+    addToast({ type: 'success', message: `Saved changes to Version ${currentVerNum}` })
+  }
+
+  // Fork current in-panel edits into a brand new version
+  const handleSaveAsNewVersion = () => {
+    addArtifactVersion(artifact.id, editableCode, artifact.title, 'User in-panel modification')
+    setHasUnsavedChanges(false)
+    setReloadKey((k) => k + 1)
+    addToast({ type: 'success', message: `Saved as new Version ${totalVersions + 1}` })
+  }
+
   // Pre-process iframe source for preview
   const getIframeSrcDoc = () => {
-    if (artifact.type === 'svg') {
-      return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    body { margin: 0; padding: 24px; background: #0b0f19; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    svg { max-width: 100%; height: auto; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3)); }
-  </style>
-</head>
-<body>
-  ${artifact.content}
-</body>
-</html>`
-    }
-
     const loggingScript = `
   <script>
     (function() {
@@ -246,6 +307,50 @@ export const ArtifactViewer: React.FC = () => {
     })();
   </script>
 `
+
+    if (artifact.type === 'svg') {
+      return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { margin: 0; padding: 24px; background: #0b0f19; display: flex; justify-content: center; align-items: center; min-height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .svg-wrapper { background: #ffffff; padding: 24px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 95%; max-height: 85vh; display: flex; align-items: center; justify-content: center; overflow: auto; }
+    svg { max-width: 100%; height: auto; }
+  </style>
+</head>
+<body>
+  <div class="svg-wrapper">
+    ${artifact.content}
+  </div>
+</body>
+</html>`
+    }
+
+    if (artifact.type === 'mermaid' || artifact.language === 'mermaid') {
+      return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body { margin: 0; padding: 32px; background: #0b0f19; color: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .mermaid { width: 100%; max-width: 900px; display: flex; justify-content: center; }
+  </style>
+  ${loggingScript}
+</head>
+<body>
+  <div class="mermaid">${artifact.content}</div>
+  <script>
+    try {
+      mermaid.initialize({ startOnLoad: true, theme: 'dark' });
+    } catch (e) {
+      console.error('Mermaid render error:', e.message);
+    }
+  </script>
+</body>
+</html>`
+    }
 
     if (artifact.type === 'react' || artifact.language === 'jsx' || artifact.language === 'tsx') {
       return `<!DOCTYPE html>
@@ -317,30 +422,106 @@ export const ArtifactViewer: React.FC = () => {
 
   const errorCount = logs.filter((l) => l.level === 'error').length
 
+  const renderTypeIcon = () => {
+    if (artifact.type === 'html' || artifact.type === 'react') return <Sparkles size={16} />
+    if (artifact.type === 'mermaid') return <GitBranch size={16} />
+    if (artifact.type === 'markdown') return <FileText size={16} />
+    if (artifact.type === 'svg') return <Eye size={16} />
+    return <FileCode size={16} />
+  }
+
   return (
     <div
-      className={`fixed z-50 bg-[#090D16] border border-border/80 shadow-2xl flex flex-col transition-all duration-300 ${
+      className={`bg-[#090D16] border-border/80 shadow-2xl flex flex-col transition-all duration-300 ${
         isFullscreen
-          ? 'inset-0'
-          : 'inset-y-0 right-0 w-full lg:w-[720px] xl:w-[860px] 2xl:w-[980px] border-l'
+          ? 'fixed inset-0 z-50'
+          : 'fixed lg:relative inset-y-0 right-0 z-50 lg:z-auto w-full lg:w-[580px] xl:w-[720px] 2xl:w-[840px] border-l'
       }`}
     >
       {/* Top Header Bar ──────────────────────────────────────────────────── */}
-      <div className="h-14 px-3.5 border-b border-border/70 flex items-center justify-between gap-2.5 bg-surface/80 backdrop-blur-md shrink-0">
+      <div className="h-14 px-3.5 border-b border-border/70 flex items-center justify-between gap-2 bg-surface/80 backdrop-blur-md shrink-0 select-none">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 shrink-0">
-            {artifact.type === 'html' || artifact.type === 'react' ? (
-              <Sparkles size={16} />
-            ) : artifact.type === 'svg' ? (
-              <Eye size={16} />
-            ) : (
-              <FileCode size={16} />
-            )}
+            {renderTypeIcon()}
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold text-content-primary truncate">
-              {artifact.title}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-content-primary truncate">
+                {artifact.title}
+              </h2>
+
+              {/* Version History Selector (Claude Style) */}
+              <div className="relative shrink-0 flex items-center">
+                <div className="flex items-center rounded-md bg-surface border border-border text-xs px-1 py-0.5 font-mono">
+                  <button
+                    type="button"
+                    disabled={currentIdx <= 0}
+                    onClick={() => setArtifactVersion(artifact.id, versions[currentIdx - 1].version)}
+                    className="p-0.5 rounded text-content-tertiary hover:text-content-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Previous version"
+                  >
+                    <ChevronLeft size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsVersionMenuOpen(!isVersionMenuOpen)}
+                    className="px-1 text-[11px] font-semibold text-violet-300 hover:text-white transition flex items-center gap-0.5"
+                    title="Click to view version history"
+                  >
+                    <span>v{currentVerNum}</span>
+                    <span className="text-slate-500">/{totalVersions}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={currentIdx >= totalVersions - 1}
+                    onClick={() => setArtifactVersion(artifact.id, versions[currentIdx + 1].version)}
+                    className="p-0.5 rounded text-content-tertiary hover:text-content-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Next version"
+                  >
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+
+                {/* Version History Menu Dropdown */}
+                {isVersionMenuOpen && (
+                  <div className="absolute left-0 top-8 z-50 w-56 rounded-xl bg-surface border border-border p-2 shadow-2xl space-y-1 font-sans">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary px-2 py-1 flex items-center justify-between border-b border-border/60 pb-1.5">
+                      <span className="flex items-center gap-1">
+                        <History size={11} />
+                        <span>Revision History</span>
+                      </span>
+                      <span>{totalVersions} versions</span>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto space-y-1 pt-1">
+                      {versions.map((v, i) => (
+                        <button
+                          key={v.version}
+                          type="button"
+                          onClick={() => {
+                            setArtifactVersion(artifact.id, v.version)
+                            setIsVersionMenuOpen(false)
+                          }}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition ${
+                            i === currentIdx
+                              ? 'bg-violet-600/20 text-violet-200 border border-violet-500/30 font-semibold'
+                              : 'text-content-secondary hover:bg-elevated hover:text-content-primary'
+                          }`}
+                        >
+                          <div className="truncate">
+                            <span className="font-mono text-violet-400 mr-1.5">v{v.version}</span>
+                            <span>{v.summary || (i === 0 ? 'Initial creation' : `Revision ${v.version}`)}</span>
+                          </div>
+                          <span className="text-[10px] text-content-tertiary shrink-0 ml-2 font-mono">
+                            {new Date(v.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center gap-2 text-[11px] text-content-tertiary">
               <span className="uppercase font-mono tracking-wider font-semibold text-violet-400">
                 {artifact.type.toUpperCase()}
@@ -348,7 +529,7 @@ export const ArtifactViewer: React.FC = () => {
               <span>•</span>
               <span className="text-emerald-400 font-medium flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live Sandbox
+                Live Workspace
               </span>
             </div>
           </div>
@@ -356,7 +537,7 @@ export const ArtifactViewer: React.FC = () => {
 
         {/* Action Controls ─────────────────────────────────────────────────── */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* Responsive Viewport Controls (Desktop / Tablet / Mobile) */}
+          {/* Responsive Viewport Controls */}
           {isInteractive && activeTab === 'preview' && (
             <div className="hidden sm:flex items-center p-0.5 rounded-lg bg-surface border border-border mr-1">
               <button
@@ -367,7 +548,7 @@ export const ArtifactViewer: React.FC = () => {
                     ? 'bg-elevated text-violet-400 shadow-xs'
                     : 'text-content-secondary hover:text-content-primary'
                 }`}
-                title="Desktop view (100% width)"
+                title="Desktop view"
               >
                 <Monitor size={13} />
               </button>
@@ -379,7 +560,7 @@ export const ArtifactViewer: React.FC = () => {
                     ? 'bg-elevated text-violet-400 shadow-xs'
                     : 'text-content-secondary hover:text-content-primary'
                 }`}
-                title="Tablet view (768px width)"
+                title="Tablet view"
               >
                 <Tablet size={13} />
               </button>
@@ -391,7 +572,7 @@ export const ArtifactViewer: React.FC = () => {
                     ? 'bg-elevated text-violet-400 shadow-xs'
                     : 'text-content-secondary hover:text-content-primary'
                 }`}
-                title="Mobile view (375px width)"
+                title="Mobile view"
               >
                 <Smartphone size={13} />
               </button>
@@ -404,7 +585,7 @@ export const ArtifactViewer: React.FC = () => {
               type="button"
               onClick={handleReload}
               className="btn-icon !w-7 !h-7 text-content-secondary hover:text-content-primary"
-              title="Reload sandbox"
+              title="Reload preview"
             >
               <RotateCcw size={13} />
             </button>
@@ -435,23 +616,21 @@ export const ArtifactViewer: React.FC = () => {
                 }`}
               >
                 <Code2 size={12} />
-                <span>Code</span>
+                <span>Code {hasUnsavedChanges && '•'}</span>
               </button>
             </div>
           )}
 
-          {/* Open live page in new tab */}
-          {isInteractive && (
-            <button
-              type="button"
-              onClick={handleOpenLivePage}
-              className="btn-glass !py-1 !px-2 !text-xs hidden sm:flex items-center gap-1"
-              title="Open full page in new tab"
-            >
-              <ExternalLink size={12} />
-              <span>Live Page</span>
-            </button>
-          )}
+          {/* Share / Publish Button (Claude Style) */}
+          <button
+            type="button"
+            onClick={() => setIsShareModalOpen(!isShareModalOpen)}
+            className="btn-glass !py-1 !px-2 !text-xs hidden sm:flex items-center gap-1 text-violet-300 hover:text-white"
+            title="Publish & Share Artifact"
+          >
+            <Share2 size={12} />
+            <span>Share</span>
+          </button>
 
           {/* Copy code */}
           <button
@@ -488,12 +667,80 @@ export const ArtifactViewer: React.FC = () => {
             type="button"
             onClick={closeArtifact}
             className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary ml-0.5"
-            title="Close viewer"
+            title="Close panel"
           >
             <X size={15} />
           </button>
         </div>
       </div>
+
+      {/* Share / Publish Dialog Modal */}
+      {isShareModalOpen && (
+        <div className="absolute right-4 top-16 z-50 w-72 rounded-2xl bg-surface border border-border p-3.5 shadow-2xl space-y-2 text-xs animate-in fade-in">
+          <div className="flex items-center justify-between pb-2 border-b border-border font-semibold text-content-primary">
+            <span className="flex items-center gap-1.5 text-violet-300">
+              <Share2 size={13} />
+              <span>Share & Publish Artifact</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsShareModalOpen(false)}
+              className="text-content-tertiary hover:text-content-primary"
+            >
+              <X size={13} />
+            </button>
+          </div>
+          <p className="text-[11px] text-content-secondary leading-relaxed">
+            Export or run this artifact as a standalone deliverable outside the chat.
+          </p>
+          <div className="space-y-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                handleOpenLivePage()
+                setIsShareModalOpen(false)
+              }}
+              className="w-full text-left p-2 rounded-lg bg-elevated hover:bg-surface border border-border/80 text-content-primary flex items-center justify-between transition"
+            >
+              <span className="flex items-center gap-2">
+                <ExternalLink size={13} className="text-violet-400" />
+                <span>Open in Live Window</span>
+              </span>
+              <span className="text-[10px] text-content-tertiary">New Tab</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                handleCopy()
+                setIsShareModalOpen(false)
+              }}
+              className="w-full text-left p-2 rounded-lg bg-elevated hover:bg-surface border border-border/80 text-content-primary flex items-center justify-between transition"
+            >
+              <span className="flex items-center gap-2">
+                <Copy size={13} className="text-emerald-400" />
+                <span>Copy Standalone Code</span>
+              </span>
+              <span className="text-[10px] text-content-tertiary">Clipboard</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                handleDownload()
+                setIsShareModalOpen(false)
+              }}
+              className="w-full text-left p-2 rounded-lg bg-elevated hover:bg-surface border border-border/80 text-content-primary flex items-center justify-between transition"
+            >
+              <span className="flex items-center gap-2">
+                <Download size={13} className="text-amber-400" />
+                <span>Download Deliverable</span>
+              </span>
+              <span className="text-[10px] text-content-tertiary">Local File</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Plant Context Ribbon (Preserved) */}
       {(artifact.isPlantAware || artifact.equipmentTag) && (
@@ -502,7 +749,7 @@ export const ArtifactViewer: React.FC = () => {
             <Database size={13} className="text-violet-400" />
             <span className="font-semibold">Plant-Aware Artifact:</span>
             <span className="font-mono bg-violet-500/20 text-violet-200 px-2 py-0.5 rounded text-[11px] font-bold">
-              {artifact.equipmentTag || 'HE-301'}
+              {artifact.equipmentTag || 'Asset'}
             </span>
             <span className="text-violet-400/80 hidden sm:inline">• Pre-hydrated with Knowledge Graph</span>
           </div>
@@ -526,7 +773,6 @@ export const ArtifactViewer: React.FC = () => {
                   : 'w-[375px] max-w-full h-[667px] max-h-full border-4 border-slate-700/80 rounded-[32px] shadow-2xl overflow-hidden'
               }`}
             >
-              {/* Optional Phone Notch Header when in Mobile mode */}
               {deviceMode === 'mobile' && (
                 <div className="h-5 bg-slate-850 flex items-center justify-center shrink-0 border-b border-slate-800">
                   <div className="w-20 h-3 bg-slate-700 rounded-full" />
@@ -534,7 +780,7 @@ export const ArtifactViewer: React.FC = () => {
               )}
 
               <iframe
-                key={reloadKey}
+                key={`${reloadKey}_${artifact.id}_${currentVerNum}`}
                 title={artifact.title}
                 srcDoc={getIframeSrcDoc()}
                 sandbox="allow-scripts allow-modals allow-same-origin allow-forms"
@@ -551,31 +797,98 @@ export const ArtifactViewer: React.FC = () => {
             </div>
           </div>
         ) : (
-          /* Code Tab / Non-interactive preview */
-          <div className="flex-1 overflow-y-auto p-4 font-mono text-xs select-text">
-            <Highlight
-              theme={themes.vsDark}
-              code={artifact.content}
-              language={artifact.language || 'html'}
-            >
-              {({ className: hlClass, style, tokens, getLineProps, getTokenProps }) => (
-                <pre
-                  className={`${hlClass} p-4 rounded-xl border border-slate-800/80 leading-relaxed overflow-x-auto`}
-                  style={{ ...style, backgroundColor: '#090D16' }}
+          /* Code Tab: Live In-Panel Code Editor (Claude Style) */
+          <div className="flex-1 flex flex-col overflow-hidden bg-[#090D16]">
+            {/* Editor Action Sub-bar */}
+            <div className="h-10 px-4 bg-[#0d121f] border-b border-slate-800/80 flex items-center justify-between text-xs shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-content-tertiary">
+                  Language: <strong className="text-violet-300 lowercase">{artifact.language || artifact.type}</strong>
+                </span>
+                {hasUnsavedChanges && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                    Unsaved Edits
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {hasUnsavedChanges && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditableCode(artifact.content)
+                      setHasUnsavedChanges(false)
+                      addToast({ type: 'info', message: 'Reverted unapplied edits' })
+                    }}
+                    className="text-xs text-content-tertiary hover:text-content-primary"
+                  >
+                    Discard
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={!hasUnsavedChanges}
+                  onClick={handleApplyEdits}
+                  className="px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-xs flex items-center gap-1.5 transition shadow-sm"
+                  title="Apply changes to current version and reload preview"
                 >
-                  {tokens.map((line, i) => (
-                    <div key={i} {...getLineProps({ line })}>
-                      <span className="inline-block w-8 text-slate-600 select-none text-right mr-4 opacity-50">
-                        {i + 1}
-                      </span>
-                      {line.map((token, key) => (
-                        <span key={key} {...getTokenProps({ token })} />
-                      ))}
-                    </div>
-                  ))}
-                </pre>
-              )}
-            </Highlight>
+                  <Save size={12} />
+                  <span>Apply Edits</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveAsNewVersion}
+                  className="btn-glass !py-1 !px-2.5 !text-xs text-emerald-300 hover:text-emerald-200 border-emerald-500/30 hover:border-emerald-500/50 flex items-center gap-1.5 transition"
+                  title="Fork edits into a new version (e.g. v2, v3)"
+                >
+                  <PlusCircleIcon size={12} />
+                  <span>Save as v{totalVersions + 1}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Editable Source Code View */}
+            <div className="flex-1 flex overflow-hidden relative">
+              {/* Line Numbers Gutter */}
+              <div className="w-12 py-4 px-2 text-right text-slate-600 select-none font-mono text-xs leading-relaxed bg-[#070910] border-r border-slate-800/80 overflow-hidden">
+                {editableCode.split('\n').map((_, i) => (
+                  <div key={i}>{i + 1}</div>
+                ))}
+              </div>
+
+              {/* Code Input Textarea */}
+              <textarea
+                ref={editorTextareaRef}
+                value={editableCode}
+                onChange={(e) => {
+                  setEditableCode(e.target.value)
+                  setHasUnsavedChanges(true)
+                }}
+                onKeyDown={(e) => {
+                  // Support tab key indentation in editor
+                  if (e.key === 'Tab') {
+                    e.preventDefault()
+                    const start = e.currentTarget.selectionStart
+                    const end = e.currentTarget.selectionEnd
+                    const val = editableCode
+                    const newVal = val.substring(0, start) + '  ' + val.substring(end)
+                    setEditableCode(newVal)
+                    setHasUnsavedChanges(true)
+                    setTimeout(() => {
+                      if (editorTextareaRef.current) {
+                        editorTextareaRef.current.selectionStart = editorTextareaRef.current.selectionEnd = start + 2
+                      }
+                    }, 0)
+                  }
+                }}
+                spellCheck={false}
+                className="flex-1 p-4 bg-transparent text-slate-100 font-mono text-xs leading-relaxed resize-none outline-none overflow-auto whitespace-pre selection:bg-violet-600/30"
+                placeholder="Edit artifact source code directly here..."
+              />
+            </div>
           </div>
         )}
 
@@ -652,5 +965,15 @@ export const ArtifactViewer: React.FC = () => {
         )}
       </div>
     </div>
+  )
+}
+
+function PlusCircleIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="16" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
   )
 }

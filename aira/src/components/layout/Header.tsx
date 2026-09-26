@@ -19,12 +19,14 @@ import {
   Bell,
   CheckCheck,
   RotateCcw,
+  Sparkles,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useChatStore } from '../../stores/chatStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
+import { useArtifactStore } from '../../stores/artifactStore'
 import { Dropdown } from '../ui/Dropdown'
 import { zingoApi, type RoleNotification } from '../../services/zingoApi'
 import {
@@ -52,6 +54,7 @@ export const Header: React.FC<HeaderProps> = ({
   const { projects, activeProjectId, setActiveProject } = useProjectStore()
   const { addToast } = useToastStore()
   const { settings } = useSettingsStore()
+  const { artifacts, activeArtifactId, isViewerOpen, openArtifact, closeArtifact } = useArtifactStore()
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
   const currentChat = chats.find((c) => c.id === activeChatId)
@@ -256,6 +259,34 @@ export const Header: React.FC<HeaderProps> = ({
               aria-label="New chat"
             >
               <Plus size={16} />
+            </button>
+          )}
+
+          {/* Artifact Side Panel Toggle (Claude Style) */}
+          {artifacts.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (isViewerOpen) {
+                  closeArtifact()
+                } else {
+                  const chatArtifacts = activeChatId ? artifacts.filter((a) => a.chatId === activeChatId) : []
+                  const target = chatArtifacts[0] || (activeArtifactId && artifacts.find((a) => a.id === activeArtifactId)) || artifacts[0]
+                  if (target) openArtifact(target.id)
+                }
+              }}
+              className={`btn-glass !py-1 !px-2.5 !text-xs flex items-center gap-1.5 transition ${
+                isViewerOpen
+                  ? 'text-violet-200 border-violet-500/50 bg-violet-600/20 shadow-xs'
+                  : 'text-content-secondary hover:text-content-primary'
+              }`}
+              title="Toggle Artifact Workspace Side Panel"
+            >
+              <Sparkles size={13} className={isViewerOpen ? 'text-violet-400' : 'text-content-tertiary'} />
+              <span className="hidden sm:inline">Artifacts</span>
+              <span className="px-1 py-0.2 rounded text-[10px] font-mono bg-surface border border-border">
+                {artifacts.filter((a) => !activeChatId || a.chatId === activeChatId).length || artifacts.length}
+              </span>
             </button>
           )}
 

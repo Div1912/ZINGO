@@ -15,8 +15,13 @@ import { useProjectStore } from '../stores/projectStore'
 import { useArtifactStore } from '../stores/artifactStore'
 import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../utils/multiFileParser'
 import { getActiveUserInfo } from '../stores/authStore'
-import type { Message, ModelId, TaskType, UploadedFile, CouncilMeta, ThinkStep } from '../types'
+import type { Message, ModelId, TaskType, UploadedFile, CouncilMeta, ThinkStep, PastChatSearchMeta } from '../types'
 import { classifyTaskIntensity } from '../services/qwenApi'
+import { useMemoryStore } from '../stores/memoryStore'
+import { detectPastChatIntent, searchPastChats, formatPastChatsForPrompt } from '../services/chatSearchService'
+import { detectFormatSkillIntent } from '../skills/documents/formatSkillResolver'
+import { extractDeliverablesFromMessage, buildSandboxDeliverable } from '../services/sandboxDeliverableService'
+import type { DeliverableFile } from '../types/deliverable'
 
 export function useChat(chatId?: string | null) {
   const {
@@ -52,6 +57,7 @@ export function useChat(chatId?: string | null) {
       files?: UploadedFile[] | File[],
       forcedModel?: ModelId | string,
       effort?: string,
+      thinkingEnabled?: boolean,
     ) => {
       const hasContent = Boolean(content && content.trim())
       const hasFiles = Boolean(files && files.length > 0)
@@ -97,16 +103,57 @@ export function useChat(chatId?: string | null) {
 
       // 2. Add Assistant Message placeholder
       const assistantId = 'ast-' + Date.now()
-      const effUpper = (effort || 'Fast').toUpperCase()
-      const isReasoningEffort =
-        effUpper === 'MAX' ||
-        effUpper === 'DEEP' ||
-        effUpper === 'REASONING' ||
-        (Boolean(selectedModel) &&
-          (selectedModel.toLowerCase().includes('r1') ||
-           selectedModel.toLowerCase().includes('qwen3')))
+      const isThinking =
+        thinkingEnabled !== undefined
+          ? thinkingEnabled
+          : useChatStore.getState().isThinkingEnabled
 
       const isCouncilActive = Boolean(useChatStore.getState().isCouncilEnabled)
+
+      const activeProject = useProjectStore.getState().getActiveProject()
+      const activeProjectId = activeProject?.id || null
+      if (activeProject) {
+        useProjectStore.getState().linkChatToProject(activeProject.id, sendToChatId)
+      }
+
+      // Continuous Memory: Extract explicit triggers right away so memories are saved mid-chat
+      try {
+        const preExtracted = useMemoryStore
+          .getState()
+          .extractFromTurn(content, '', activeProjectId, sendToChatId)
+        if (preExtracted && preExtracted.length > 0) {
+          addToast({
+            type: 'info',
+            title: 'Memory Saved',
+            message: `ZINGO remembered: "${preExtracted[0].title}"`,
+          })
+        }
+      } catch (err) {
+        console.warn('Pre-turn memory extraction error:', err)
+      }
+
+      // Past Chat Search (Conversational RAG Tool)
+      const pastChatIntent = detectPastChatIntent(content)
+      let pastChatSearchMeta: PastChatSearchMeta | undefined = undefined
+      let pastChatPromptContext = ''
+
+      if (pastChatIntent.isIntent) {
+        const searchResults = searchPastChats({
+          query: pastChatIntent.query,
+          projectId: activeProjectId,
+          currentChatId: sendToChatId,
+          limit: 4,
+        })
+        if (searchResults.length > 0) {
+          pastChatSearchMeta = {
+            query: pastChatIntent.query,
+            searchedAt: new Date().toISOString(),
+            resultsCount: searchResults.length,
+            results: searchResults,
+          }
+          pastChatPromptContext = formatPastChatsForPrompt(pastChatSearchMeta)
+        }
+      }
 
       const assistantMsg: Message = {
         id: assistantId,
@@ -115,11 +162,13 @@ export function useChat(chatId?: string | null) {
         timestamp: new Date().toISOString(),
         thinkSteps: [],
         rawThinking: '',
-        isThinkingPhase: isReasoningEffort,
+        isThinkingPhase: isThinking,
+        thinkingEnabled: isThinking,
         isStreaming: true,
         modelUsed: selectedModel,
         taskType: detectedTask,
         effort: effort || 'Fast',
+        pastChatSearch: pastChatSearchMeta,
         councilMeta: isCouncilActive
           ? {
               council_active: true,
@@ -133,11 +182,6 @@ export function useChat(chatId?: string | null) {
 
       const isComplex = taskClassification.isComplex
       setIsComplexGenerating(isComplex, detectedTask, content, (files?.length || 0) > 0)
-
-      const activeProject = useProjectStore.getState().getActiveProject()
-      if (activeProject) {
-        useProjectStore.getState().linkChatToProject(activeProject.id, sendToChatId)
-      }
 
       // Build active project system prompt & knowledge base context
       let systemPrompt = settings.systemPrompt || ''
@@ -153,6 +197,83 @@ export function useChat(chatId?: string | null) {
             .join('\n\n')
         }
       }
+
+      // Inject Persistent Memory Context (Continuously Maintained & Project-Isolated)
+      const memoryContext = useMemoryStore.getState().formatMemoryContextForPrompt(activeProjectId)
+      if (memoryContext) {
+        systemPrompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${memoryContext}`
+      }
+
+      // Inject Past Chat Search Context if requested conversationally
+      if (pastChatPromptContext) {
+        systemPrompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${pastChatPromptContext}`
+      }
+
+      // Append Claude-standard Artifacts protocol
+      const artifactsProtocol = `
+# Artifacts Protocol
+You have the ability to create substantial, self-contained deliverables called "Artifacts" that render in a dedicated side panel next to the chat.
+
+## When to Create an Artifact:
+- Substantial content (>15 lines) that the user will edit, run, inspect, or reference repeatedly.
+- Self-contained deliverables:
+  1. Interactive Web Apps / HTML pages (with inlined CSS & JS; using Tailwind CDN via https://cdn.tailwindcss.com).
+  2. React components (JSX/TSX).
+  3. SVG graphics (complete standalone vector art).
+  4. Flowcharts and architectural diagrams (using Mermaid).
+  5. Multi-section documentation, SOPs, or technical specs (Markdown).
+  6. Substantial code scripts or computational engineering models (Python, SQL, bash).
+
+## When NOT to Create an Artifact:
+- Short code snippets (<15 lines), one-line fixes, simple terminal commands, or conversational answers. Keep these inline in standard markdown code blocks.
+
+## Syntax for Creating an Artifact:
+Wrap the deliverable in an <artifact> tag:
+<artifact identifier="kebab-case-id" type="html|react|svg|mermaid|markdown|code" title="Concise Descriptive Title">
+...complete self-contained content...
+</artifact>
+
+## Revising / Updating an Artifact:
+- When modifying an artifact from earlier in the conversation, always re-use the EXACT SAME identifier attribute.
+- Provide the complete updated version inside the <artifact> tag. The system will automatically track it as a new version (e.g. v2, v3) without overwriting past history.
+`.trim()
+
+      const extendedThinkingProtocol = isThinking
+        ? `
+## Cognitive Deliberation Protocol:
+You MUST deliberate and work through your reasoning inside a <think> block first before writing your final response.
+- Explore candidate hypotheses, evaluate trade-offs, and verify calculations.
+- Work through intermediate steps, check logic, and catch potential errors or unverified assumptions.
+- Deliberate deeply, but keep the internal monologue authentic, rigorous, and direct.
+- When finished deliberating, close with </think> and immediately provide your verified, well-structured final answer.
+`.trim()
+        : `
+## Direct Response Protocol:
+Do NOT output any <think> or reasoning tags. Provide your response directly, concisely, and immediately without internal scratchpad deliberation.
+`.trim()
+
+      // Inject Format Skill and Sandboxed File Creation Protocol
+      const formatSkillResolution = detectFormatSkillIntent(content)
+      let formatSkillPrompt = ''
+      if (
+        settings.codeExecution !== false &&
+        formatSkillResolution.requiresSkill &&
+        formatSkillResolution.format &&
+        formatSkillResolution.skillPrompt
+      ) {
+        formatSkillPrompt = `
+${formatSkillResolution.skillPrompt}
+
+## Deliverable Generation Directive:
+When generating the requested ${formatSkillResolution.format.toUpperCase()} file:
+1. Provide a complete, standalone Python script inside a \`\`\`python code block.
+2. The script must save the completed file to "output${formatSkillResolution.expectedExtension || `.${formatSkillResolution.format}`}".
+3. For scripts >100 lines, use clean modular functions rather than monolithic execution.
+4. Our sovereign sandbox will run this script, verify the file creation, and provide an interactive download card directly in chat.
+`.trim()
+      }
+
+      systemPrompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${extendedThinkingProtocol}\n\n${artifactsProtocol}${formatSkillPrompt ? '\n\n' + formatSkillPrompt : ''}`.trim()
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -214,6 +335,7 @@ export function useChat(chatId?: string | null) {
           if (detectedTask) fd.append('task_type', detectedTask)
           if (targetNodeUrl) fd.append('node_url', targetNodeUrl)
           if (isCouncilActive) fd.append('enable_council', 'true')
+          fd.append('enable_subagents', String(settings.subagentsEnabled !== false))
           fd.append('user', userInfo.userId)
           fd.append('user_name', userInfo.userName)
           fd.append('preferred_name', userInfo.preferredName)
@@ -233,8 +355,10 @@ export function useChat(chatId?: string | null) {
             task_type: detectedTask,
           })
           if (effort) qp.set('effort', effort)
+          qp.set('enable_thinking', String(isThinking))
           if (targetNodeUrl) qp.set('node_url', targetNodeUrl)
           if (isCouncilActive) qp.set('enable_council', 'true')
+          qp.set('enable_subagents', String(settings.subagentsEnabled !== false))
           qp.set('chat_id', sendToChatId)
           endpoint = `${cleanBaseUrl}/process-and-ask/?${qp.toString()}`
         } else {
@@ -252,10 +376,13 @@ export function useChat(chatId?: string | null) {
             stream: true,
             model: effectiveModel,
             effort: effort ?? 'Fast',
+            enable_thinking: isThinking,
+            thinking_budget: useChatStore.getState().thinkingBudgetTokens,
             task_type: detectedTask,
             node_url: targetNodeUrl ?? undefined,
             chat_id: sendToChatId,
             enable_council: isCouncilActive,
+            enable_subagents: settings.subagentsEnabled !== false,
           })
           endpoint = `${cleanBaseUrl}/api/chat`
         }
@@ -294,6 +421,7 @@ export function useChat(chatId?: string | null) {
               elapsed_seconds: 0,
             }
           : undefined
+        let subagentsMeta: import('../types').SubagentExecution[] | undefined = undefined
 
         const flush = (isStillStreaming: boolean = true) => {
           updateLastAssistantMessage(sendToChatId, {
@@ -303,8 +431,11 @@ export function useChat(chatId?: string | null) {
             isThinkingPhase,
             thinkElapsedMs,
             thinkTotalSteps: thinkSteps.length,
+            thinkingEnabled: isThinking,
+            isThinkingInterrupted: !isStillStreaming && isThinkingPhase && !answerContent,
             sources,
             councilMeta,
+            subagents: subagentsMeta,
             isStreaming: isStillStreaming,
             tokensUsed: evalCount || Math.max(1, Math.floor(answerContent.length / 4)),
             latencyMs: thinkElapsedMs,
@@ -344,11 +475,17 @@ export function useChat(chatId?: string | null) {
                 if (evt.sources) sources = evt.sources
                 if (evt.model) resolvedModelUsed = evt.model
                 if (evt.council) councilMeta = evt.council
+                if (evt.subagents && Array.isArray(evt.subagents)) subagentsMeta = evt.subagents
                 flush()
                 break
 
               case 'council_meta':
                 if (evt.council) councilMeta = evt.council
+                flush()
+                break
+
+              case 'subagents_meta':
+                if (evt.subagents && Array.isArray(evt.subagents)) subagentsMeta = evt.subagents
                 flush()
                 break
 
@@ -449,6 +586,7 @@ export function useChat(chatId?: string | null) {
             updateLastAssistantMessage(sendToChatId, {
               artifactIds: extracted.map((a) => a.id),
             })
+            useArtifactStore.getState().openArtifact(extracted[extracted.length - 1].id)
           }
         } catch {
           // ignore artifact extraction error
@@ -473,11 +611,110 @@ export function useChat(chatId?: string | null) {
         } catch (err) {
           console.error('Virtual project extraction error:', err)
         }
+
+        // Sandboxed File Creation & Deliverables Execution
+        try {
+          if (settings.codeExecution !== false) {
+            const rawDeliverables = extractDeliverablesFromMessage(answerContent)
+            if (rawDeliverables.length > 0) {
+              const initialDeliverables: DeliverableFile[] = rawDeliverables.map((d, idx) => ({
+                id: `deliv-${Date.now()}-${idx}`,
+                filename: d.filename,
+                format: d.format,
+                sizeBytes: 0,
+                sizeFormatted: 'Compiling in sandbox...',
+                createdAt: new Date().toISOString(),
+                codeUsed: d.code,
+                status: 'compiling',
+              }))
+
+              updateLastAssistantMessage(sendToChatId, {
+                deliverables: initialDeliverables,
+              })
+
+              // Build deliverables in sandbox asynchronously
+              initialDeliverables.forEach(async (pendingItem) => {
+                try {
+                  const completed = await buildSandboxDeliverable({
+                    chatId: sendToChatId,
+                    code: pendingItem.codeUsed || '',
+                    targetFormat: pendingItem.format,
+                    expectedFilename: pendingItem.filename,
+                    allowNetworkEgress: settings.sandboxNetworkEgress ?? true,
+                  })
+
+                  const cChat = useChatStore.getState().getChat(sendToChatId)
+                  if (cChat && cChat.messages.length > 0) {
+                    const lastMsg = cChat.messages[cChat.messages.length - 1]
+                    if (lastMsg && lastMsg.deliverables) {
+                      const updated = lastMsg.deliverables.map((d) =>
+                        d.id === pendingItem.id ? completed : d
+                      )
+                      useChatStore.getState().updateLastAssistantMessage(sendToChatId, {
+                        deliverables: updated,
+                      })
+                    }
+                  }
+
+                  addToast({
+                    type: 'success',
+                    title: 'Deliverable Compiled',
+                    message: `${completed.filename} (${completed.sizeFormatted}) ready for download.`,
+                  })
+                } catch (delivErr: any) {
+                  console.error('Deliverable compilation error:', delivErr)
+                  const cChat = useChatStore.getState().getChat(sendToChatId)
+                  if (cChat && cChat.messages.length > 0) {
+                    const lastMsg = cChat.messages[cChat.messages.length - 1]
+                    if (lastMsg && lastMsg.deliverables) {
+                      const updated = lastMsg.deliverables.map((d) =>
+                        d.id === pendingItem.id
+                          ? {
+                              ...d,
+                              status: 'failed' as const,
+                              error: delivErr?.message || 'Failed to build deliverable in sandbox',
+                            }
+                          : d
+                      )
+                      useChatStore.getState().updateLastAssistantMessage(sendToChatId, {
+                        deliverables: updated,
+                      })
+                    }
+                  }
+                }
+              })
+            }
+          }
+        } catch (delivParseErr) {
+          console.error('Sandboxed deliverable processing error:', delivParseErr)
+        }
+
+        // Continuous Memory: Post-turn extraction for emergent operational constraints & preferences
+        try {
+          const postExtracted = useMemoryStore
+            .getState()
+            .extractFromTurn(content, answerContent, activeProjectId, sendToChatId)
+          if (postExtracted && postExtracted.length > 0) {
+            addToast({
+              type: 'info',
+              title: 'Saved to Memory',
+              message: `ZINGO remembered: "${postExtracted[0].title}"`,
+            })
+          }
+        } catch (memErr) {
+          console.warn('Continuous memory extraction skipped:', memErr)
+        }
       } catch (err: unknown) {
 
 
         const isAbort = err instanceof DOMException && err.name === 'AbortError'
-        if (!isAbort) {
+        if (isAbort) {
+          updateLastAssistantMessage(sendToChatId, {
+            isThinkingPhase: false,
+            isThinkingInterrupted: isThinking,
+            isStreaming: false,
+          })
+        } else {
           const errorMsg = err instanceof Error ? err.message : 'Error communicating with backend.'
           updateLastAssistantMessage(sendToChatId, {
             content: `[Connection error: ${errorMsg}]`,

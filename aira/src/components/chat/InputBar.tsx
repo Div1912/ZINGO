@@ -8,7 +8,8 @@ interface InputBarProps {
     content: string,
     files: UploadedFile[],
     model?: ModelId,
-    effort?: string
+    effort?: string,
+    thinkingEnabled?: boolean
   ) => void
   onStop: () => void
   isGenerating: boolean
@@ -28,21 +29,29 @@ export const InputBar: React.FC<InputBarProps> = ({
     hasFilesGenerating,
     isCouncilEnabled,
     toggleCouncil,
+    isThinkingEnabled,
+    toggleThinking,
+    thinkingBudgetTokens,
+    setThinkingBudgetTokens,
   } = useChatStore()
+
   const handleSendMessage = (
     message: string,
-    meta: { model: string; effort: string; attachments: File[]; enableCouncil?: boolean }
+    meta: {
+      model: string
+      effort: string
+      attachments: File[]
+      enableCouncil?: boolean
+      enableThinking?: boolean
+      thinkingBudget?: number
+    }
   ) => {
     let modelId: ModelId = 'auto'
     if (meta.model.includes('Vision') || meta.model.includes('VL') || meta.model.includes('Multimodal')) {
       modelId = 'qwen2.5vl:3b'
     } else if (meta.model.includes('4B') || meta.model.includes('4b')) {
       modelId = 'qwen3:4b'
-    } else if (meta.model.includes('Coder')) {
-      modelId = 'qwen2.5-coder:7b'
-    } else if (meta.model.includes('R1') || meta.model.includes('DeepSeek')) {
-      modelId = 'deepseek-r1:8b'
-    } else if (meta.model.includes('Qwen3') || meta.model.includes('Master') || meta.model.includes('8B')) {
+    } else if (meta.model.includes('Qwen3') || meta.model.includes('Master') || meta.model.includes('8B') || meta.model.includes('8b')) {
       modelId = 'qwen3:8b'
     } else {
       modelId = 'auto'
@@ -67,7 +76,7 @@ export const InputBar: React.FC<InputBarProps> = ({
       }
     })
 
-    onSendMessage(message, uploadedFiles, modelId, meta.effort)
+    onSendMessage(message, uploadedFiles, modelId, meta.effort, meta.enableThinking)
   }
 
   return (
@@ -84,6 +93,10 @@ export const InputBar: React.FC<InputBarProps> = ({
           onStop={onStop}
           isCouncilEnabled={isCouncilEnabled}
           onToggleCouncil={toggleCouncil}
+          isThinkingEnabled={isThinkingEnabled}
+          onToggleThinking={toggleThinking}
+          thinkingBudgetTokens={thinkingBudgetTokens}
+          onSetThinkingBudget={setThinkingBudgetTokens}
           enableBorderBeam={true}
           placeholder="Ask AIRA anything... (Shift+Enter for new line)"
           models={[
@@ -91,10 +104,8 @@ export const InputBar: React.FC<InputBarProps> = ({
             'Qwen3-8B (Laptop 1 - Master Node)',
             'Qwen3-4B (Laptop 1 - Fast Synthesis Node)',
             'Qwen2.5-VL Multimodal (Laptop 2 - Vision Node)',
-            'Qwen2.5-Coder (Laptop 3 - Coder Node)',
-            'DeepSeek-R1 (Laptop 4 - Deep Reasoning Node)'
           ]}
-          efforts={['Fast', 'Deep Research', 'Max Effort']}
+          efforts={['Fast', 'Balanced', 'Deep Research']}
           maxWidthCollapsed={560}
           maxWidthExpanded={820}
           className="mx-auto"

@@ -60,6 +60,11 @@ interface ChatStore {
   isCouncilEnabled: boolean
   setIsCouncilEnabled: (enabled: boolean) => void
   toggleCouncil: () => void
+  isThinkingEnabled: boolean
+  thinkingBudgetTokens: number
+  setIsThinkingEnabled: (enabled: boolean) => void
+  toggleThinking: () => void
+  setThinkingBudgetTokens: (tokens: number) => void
 }
 
 // Sample engineering conversations that users can optionally load
@@ -249,6 +254,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   abortController: null,
   pendingAIFix: null,
   isCouncilEnabled: false,
+  isThinkingEnabled: true,
+  thinkingBudgetTokens: 4096,
 
   loadUserChats: async (userId: string) => {
     set({ currentUserId: userId, isLoadingChats: true })
@@ -760,4 +767,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setPendingAIFix: (message) => set({ pendingAIFix: message }),
   setIsCouncilEnabled: (enabled) => set({ isCouncilEnabled: enabled }),
   toggleCouncil: () => set((state) => ({ isCouncilEnabled: !state.isCouncilEnabled })),
+  setIsThinkingEnabled: (enabled) => set({ isThinkingEnabled: enabled }),
+  toggleThinking: () => set((state) => ({ isThinkingEnabled: !state.isThinkingEnabled })),
+  setThinkingBudgetTokens: (tokens) => set({ thinkingBudgetTokens: tokens }),
 }))

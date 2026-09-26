@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Artifact, ArtifactType } from '../types/artifact'
+import type { Artifact, ArtifactType, ArtifactVersion } from '../types/artifact'
 
 interface ArtifactStore {
   artifacts: Artifact[]
@@ -8,7 +8,19 @@ interface ArtifactStore {
   isViewerOpen: boolean
 
   // Actions
-  addArtifact: (artifact: Omit<Artifact, 'id' | 'createdAt' | 'updatedAt'>) => string
+  addArtifact: (artifact: Omit<Artifact, 'id' | 'createdAt' | 'updatedAt' | 'versions' | 'currentVersionIndex'> & { versions?: ArtifactVersion[]; currentVersionIndex?: number }) => string
+  addArtifactVersion: (id: string, newContent: string, title?: string, summary?: string) => void
+  setArtifactVersion: (id: string, versionNumber: number) => void
+  updateActiveVersionContent: (id: string, newContent: string) => void
+  createOrUpdateArtifact: (data: {
+    identifier?: string
+    title: string
+    type: ArtifactType
+    language: string
+    content: string
+    chatId?: string
+    summary?: string
+  }) => string
   updateArtifact: (id: string, updates: Partial<Artifact>) => void
   deleteArtifact: (id: string) => void
   getArtifact: (id: string) => Artifact | undefined
@@ -20,7 +32,7 @@ interface ArtifactStore {
   extractArtifactsFromMessage: (messageContent: string, chatId?: string) => Artifact[]
 }
 
-const INITIAL_ARTIFACTS: Artifact[] = [
+const RAW_INITIAL_ARTIFACTS: Omit<Artifact, 'versions' | 'currentVersionIndex'>[] = [
   {
     id: 'art-cdu2-yield-calc',
     title: 'CDU-2 Cut Yield & Flash Zone Interactive Simulator',
@@ -399,6 +411,19 @@ const INITIAL_ARTIFACTS: Artifact[] = [
   },
 ]
 
+const INITIAL_ARTIFACTS: Artifact[] = RAW_INITIAL_ARTIFACTS.map((art) => ({
+  ...art,
+  versions: [
+    {
+      version: 1,
+      content: art.content,
+      title: art.title,
+      timestamp: art.createdAt,
+    },
+  ],
+  currentVersionIndex: 0,
+}))
+
 export const useArtifactStore = create<ArtifactStore>()(
   persist(
     (set, get) => ({
@@ -407,20 +432,145 @@ export const useArtifactStore = create<ArtifactStore>()(
       isViewerOpen: false,
 
       addArtifact: (artifact) => {
-        const id = 'art-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7)
+        const id = artifact.identifier
+          ? `art-${artifact.identifier.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`
+          : 'art-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7)
         const now = new Date().toISOString()
+        const initialVersions: ArtifactVersion[] =
+          artifact.versions && artifact.versions.length > 0
+            ? artifact.versions
+            : [
+                {
+                  version: 1,
+                  content: artifact.content,
+                  title: artifact.title,
+                  timestamp: now,
+                },
+              ]
+
         const newArtifact: Artifact = {
           ...artifact,
           id,
+          versions: initialVersions,
+          currentVersionIndex: artifact.currentVersionIndex ?? (initialVersions.length - 1),
           createdAt: now,
           updatedAt: now,
         }
+
         set((state) => ({
           artifacts: [newArtifact, ...state.artifacts],
           activeArtifactId: id,
           isViewerOpen: true,
         }))
         return id
+      },
+
+      addArtifactVersion: (id, newContent, title, summary) => {
+        const now = new Date().toISOString()
+        set((state) => ({
+          artifacts: state.artifacts.map((a) => {
+            if (a.id !== id) return a
+            const versions =
+              a.versions && a.versions.length > 0
+                ? a.versions
+                : [{ version: 1, content: a.content, title: a.title, timestamp: a.createdAt }]
+            const nextVerNum = versions.length + 1
+            const newVersion: ArtifactVersion = {
+              version: nextVerNum,
+              content: newContent,
+              title: title || a.title,
+              timestamp: now,
+              summary,
+            }
+            const updatedVersions = [...versions, newVersion]
+            return {
+              ...a,
+              title: title || a.title,
+              content: newContent,
+              versions: updatedVersions,
+              currentVersionIndex: updatedVersions.length - 1,
+              updatedAt: now,
+            }
+          }),
+          activeArtifactId: id,
+          isViewerOpen: true,
+        }))
+      },
+
+      setArtifactVersion: (id, versionNumber) => {
+        set((state) => ({
+          artifacts: state.artifacts.map((a) => {
+            if (a.id !== id || !a.versions || a.versions.length === 0) return a
+            const targetIdx = a.versions.findIndex((v) => v.version === versionNumber)
+            if (targetIdx === -1) return a
+            const targetVersion = a.versions[targetIdx]
+            return {
+              ...a,
+              currentVersionIndex: targetIdx,
+              content: targetVersion.content,
+              title: targetVersion.title || a.title,
+            }
+          }),
+        }))
+      },
+
+      updateActiveVersionContent: (id, newContent) => {
+        const now = new Date().toISOString()
+        set((state) => ({
+          artifacts: state.artifacts.map((a) => {
+            if (a.id !== id) return a
+            const versions = [
+              ...(a.versions && a.versions.length > 0
+                ? a.versions
+                : [{ version: 1, content: a.content, title: a.title, timestamp: a.createdAt }]),
+            ]
+            const idx =
+              a.currentVersionIndex >= 0 && a.currentVersionIndex < versions.length
+                ? a.currentVersionIndex
+                : versions.length - 1
+            versions[idx] = {
+              ...versions[idx],
+              content: newContent,
+              timestamp: now,
+            }
+            return {
+              ...a,
+              content: newContent,
+              versions,
+              updatedAt: now,
+            }
+          }),
+        }))
+      },
+
+      createOrUpdateArtifact: (data) => {
+        const { identifier, title, type, language, content, chatId, summary } = data
+        const artifacts = get().artifacts
+
+        // Match by identifier, id, or matching title in the same chat
+        const existing = artifacts.find(
+          (a) =>
+            (identifier && (a.identifier === identifier || a.id === `art-${identifier.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`)) ||
+            (chatId && a.chatId === chatId && a.title.toLowerCase().trim() === title.toLowerCase().trim())
+        )
+
+        if (existing) {
+          if (existing.content.trim() !== content.trim()) {
+            get().addArtifactVersion(existing.id, content, title, summary)
+          } else {
+            get().openArtifact(existing.id)
+          }
+          return existing.id
+        }
+
+        return get().addArtifact({
+          identifier,
+          chatId,
+          title,
+          type,
+          language,
+          content,
+        })
       },
 
       updateArtifact: (id, updates) => {
@@ -454,7 +604,15 @@ export const useArtifactStore = create<ArtifactStore>()(
       bindPlantContext: (id, tag, context) => {
         set((state) => ({
           artifacts: state.artifacts.map((a) =>
-            a.id === id ? { ...a, equipmentTag: tag, isPlantAware: true, plantContext: context, updatedAt: new Date().toISOString() } : a
+            a.id === id
+              ? {
+                  ...a,
+                  equipmentTag: tag,
+                  isPlantAware: true,
+                  plantContext: context,
+                  updatedAt: new Date().toISOString(),
+                }
+              : a
           ),
         }))
       },
@@ -472,6 +630,7 @@ export const useArtifactStore = create<ArtifactStore>()(
         let type: ArtifactType = 'html'
         if (['jsx', 'tsx', 'react'].includes(lang)) type = 'react'
         else if (lang === 'svg') type = 'svg'
+        else if (lang === 'mermaid') type = 'mermaid'
         else if (['markdown', 'md'].includes(lang)) type = 'markdown'
         else if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<div')) type = 'html'
         else type = 'code'
@@ -489,41 +648,51 @@ export const useArtifactStore = create<ArtifactStore>()(
           }
         }
 
-        // Check if existing artifact has the exact content
-        const existing = get().artifacts.find((a) => a.content === content)
-        if (existing) {
-          get().openArtifact(existing.id)
-          return existing.id
-        }
-
-        const id = get().addArtifact({
+        return get().createOrUpdateArtifact({
           title: inferredTitle,
           type,
           language: lang,
           content,
         })
-        get().openArtifact(id)
-        return id
       },
 
       extractArtifactsFromMessage: (messageContent, chatId) => {
         const detected: Artifact[] = []
         if (!messageContent) return detected
 
-        // Regex 1: Explicit <antArtifact title="..." type="...">...</antArtifact>
-        const antRegex = /<antArtifact\s+title="([^"]+)"(?:\s+type="([^"]+)")?(?:\s+language="([^"]+)")?[^>]*>([\s\S]*?)<\/antArtifact>/gi
-        let antMatch: RegExpExecArray | null
-        while ((antMatch = antRegex.exec(messageContent)) !== null) {
-          const title = antMatch[1] || 'Generated Artifact'
-          const lang = antMatch[3] || 'html'
-          const content = antMatch[4].trim()
-          let type: ArtifactType = 'html'
-          if (lang === 'jsx' || lang === 'tsx') type = 'react'
-          else if (lang === 'svg') type = 'svg'
-          else if (lang === 'markdown' || lang === 'md') type = 'markdown'
-          else if (lang !== 'html') type = 'code'
+        // Regex 1: Explicit <artifact ...>...</artifact> and <antArtifact ...>...</antArtifact>
+        // Supports attributes: identifier, title, type, language in any order
+        const tagRegex = /<(?:artifact|antArtifact)\b([^>]*)>([\s\S]*?)<\/(?:artifact|antArtifact)>/gi
+        let tagMatch: RegExpExecArray | null
+        while ((tagMatch = tagRegex.exec(messageContent)) !== null) {
+          const rawAttrs = tagMatch[1] || ''
+          const content = tagMatch[2].trim()
 
-          const id = get().addArtifact({
+          const idMatch = rawAttrs.match(/identifier="([^"]+)"/i)
+          const titleMatch = rawAttrs.match(/title="([^"]+)"/i)
+          const typeMatch = rawAttrs.match(/type="([^"]+)"/i)
+          const langMatch = rawAttrs.match(/language="([^"]+)"/i)
+
+          const identifier = idMatch ? idMatch[1] : undefined
+          const title = titleMatch ? titleMatch[1] : 'Interactive Artifact'
+          let lang = (langMatch ? langMatch[1] : (typeMatch ? typeMatch[1] : 'html')).toLowerCase()
+          let type: ArtifactType = 'html'
+
+          if (typeMatch) {
+            const rawType = typeMatch[1].toLowerCase()
+            if (['html', 'react', 'svg', 'mermaid', 'markdown', 'code'].includes(rawType)) {
+              type = rawType as ArtifactType
+            }
+          } else {
+            if (['jsx', 'tsx', 'react'].includes(lang)) type = 'react'
+            else if (lang === 'svg') type = 'svg'
+            else if (lang === 'mermaid') type = 'mermaid'
+            else if (['markdown', 'md'].includes(lang)) type = 'markdown'
+            else if (['python', 'py', 'javascript', 'js', 'bash', 'sh'].includes(lang)) type = 'code'
+          }
+
+          const id = get().createOrUpdateArtifact({
+            identifier,
             chatId,
             title,
             type,
@@ -531,45 +700,99 @@ export const useArtifactStore = create<ArtifactStore>()(
             content,
           })
           const added = get().getArtifact(id)
-          if (added) detected.push(added)
+          if (added && !detected.some((d) => d.id === added.id)) detected.push(added)
         }
 
-        // Regex 2: Substantial fenced code block for html / svg / react / jsx / tsx / js
-        const codeBlockRegex = /```(html|htm|svg|jsx|tsx|react|javascript|js)\s*\n([\s\S]{80,}?)\n```/gi
+        // Regex 2: Fallback for substantial fenced code blocks (> 15 lines)
+        // Claude definition: substantial & self-contained (> 15 lines)
+        const codeBlockRegex = /```([a-zA-Z0-9_-]+)?\s*\n([\s\S]+?)\n```/g
         let codeMatch: RegExpExecArray | null
         while ((codeMatch = codeBlockRegex.exec(messageContent)) !== null) {
-          const lang = codeMatch[1].toLowerCase()
-          const content = codeMatch[2].trim()
+          const rawLang = (codeMatch[1] || '').toLowerCase()
+          const codeContent = codeMatch[2].trim()
+          const lineCount = codeContent.split('\n').length
 
-          // Check if already extracted
-          const alreadyExists = get().artifacts.some((a) => a.content === content)
-          if (!alreadyExists) {
+          // Check if already captured by Regex 1
+          if (detected.some((d) => d.content === codeContent)) continue
+
+          // Check qualifying threshold: substantial (> 15 lines or complete standalone HTML/SVG/Mermaid)
+          const isCompleteHtml =
+            codeContent.includes('<!DOCTYPE') ||
+            (codeContent.includes('<html') && codeContent.includes('</html>'))
+          const isCompleteSvg = codeContent.includes('<svg') && codeContent.includes('</svg>')
+          const isMermaid =
+            rawLang === 'mermaid' ||
+            codeContent.startsWith('graph ') ||
+            codeContent.startsWith('flowchart ') ||
+            codeContent.startsWith('sequenceDiagram')
+          const isReactComp =
+            ['jsx', 'tsx', 'react'].includes(rawLang) &&
+            (codeContent.includes('export default') ||
+              codeContent.includes('function App') ||
+              codeContent.includes('const App'))
+
+          const qualifiesAsArtifact =
+            lineCount >= 15 ||
+            isCompleteHtml ||
+            isCompleteSvg ||
+            (isMermaid && lineCount >= 6) ||
+            isReactComp
+
+          // Only qualify designated artifact languages: html, react, svg, mermaid, markdown, python, or complete apps
+          const isArtifactLang =
+            ['html', 'htm', 'svg', 'jsx', 'tsx', 'react', 'mermaid', 'markdown', 'md'].includes(rawLang) ||
+            isCompleteHtml ||
+            isCompleteSvg ||
+            isMermaid ||
+            (['python', 'py'].includes(rawLang) && lineCount >= 20)
+
+          if (qualifiesAsArtifact && isArtifactLang) {
             let type: ArtifactType = 'html'
-            if (lang === 'svg') type = 'svg'
-            else if (['jsx', 'tsx', 'react'].includes(lang)) type = 'react'
-            else if (lang === 'javascript' || lang === 'js') {
-              type = content.includes('<') && content.includes('>') ? 'react' : 'code'
+            let lang = rawLang || 'html'
+
+            if (isMermaid || rawLang === 'mermaid') {
+              type = 'mermaid'
+              lang = 'mermaid'
+            } else if (rawLang === 'svg' || isCompleteSvg) {
+              type = 'svg'
+              lang = 'svg'
+            } else if (['jsx', 'tsx', 'react'].includes(rawLang) || isReactComp) {
+              type = 'react'
+              lang = rawLang || 'tsx'
+            } else if (['markdown', 'md'].includes(rawLang)) {
+              type = 'markdown'
+              lang = 'markdown'
+            } else if (['python', 'py'].includes(rawLang)) {
+              type = 'code'
+              lang = 'python'
+            } else if (isCompleteHtml || rawLang === 'html' || rawLang === 'htm') {
+              type = 'html'
+              lang = 'html'
             }
 
-            let title = 'Live Interactive Application'
-            const titleMatch = content.match(/<title>([^<]+)<\/title>/i)
+            let inferredTitle = 'Live Interactive Artifact'
+            const titleMatch = codeContent.match(/<title>([^<]+)<\/title>/i)
             if (titleMatch) {
-              title = titleMatch[1].trim()
-            } else if (lang === 'svg') {
-              title = 'Interactive SVG Graphic'
+              inferredTitle = titleMatch[1].trim()
+            } else if (type === 'mermaid') {
+              inferredTitle = 'Architecture & Flow Diagram'
+            } else if (type === 'svg') {
+              inferredTitle = 'Interactive Vector Graphic'
             } else if (type === 'react') {
-              title = 'Interactive React Component'
+              inferredTitle = 'React Application Component'
+            } else if (type === 'code' && lang === 'python') {
+              inferredTitle = 'Engineering Script / Model'
             }
 
-            const id = get().addArtifact({
+            const id = get().createOrUpdateArtifact({
               chatId,
-              title,
+              title: inferredTitle,
               type,
               language: lang,
-              content,
+              content: codeContent,
             })
             const added = get().getArtifact(id)
-            if (added) detected.push(added)
+            if (added && !detected.some((d) => d.id === added.id)) detected.push(added)
           }
         }
 
@@ -577,7 +800,35 @@ export const useArtifactStore = create<ArtifactStore>()(
       },
     }),
     {
-      name: 'aira-artifacts-v1',
+      name: 'aira-artifacts-v2',
+      // Migrate existing persisted artifacts in localStorage that might lack versions or currentVersionIndex
+      migrate: (persistedState: any) => {
+        if (!persistedState || !Array.isArray(persistedState.artifacts)) return persistedState
+        const normalized = persistedState.artifacts.map((a: any) => {
+          const versions =
+            Array.isArray(a.versions) && a.versions.length > 0
+              ? a.versions
+              : [
+                  {
+                    version: 1,
+                    content: a.content || '',
+                    title: a.title || 'Artifact',
+                    timestamp: a.createdAt || new Date().toISOString(),
+                  },
+                ]
+          return {
+            ...a,
+            versions,
+            currentVersionIndex:
+              typeof a.currentVersionIndex === 'number' ? a.currentVersionIndex : versions.length - 1,
+            content: a.content || versions[versions.length - 1].content,
+          }
+        })
+        return {
+          ...persistedState,
+          artifacts: normalized,
+        }
+      },
     }
   )
 )

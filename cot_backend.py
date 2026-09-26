@@ -125,6 +125,8 @@ def run_ollama_stream_cot(
             "deliberation_summary": council_data.get("deliberation_summary", {}),
         }
 
+    subagents_data = payload.get("_subagents")
+
     meta_payload = {
         "type": "meta",
         "ocr_context_found": bool(context),
@@ -135,11 +137,15 @@ def run_ollama_stream_cot(
         "node_endpoint": endpoint,
         "thinking_enabled": bool(think_enabled),
         "council": council_client_meta,
+        "subagents": subagents_data,
     }
     yield f"data: {json.dumps(meta_payload)}\n\n"
 
     if council_client_meta:
         yield f"data: {json.dumps({'type': 'council_meta', 'council': council_client_meta})}\n\n"
+
+    if subagents_data:
+        yield f"data: {json.dumps({'type': 'subagents_meta', 'subagents': subagents_data})}\n\n"
 
     # ── Prepend guaranteed content (e.g. deck_manifest.json for PPT) ──────────
     if content_prefix:

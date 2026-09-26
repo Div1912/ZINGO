@@ -1,8 +1,14 @@
 /**
- * ZINGO — ThinkingBlock Component
- * ================================
- * Renders the model's live chain-of-thought reasoning steps aligned 100%
- * with the SSE stream (Done, In Progress, Queued) with dropdown menu controls.
+ * ZINGO — Extended Thinking & Deliberation Block
+ * =============================================
+ * Renders the model's live cognitive deliberation scratchpad (frontier LLM standard).
+ * Features:
+ * - Real-time stopwatch ticking upward during thinking (0.1s resolution)
+ * - Auto-collapses cleanly when answer starts streaming, leaving "Thought for X.Xs"
+ * - One-click expand/collapse to inspect the internal monologue
+ * - Displays natural cognitive scratchpad with full Markdown & code/math rendering
+ * - One-click copy reasoning trace
+ * - Graceful interruption badge if safety or user interrupts
  */
 
 import React, { useEffect, useRef, useState } from 'react'
@@ -10,7 +16,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   CheckCircle2,
   Loader2,
-  CircleDashed,
   ChevronDown,
   Copy,
   Check,
@@ -24,15 +29,16 @@ export interface ThinkStep {
 }
 
 export interface ThinkingBlockProps {
-  steps: ThinkStep[]
-  rawThinking?: string        // live character stream before steps are flushed
-  isStreaming?: boolean       // true while model is still thinking
-  isThinkingPhase?: boolean   // true = still in <think>, false = answered
+  steps?: ThinkStep[]
+  rawThinking?: string        // live character stream of model deliberation
+  isStreaming?: boolean       // true while model is still generating
+  isThinkingPhase?: boolean   // true = still in <think> scratchpad, false = answering
   totalSteps?: number
   elapsedMs?: number
+  isInterrupted?: boolean
 }
 
-// ─── High-Precision Pulse Indicator ──────────────────────────────────────────
+// ─── Pulse Radar Indicator ───────────────────────────────────────────────────
 
 const ThinkingRadar: React.FC = () => (
   <div className="flex items-center gap-2">
@@ -41,7 +47,7 @@ const ThinkingRadar: React.FC = () => (
       <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
     </span>
     <span className="text-[11px] font-mono text-violet-300 tracking-wide font-medium">
-      AIRA Cognition · Active Reasoning
+      AIRA Cognition · Extended Thinking
     </span>
   </div>
 )
@@ -49,19 +55,48 @@ const ThinkingRadar: React.FC = () => (
 // ─── Main ThinkingBlock ───────────────────────────────────────────────────────
 
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
-  steps,
+  steps = [],
   rawThinking = '',
   isStreaming = false,
   isThinkingPhase = false,
-  totalSteps,
+  totalSteps: _totalSteps,
   elapsedMs,
+  isInterrupted = false,
 }) => {
-  // Claude/Gemini style: Keep internal reasoning collapsed by default so chat stays clean
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom while streaming
+  // Real-time live stopwatch
+  const [liveSeconds, setLiveSeconds] = useState<number>(() =>
+    elapsedMs && elapsedMs > 0 ? Number((elapsedMs / 1000).toFixed(1)) : 0
+  )
+  const startTimeRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (isThinkingPhase) {
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now() - (elapsedMs || 0)
+      }
+      const interval = setInterval(() => {
+        if (startTimeRef.current) {
+          const delta = (Date.now() - startTimeRef.current) / 1000
+          setLiveSeconds(Number(delta.toFixed(1)))
+        }
+      }, 100)
+      return () => clearInterval(interval)
+    } else {
+      if (elapsedMs && elapsedMs > 0) {
+        setLiveSeconds(Number((elapsedMs / 1000).toFixed(1)))
+      } else if (startTimeRef.current) {
+        const delta = (Date.now() - startTimeRef.current) / 1000
+        setLiveSeconds(Number(delta.toFixed(1)))
+      }
+      startTimeRef.current = null
+    }
+  }, [isThinkingPhase, elapsedMs])
+
+  // Auto-scroll to bottom while actively streaming thoughts if expanded
   useEffect(() => {
     if (isStreaming && expanded) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -71,26 +106,21 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
   // Copy full reasoning trace to clipboard
   const handleCopyTrace = (e: React.MouseEvent) => {
     e.stopPropagation()
-    const parts: string[] = []
-    steps.forEach((s) => {
-      parts.push(`[Step ${s.step_number} - Done]\n${s.content}`)
-    })
+    let fullTrace = ''
     if (rawThinking.trim()) {
-      parts.push(`[Active Thoughts]\n${rawThinking.trim()}`)
+      fullTrace = rawThinking.trim()
+    } else if (steps.length > 0) {
+      fullTrace = steps.map((s) => `[Step ${s.step_number}]\n${s.content}`).join('\n\n')
     }
-    const fullTrace = parts.join('\n\n') || rawThinking
     navigator.clipboard.writeText(fullTrace)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
-  if (steps.length === 0 && !rawThinking && !isThinkingPhase) return null
-
-  const activeStepNum = steps.length + 1
-  const durationStr = elapsedMs && elapsedMs > 0 ? `${(elapsedMs / 1000).toFixed(1)}s` : '1.2s'
+  if (steps.length === 0 && !rawThinking && !isThinkingPhase && !elapsedMs) return null
 
   return (
-    <div className="my-2.5 rounded-xl border border-violet-500/25 bg-[#0e0a1a]/80 backdrop-blur-md shadow-[inset_0_1px_0_0_rgba(167,139,250,0.12)] overflow-hidden">
+    <div className="my-2.5 rounded-xl border border-violet-500/25 bg-[#0e0a1a]/85 backdrop-blur-md shadow-[inset_0_1px_0_0_rgba(167,139,250,0.12)] overflow-hidden">
       {/* ── Header bar & Dropdown trigger ──────────────────────────────────── */}
       <div
         onClick={() => setExpanded((e) => !e)}
@@ -108,19 +138,25 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
           {isThinkingPhase ? (
             <div className="flex items-center gap-2">
               <ThinkingRadar />
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-violet-300 bg-violet-500/15 border border-violet-500/30">
-                Step {activeStepNum} In Progress
+              <span className="text-xs font-mono text-violet-300 font-medium">
+                Thinking for {liveSeconds.toFixed(1)}s...
               </span>
             </div>
           ) : (
             <div className="flex items-center gap-2">
               <CheckCircle2 size={14} className="text-emerald-400" strokeWidth={2.2} />
               <span className="text-xs font-mono text-emerald-300 font-medium">
-                Reasoning Complete ({durationStr})
+                Thought for {liveSeconds > 0 ? `${liveSeconds.toFixed(1)}s` : 'a few seconds'}
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20">
-                {totalSteps || steps.length || 1} {(totalSteps || steps.length) === 1 ? 'step' : 'steps'} verified
-              </span>
+              {isInterrupted ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-amber-300 bg-amber-500/10 border border-amber-500/20">
+                  Interrupted
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20">
+                  Verified Reasoning
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -138,7 +174,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
 
           {/* Dropdown Toggle Pill */}
           <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-violet-950/60 border border-violet-500/20 text-[11px] font-mono hover:border-violet-500/40">
-            <span>{expanded ? 'Collapse' : 'Inspect Steps'}</span>
+            <span>{expanded ? 'Collapse' : 'Inspect Thoughts'}</span>
             <ChevronDown
               size={13}
               className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
@@ -158,106 +194,44 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
             transition={{ duration: 0.2 }}
             className="overflow-hidden border-t border-violet-500/15"
           >
-            <div className="px-4 py-3 max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-violet-800/40 space-y-3">
-              {/* 1. COMPLETED STEPS (Emitted by model via SSE think_step) */}
-              {steps.map((step) => (
-                <div
-                  key={step.step_number}
-                  className="flex items-start gap-2.5 py-1 border-l-2 border-emerald-500/30 pl-3 ml-1"
-                >
-                  <div className="mt-0.5">
-                    <CheckCircle2 size={13} className="text-emerald-400 shrink-0" strokeWidth={2.2} />
+            <div className="px-4 py-3 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-violet-800/40 space-y-3">
+              {/* Natural Cognitive Scratchpad Stream */}
+              {rawThinking.trim() ? (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-violet-400/80">
+                    Internal Deliberation Scratchpad:
                   </div>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono font-semibold text-emerald-400">
-                        Step {step.step_number}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 font-medium">
-                        Done
-                      </span>
+                  <div className="p-3 rounded-lg bg-black/40 border border-violet-500/20 text-xs text-violet-200/90 leading-relaxed font-mono whitespace-pre-wrap select-text break-words shadow-inner">
+                    {rawThinking.trim()}
+                  </div>
+                </div>
+              ) : steps.length > 0 ? (
+                <div className="space-y-2.5">
+                  {steps.map((step) => (
+                    <div
+                      key={step.step_number}
+                      className="flex items-start gap-2.5 py-1 border-l-2 border-emerald-500/30 pl-3 ml-1"
+                    >
+                      <div className="mt-0.5">
+                        <CheckCircle2 size={13} className="text-emerald-400 shrink-0" strokeWidth={2.2} />
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <span className="text-[11px] font-mono font-semibold text-emerald-400">
+                          Step {step.step_number}
+                        </span>
+                        <p className="text-xs text-content-secondary leading-relaxed font-mono select-text break-words">
+                          {step.content}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-xs text-content-secondary leading-relaxed font-mono select-text break-words">
-                      {step.content}
-                    </p>
-                  </div>
+                  ))}
                 </div>
-              ))}
-
-              {/* 2. CURRENTLY ACTIVE STEP (Real live raw reasoning stream from Ollama) */}
-              {isThinkingPhase && (
-                <div className="flex items-start gap-2.5 py-1 border-l-2 border-violet-500 pl-3 ml-1 animate-in fade-in duration-200">
-                  <div className="mt-0.5">
-                    <Loader2 size={13} className="text-violet-400 shrink-0 animate-spin" strokeWidth={2.2} />
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono font-semibold text-violet-300">
-                        Step {activeStepNum}
-                      </span>
-                      <span className="flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono text-violet-300 bg-violet-500/15 border border-violet-500/30 font-medium animate-pulse">
-                        <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
-                        In Progress
-                      </span>
-                    </div>
-                    <p className="text-xs text-violet-200/90 leading-relaxed font-mono whitespace-pre-wrap select-text break-words">
-                      {rawThinking.trim()
-                        ? rawThinking.slice(-320)
-                        : 'Deconstructing problem parameters and validating engineering constraints...'}
-                    </p>
-                  </div>
+              ) : isThinkingPhase ? (
+                <div className="py-2.5 flex items-center gap-2 text-xs font-mono text-violet-300/80">
+                  <Loader2 size={14} className="animate-spin text-violet-400" />
+                  <span>Deliberating and validating constraints across technical parameters...</span>
                 </div>
-              )}
-
-              {/* 3. WHAT IS LEFT TO FINISH (Queued vs Concluded) */}
-              {isThinkingPhase ? (
-                <div className="flex items-start gap-2.5 py-1 border-l-2 border-border pl-3 ml-1 opacity-60">
-                  <div className="mt-0.5">
-                    <CircleDashed size={13} className="text-content-tertiary shrink-0" strokeWidth={2} />
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono font-medium text-content-tertiary">
-                        Final Synthesis & Verification
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono text-content-tertiary bg-surface border border-border font-medium">
-                        Queued
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-content-tertiary font-mono">
-                      Formulate verified engineering conclusions and hand over to response generation
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-start gap-2.5 py-1 border-l-2 border-emerald-500/30 pl-3 ml-1">
-                  <div className="mt-0.5">
-                    <CheckCircle2 size={13} className="text-emerald-400 shrink-0" strokeWidth={2.2} />
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono font-semibold text-emerald-400">
-                        Final Synthesis & Verification
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 font-medium">
-                        Done
-                      </span>
-                    </div>
-                    <p className="text-xs text-content-secondary font-mono">
-                      Reasoning pathway verified. Answer formulated and streamed.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Fallback if no structured steps but raw thinking exists */}
-              {steps.length === 0 && rawThinking && !isThinkingPhase && (
-                <div className="py-1 border-l-2 border-violet-500/30 pl-3 ml-1">
-                  <p className="text-xs text-content-secondary leading-relaxed font-mono whitespace-pre-wrap select-text break-words">
-                    {rawThinking}
-                  </p>
-                </div>
-              )}
+              ) : null}
 
               <div ref={bottomRef} />
             </div>

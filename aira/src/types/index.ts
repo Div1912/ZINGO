@@ -59,6 +59,9 @@ export interface Message {
   isThinkingPhase?: boolean
   thinkElapsedMs?: number
   thinkTotalSteps?: number
+  thinkingEnabled?: boolean
+  thinkingBudgetTokens?: number
+  isThinkingInterrupted?: boolean
   // Artifact additions
   artifactIds?: string[]
   // Tree-of-Thought (ToT) Automated Verification additions
@@ -66,6 +69,22 @@ export interface Message {
   totResult?: any
   // Model Council additions
   councilMeta?: CouncilMeta
+  // Memory & Past Chat Search additions
+  pastChatSearch?: import('./memory').PastChatSearchMeta
+  // Sandboxed File Deliverable additions
+  deliverables?: import('./deliverable').DeliverableFile[]
+  // Subagent Swarm additions
+  subagents?: SubagentExecution[]
+}
+
+export interface SubagentExecution {
+  id: string
+  role: string
+  model: string
+  output: string
+  status: 'completed' | 'failed' | 'timed_out' | 'running'
+  elapsed_ms: number
+  tokens_used?: number
 }
 
 export interface CouncilMeta {
@@ -92,6 +111,8 @@ export interface Chat {
 
 export * from './artifact'
 export * from './project'
+export * from './memory'
+export * from './deliverable'
 
 export interface ServerConfig {
   g15_1_url: string      // Master / Chat Node (default: Live tunnel or http://127.0.0.1:8000)
@@ -150,6 +171,8 @@ export interface AppSettings {
   artifactsEnabled?: boolean
   inlineVisualizations?: boolean
   codeExecution?: boolean
+  sandboxNetworkEgress?: boolean
+  subagentsEnabled?: boolean
   switchModelsOnFlagged?: boolean
   generateMemoryFromChats?: boolean
   includeSensitiveTopics?: boolean

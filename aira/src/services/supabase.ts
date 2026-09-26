@@ -1,9 +1,9 @@
-﻿import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 
 export const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL || 'https://fxewtefpamnjscaznvgq.supabase.co'
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 'https://fxewtefpamnjscaznvgq.supabase.co'
 export const SUPABASE_ANON_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4ZXd0ZWZwYW1uanNjYXpudmdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1NzkyMzUsImV4cCI6MjEwNTE1NTIzNX0.Q9j9oAQzft-MVHTOf5nD2vIV5Q2vth8xSZH3RqCtjGo'
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -11,7 +11,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storage: window.localStorage,
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
   },
 })
 

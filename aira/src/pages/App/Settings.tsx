@@ -43,6 +43,10 @@ import {
   HardDrive,
   Activity,
   Cpu,
+  Globe,
+  Folder,
+  Pause,
+  Play,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -51,6 +55,8 @@ import { useTheme } from '../../hooks/useTheme'
 import { useToastStore } from '../../stores/toastStore'
 import { useZingoStore } from '../../stores/zingoStore'
 import { useAuthStore, getActiveUserId } from '../../stores/authStore'
+import { useMemoryStore } from '../../stores/memoryStore'
+import { useProjectStore } from '../../stores/projectStore'
 import { Toggle } from '../../components/ui/Toggle'
 import { Spinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
@@ -58,7 +64,6 @@ import { zingoApi } from '../../services/zingoApi'
 import type {
   UserProfile,
   UserCapabilities,
-  UserMemoryFile,
   UserPermissions,
   UserConnector,
 } from '../../services/zingoApi'
@@ -131,6 +136,8 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const activeUserId = authUser?.id || getActiveUserId()
   const criticalCount = useZingoStore((s) => s.activeAlerts.filter((a) => a.severity === 'CRITICAL').length)
   const isWorkbenchTab = ['alerts', 'health', 'documents', 'shift', 'compliance', 'graph', 'audit'].includes(activeTab)
+  const memoryStore = useMemoryStore()
+  const { projects } = useProjectStore()
 
   // Real SQLite persistent state
   const [userProfile, setUserProfile] = useState<UserProfile>({
@@ -165,7 +172,6 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
 
   const [connectors, setConnectors] = useState<UserConnector[]>([])
   const [connectorDiscovery, setConnectorDiscovery] = useState(true)
-  const [memoryFiles, setMemoryFiles] = useState<UserMemoryFile[]>([])
   const [, setIsLoadingSettings] = useState(false)
 
   // Modals & sub-dialogs
@@ -177,12 +183,16 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
   const [isFetchingPrompt, setIsFetchingPrompt] = useState(false)
 
   // Memory file form state
-  const [editingMemoryId, setEditingMemoryId] = useState<number | null>(null)
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
   const [memoryTitle, setMemoryTitle] = useState('')
   const [memoryContent, setMemoryContent] = useState('')
-  const [memoryCategory, setMemoryCategory] = useState<'general' | 'project' | 'preference' | 'sensitive'>('preference')
+  const [memoryCategory, setMemoryCategory] = useState<'general' | 'project' | 'preference' | 'operational' | 'technical' | 'sensitive'>('preference')
+  const [memoryScopeForNew, setMemoryScopeForNew] = useState<string>('global')
   const [memoryIsSensitive, setMemoryIsSensitive] = useState(false)
   const [memoryFilter, setMemoryFilter] = useState<string>('all')
+  const [memoryProjectFilter, setMemoryProjectFilter] = useState<string>('all')
+  const [memorySearchQuery, setMemorySearchQuery] = useState('')
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false)
 
   // Custom connector form state
   const [customConnName, setCustomConnName] = useState('')
@@ -266,7 +276,16 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
             setConnectors(conns.value.connectors)
           }
           if (mems.status === 'fulfilled' && mems.value?.memories) {
-            setMemoryFiles(mems.value.memories)
+            if (memoryStore.topics.length === 0 && mems.value.memories.length > 0) {
+              mems.value.memories.forEach((m) => {
+                memoryStore.addTopic({
+                  title: m.title,
+                  content: m.content,
+                  category: (m.category === 'general' ? 'preference' : m.category) as any,
+                  isSensitive: m.is_sensitive,
+                })
+              })
+            }
           }
         }
       } catch (err) {
@@ -347,6 +366,11 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     try {
       const newCaps = { ...capabilities, [field]: val }
       setCapabilities(newCaps)
+      if (field === 'generate_memory_from_chats') {
+        memoryStore.setAutoExtract(val)
+      } else if (field === 'include_sensitive_topics') {
+        memoryStore.setIncludeSensitive(val)
+      }
       await zingoApi.updateCapabilities({ user_id: activeUserId, [field]: val })
       addToast({
         type: 'success',
@@ -552,63 +576,72 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
     }
   }
 
-  // Memory Files Actions
+  // Memory Topics Actions (Continuous Memory Store)
   const handleSaveMemoryFile = async () => {
     if (!memoryTitle.trim() || !memoryContent.trim()) {
-      addToast({ type: 'warning', message: 'Title and content are required for memory files.' })
+      addToast({ type: 'warning', message: 'Title and content are required for memory topics.' })
       return
     }
+    const resolvedProjectId = memoryScopeForNew === 'global' ? null : memoryScopeForNew
+    const resolvedProject = resolvedProjectId ? projects.find((p) => p.id === resolvedProjectId) : undefined
+
     try {
       if (editingMemoryId) {
-        const updated = await zingoApi.updateMemoryFile(editingMemoryId, {
+        memoryStore.updateTopic(editingMemoryId, {
           title: memoryTitle.trim(),
           content: memoryContent.trim(),
-          category: memoryCategory,
-          is_sensitive: memoryIsSensitive,
-          user_id: activeUserId,
+          category: memoryCategory as any,
+          isSensitive: memoryIsSensitive,
+          projectId: resolvedProjectId,
+          projectName: resolvedProject?.title,
         })
-        setMemoryFiles((prev) => prev.map((m) => (m.id === editingMemoryId ? updated : m)))
-        addToast({ type: 'success', message: 'Memory file updated successfully.' })
+        addToast({ type: 'success', message: 'Memory topic updated successfully.' })
       } else {
-        const created = await zingoApi.addMemoryFile({
+        const added = memoryStore.addTopic({
           title: memoryTitle.trim(),
           content: memoryContent.trim(),
-          category: memoryCategory,
-          is_sensitive: memoryIsSensitive,
-          user_id: activeUserId,
+          category: memoryCategory as any,
+          isSensitive: memoryIsSensitive,
+          projectId: resolvedProjectId,
+          projectName: resolvedProject?.title,
         })
-        setMemoryFiles((prev) => [created, ...prev])
-        addToast({ type: 'success', message: 'Memory saved to ZINGO context.' })
+        if (added) {
+          addToast({ type: 'success', message: 'Topic saved to continuous memory.' })
+        } else {
+          addToast({
+            type: 'warning',
+            message: 'Topic contained blocked sensitive info (cards/passwords/Govt ID) or sensitive filter is disabled.',
+          })
+        }
       }
       setEditingMemoryId(null)
       setMemoryTitle('')
       setMemoryContent('')
       setMemoryCategory('preference')
+      setMemoryScopeForNew('global')
       setMemoryIsSensitive(false)
     } catch (err) {
-      addToast({ type: 'error', message: 'Failed to save memory file.' })
+      addToast({ type: 'error', message: 'Failed to save memory topic.' })
     }
   }
 
-  const handleDeleteMemoryFile = async (id: number) => {
+  const handleDeleteMemoryFile = (id: string) => {
     try {
-      await zingoApi.deleteMemoryFile(id)
-      setMemoryFiles((prev) => prev.filter((m) => m.id !== id))
-      addToast({ type: 'success', message: 'Memory file removed.' })
+      memoryStore.deleteTopic(id)
+      addToast({ type: 'success', message: 'Memory topic removed.' })
     } catch (err) {
-      addToast({ type: 'error', message: 'Failed to delete memory file.' })
+      addToast({ type: 'error', message: 'Failed to delete memory topic.' })
     }
   }
 
-  const handleClearAllMemories = async () => {
-    if (!window.confirm('Are you sure you want to delete all remembered memory files?')) return
-    try {
-      await zingoApi.clearMemoryFiles(activeUserId)
-      setMemoryFiles([])
-      addToast({ type: 'info', message: 'All remembered files cleared.' })
-    } catch (err) {
-      addToast({ type: 'error', message: 'Failed to clear memories.' })
-    }
+  const handleClearAllMemories = () => {
+    setIsResetConfirmOpen(true)
+  }
+
+  const handleConfirmResetMemory = () => {
+    memoryStore.resetAllMemory()
+    setIsResetConfirmOpen(false)
+    addToast({ type: 'info', message: 'All continuous memory topics wiped cleanly.' })
   }
 
   // Delete Account
@@ -781,11 +814,30 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
 
   const userInitial = userProfile.full_name?.trim().charAt(0).toUpperCase() || 'D'
 
-  // Filtered memory files for the sub-modal
-  const filteredMemories =
-    memoryFilter === 'all'
-      ? memoryFiles
-      : memoryFiles.filter((m) => m.category === memoryFilter || (memoryFilter === 'sensitive' && m.is_sensitive))
+  // Filtered memory topics for the continuous memory modal
+  const filteredMemories = memoryStore.topics.filter((m) => {
+    // 1. Category filter
+    if (memoryFilter !== 'all') {
+      if (memoryFilter === 'sensitive') {
+        if (!m.isSensitive) return false
+      } else if (m.category !== memoryFilter) {
+        return false
+      }
+    }
+    // 2. Project scope filter
+    if (memoryProjectFilter === 'global') {
+      if (m.projectId) return false
+    } else if (memoryProjectFilter !== 'all') {
+      if (m.projectId !== memoryProjectFilter) return false
+    }
+    // 3. Search query filter
+    if (memorySearchQuery.trim()) {
+      const q = memorySearchQuery.toLowerCase()
+      const match = m.title.toLowerCase().includes(q) || m.content.toLowerCase().includes(q)
+      if (!match) return false
+    }
+    return true
+  })
 
   if (!isOpen) return null
 
@@ -1193,19 +1245,87 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                     </div>
 
                     {/* Code execution and file creation */}
-                    <div className="py-3.5 flex items-center justify-between gap-4">
-                      <div className="pr-4 space-y-0.5">
-                        <span className="text-xs sm:text-sm font-medium text-content-primary block">
-                          Code execution and file creation
-                        </span>
-                        <p className="text-xs text-content-secondary leading-relaxed">
-                          ZINGO can write and run Python code to solve engineering problems, evaluate thermodynamic equations, and create downloadable files.
-                        </p>
+                    {/* Code execution and file creation */}
+                    <div className="py-3.5 space-y-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="pr-4 space-y-0.5">
+                          <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                            Code execution and file creation
+                          </span>
+                          <p className="text-xs text-content-secondary leading-relaxed">
+                            ZINGO can write and run Python code to solve engineering problems, evaluate thermodynamic equations, and create downloadable files (.docx, .pptx, .xlsx, .pdf).
+                          </p>
+                        </div>
+                        <Toggle
+                          checked={capabilities.code_execution}
+                          onChange={(val) => {
+                            handleToggleCapability('code_execution', val)
+                            updateSettings({ codeExecution: val })
+                          }}
+                        />
                       </div>
-                      <Toggle
-                        checked={capabilities.code_execution}
-                        onChange={(val) => handleToggleCapability('code_execution', val)}
-                      />
+
+                      {capabilities.code_execution && (
+                        <div className="ml-2 sm:ml-4 pl-3 sm:pl-4 border-l-2 border-accent/30 space-y-3 py-1">
+                          {/* Network Egress Sub-toggle */}
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="pr-4 space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-content-primary block">
+                                  Network egress for packages (PyPI / npm)
+                                </span>
+                                <span className="text-[10px] text-amber-400 font-mono px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 uppercase tracking-wider">
+                                  {settings.sandboxNetworkEgress !== false ? 'Connected' : 'Air-Gapped'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-content-secondary leading-relaxed">
+                                Allows sandbox execution to reach approved package repositories to fetch dynamic libraries. When disabled, the sandbox operates in an air-gapped sovereign host mode.
+                              </p>
+                            </div>
+                            <Toggle
+                              checked={settings.sandboxNetworkEgress !== false}
+                              onChange={(val) => {
+                                updateSettings({ sandboxNetworkEgress: val })
+                                addToast({
+                                  type: 'info',
+                                  title: val ? 'Network Egress Enabled' : 'Air-Gapped Mode Enabled',
+                                  message: val
+                                    ? 'Sandbox can install approved PyPI/npm packages.'
+                                    : 'Sandbox restricted to pre-installed sovereign libraries.',
+                                })
+                              }}
+                            />
+                          </div>
+
+                          {/* Sandbox Runtime & Pre-installed Engines Indicator */}
+                          <div className="p-3 rounded-xl bg-elevated/40 border border-border/60 text-xs space-y-2">
+                            <div className="flex items-center justify-between text-content-secondary">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                <span className="font-medium text-content-primary">Sovereign 3-Tier Sandbox Active</span>
+                              </div>
+                              <span className="font-mono text-[10px] text-content-tertiary">Python 3.10 &bull; inputs/ scratch/ outputs/</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[11px] font-mono">
+                                python-docx (.docx)
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[11px] font-mono">
+                                python-pptx (.pptx)
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-mono">
+                                openpyxl (.xlsx)
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[11px] font-mono">
+                                reportlab (.pdf)
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-slate-500/10 text-slate-300 border border-slate-500/20 text-[11px] font-mono">
+                                pandas &amp; matplotlib
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Switch models on flagged messages */}
@@ -1215,7 +1335,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                           Dynamic model routing
                         </span>
                         <p className="text-xs text-content-secondary leading-relaxed">
-                          Automatically route engineering queries to specialized models (e.g. Qwen2.5-Coder for calculations, DeepSeek for complex logic) based on task intent.
+                          Automatically route engineering queries to specialized cluster nodes (Qwen3-8B Master Arbiter, Qwen3-4B Edge, Qwen2.5-VL Vision) based on task intent.
                         </p>
                       </div>
                       <Toggle
@@ -1223,14 +1343,86 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         onChange={(val) => handleToggleCapability('switch_models_on_flagged', val)}
                       />
                     </div>
+
+                    {/* Autonomous Subagent Swarm (Cluster Parallel Delegation) */}
+                    <div className="py-3.5 flex items-center justify-between gap-4">
+                      <div className="pr-4 space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                            Autonomous Subagent Swarm
+                          </span>
+                          <span className="text-[10px] text-emerald-400 font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 uppercase tracking-wider">
+                            Multi-Node Swarm
+                          </span>
+                        </div>
+                        <p className="text-xs text-content-secondary leading-relaxed">
+                          Enables the Master Orchestrator (Laptop 1 · Qwen3-8B) to autonomously decompose multi-domain engineering queries and dispatch specialized parallel subagents across cluster nodes (Laptop 2 · Qwen3-4B &amp; Qwen2.5-VL), synthesizing their findings into an authoritative unified response.
+                        </p>
+                      </div>
+                      <Toggle
+                        checked={settings.subagentsEnabled !== false}
+                        onChange={(val) => {
+                          updateSettings({ subagentsEnabled: val })
+                          addToast({
+                            type: 'info',
+                            title: val ? 'Subagent Swarm Enabled' : 'Subagent Swarm Disabled',
+                            message: val
+                              ? 'AIRA will autonomously delegate domain tasks to parallel cluster subagents.'
+                              : 'Queries will be handled by a single orchestrator model.',
+                          })
+                        }}
+                      />
+                    </div>
                   </div>
 
-                  {/* Section: Memory */}
+                  {/* Section: Continuous Memory */}
                   <div className="pt-2">
-                    <h3 className="text-sm sm:text-base font-semibold text-content-primary mb-2">
-                      Memory
-                    </h3>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <h3 className="text-sm sm:text-base font-semibold text-content-primary">
+                          Continuous Memory
+                        </h3>
+                        <p className="text-xs text-content-secondary">
+                          Autonomous, mid-conversation topic learning with strict project isolation.
+                        </p>
+                      </div>
+                      <span
+                        className={`text-xs px-2.5 py-0.5 rounded-full font-medium border ${
+                          memoryStore.isPaused
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        }`}
+                      >
+                        {memoryStore.isPaused ? 'Paused (Storage Frozen)' : 'Active (Continuous)'}
+                      </span>
+                    </div>
+
                     <div className="divide-y divide-border/60">
+                      {/* Pause Memory Toggle */}
+                      <div className="py-3.5 flex items-center justify-between gap-4">
+                        <div className="pr-4 space-y-0.5">
+                          <span className="text-xs sm:text-sm font-medium text-content-primary block">
+                            Pause memory
+                          </span>
+                          <p className="text-xs text-content-secondary leading-relaxed">
+                            Stops saving new topics and prevents existing memories from being used in prompts, while keeping all stored memories intact.
+                          </p>
+                        </div>
+                        <Toggle
+                          checked={memoryStore.isPaused}
+                          onChange={(val) => {
+                            memoryStore.setIsPaused(val)
+                            addToast({
+                              type: 'info',
+                              title: val ? 'Memory Paused' : 'Memory Resumed',
+                              message: val
+                                ? 'Memory extraction and context injection are paused.'
+                                : 'Memory is now actively learning and injecting context.',
+                            })
+                          }}
+                        />
+                      </div>
+
                       {/* Generate memory from chats */}
                       <div className="py-3.5 flex items-center justify-between gap-4">
                         <div className="pr-4 space-y-0.5">
@@ -1238,12 +1430,15 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                             Generate memory from chats
                           </span>
                           <p className="text-xs text-content-secondary leading-relaxed">
-                            ZINGO automatically extracts operational facts and preferences from your conversations into persistent memory.
+                            ZINGO automatically extracts durable operational facts and preferences mid-conversation as you chat.
                           </p>
                         </div>
                         <Toggle
-                          checked={capabilities.generate_memory_from_chats}
-                          onChange={(val) => handleToggleCapability('generate_memory_from_chats', val)}
+                          checked={memoryStore.autoExtract && capabilities.generate_memory_from_chats}
+                          onChange={(val) => {
+                            memoryStore.setAutoExtract(val)
+                            handleToggleCapability('generate_memory_from_chats', val)
+                          }}
                         />
                       </div>
 
@@ -1254,16 +1449,19 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                             Include sensitive topics in memory
                           </span>
                           <p className="text-xs text-content-secondary leading-relaxed">
-                            ZINGO can remember sensitive operational observations, audit findings, and plant operating boundaries.
+                            Allow storage of sensitive operational observations, audit findings, or personal context. (Financial accounts, passwords, and Government IDs are always blocked unconditionally).
                           </p>
                         </div>
                         <Toggle
-                          checked={capabilities.include_sensitive_topics}
-                          onChange={(val) => handleToggleCapability('include_sensitive_topics', val)}
+                          checked={memoryStore.includeSensitive || capabilities.include_sensitive_topics}
+                          onChange={(val) => {
+                            memoryStore.setIncludeSensitive(val)
+                            handleToggleCapability('include_sensitive_topics', val)
+                          }}
                         />
                       </div>
 
-                      {/* Memory files (Clickable Row opening manager) */}
+                      {/* Memory topics (Clickable Row opening manager) */}
                       <button
                         type="button"
                         onClick={() => setIsMemoryModalOpen(true)}
@@ -1272,14 +1470,14 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         <div className="pr-4 space-y-0.5">
                           <div className="flex items-center gap-2">
                             <span className="text-xs sm:text-sm font-medium text-content-primary block">
-                              Memory files
+                              Manage Continuous Memory Topics
                             </span>
                             <span className="px-1.5 py-0.5 rounded-full bg-elevated border border-border text-[10px] font-mono text-content-secondary">
-                              {memoryFiles.length}
+                              {memoryStore.topics.length} topics
                             </span>
                           </div>
                           <p className="text-xs text-content-secondary leading-relaxed">
-                            Review what ZINGO has remembered about you and your plant units
+                            Review, search, edit, or delete individual remembered topics across projects
                           </p>
                         </div>
                         <ChevronRight size={16} className="text-content-tertiary shrink-0" />
@@ -2109,74 +2307,171 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
           setEditingMemoryId(null)
           setMemoryTitle('')
           setMemoryContent('')
+          setMemoryCategory('preference')
+          setMemoryScopeForNew('global')
+          setMemoryIsSensitive(false)
         }}
-        title="Memory files"
-        description="Review and manage what ZINGO has remembered about you and your plant across conversations."
-        maxWidth="xl"
+        title="Continuous Memory Manager"
+        description="Review and manage durable topics ZINGO extracts mid-conversation. Project-scoped memories remain strictly isolated from global conversations."
+        maxWidth="2xl"
       >
         <div className="space-y-4 pt-2">
-          {/* Controls: Filter & Add New */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 bg-surface p-0.5 rounded-lg border border-border text-xs">
-              {(['all', 'preference', 'project', 'general', 'sensitive'] as const).map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setMemoryFilter(cat)}
-                  className={`px-2.5 py-1 rounded-md capitalize transition-colors ${
-                    memoryFilter === cat
-                      ? 'bg-elevated text-content-primary font-medium shadow-xs'
-                      : 'text-content-tertiary hover:text-content-primary'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
+          {/* Top Status & Quick Action Bar */}
+          <div className="p-3 rounded-xl bg-surface border border-border flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2">
-              {memoryFiles.length > 0 && (
+              <span className="text-content-secondary font-medium">Memory Engine:</span>
+              <span
+                className={`px-2 py-0.5 rounded-full font-medium border ${
+                  memoryStore.isPaused
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                }`}
+              >
+                {memoryStore.isPaused ? 'Paused (Storage Frozen)' : 'Active (Continuous)'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Pause / Resume Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const nextState = !memoryStore.isPaused
+                  memoryStore.setIsPaused(nextState)
+                  addToast({
+                    type: 'info',
+                    title: nextState ? 'Memory Paused' : 'Memory Resumed',
+                    message: nextState
+                      ? 'Storage frozen: No new topics will be extracted or injected into prompts.'
+                      : 'Storage active: Topics will be continuously extracted and injected.',
+                  })
+                }}
+                className={`btn-glass !py-1 !px-2.5 !text-xs flex items-center gap-1.5 ${
+                  memoryStore.isPaused
+                    ? 'text-emerald-400 border-emerald-500/30'
+                    : 'text-amber-400 border-amber-500/30'
+                }`}
+              >
+                {memoryStore.isPaused ? <Play size={12} /> : <Pause size={12} />}
+                <span>{memoryStore.isPaused ? 'Resume Memory' : 'Pause Memory'}</span>
+              </button>
+
+              {/* Reset Memory Button */}
+              {memoryStore.topics.length > 0 && (
                 <button
                   type="button"
                   onClick={handleClearAllMemories}
-                  className="px-2.5 py-1 text-xs text-danger hover:bg-danger/10 rounded-lg transition-colors border border-transparent hover:border-danger/30"
+                  className="px-2.5 py-1 text-xs text-danger hover:bg-danger/10 rounded-lg transition-colors border border-transparent hover:border-danger/30 flex items-center gap-1"
+                  title="Wipe and reset all continuous memories"
                 >
-                  Clear all
+                  <Trash2 size={12} />
+                  <span>Reset All</span>
                 </button>
               )}
             </div>
           </div>
 
+          {/* Search & Project Scope Filters */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Search Input */}
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" />
+              <input
+                type="text"
+                placeholder="Search memory topics..."
+                value={memorySearchQuery}
+                onChange={(e) => setMemorySearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 bg-surface border border-border rounded-lg text-xs text-content-primary outline-none focus:border-accent"
+              />
+            </div>
+
+            {/* Scope Filter Dropdown */}
+            <div className="relative">
+              <select
+                value={memoryProjectFilter}
+                onChange={(e) => setMemoryProjectFilter(e.target.value)}
+                className="w-full px-3 py-1.5 bg-surface border border-border rounded-lg text-xs text-content-primary outline-none focus:border-accent"
+              >
+                <option value="all">All Scopes ({memoryStore.topics.length})</option>
+                <option value="global">
+                  Global Only ({memoryStore.topics.filter((t) => !t.projectId).length})
+                </option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    Project: {p.title} ({memoryStore.topics.filter((t) => t.projectId === p.id).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Category Filter Pills */}
+          <div className="flex items-center gap-1 bg-surface p-1 rounded-lg border border-border text-xs overflow-x-auto">
+            {(['all', 'operational', 'project', 'preference', 'technical', 'sensitive'] as const).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setMemoryFilter(cat)}
+                className={`px-2.5 py-1 rounded-md capitalize transition-colors whitespace-nowrap ${
+                  memoryFilter === cat
+                    ? 'bg-elevated text-content-primary font-medium shadow-xs'
+                    : 'text-content-tertiary hover:text-content-primary'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
           {/* Add / Edit Memory Form */}
           <div className="p-3.5 rounded-xl bg-surface border border-border space-y-3">
             <span className="text-xs font-semibold text-content-primary block">
-              {editingMemoryId ? 'Edit Memory File' : 'Add Memory File'}
+              {editingMemoryId ? 'Edit Memory Topic' : 'Add New Topic to Continuous Memory'}
             </span>
             <input
               type="text"
-              placeholder="Memory title (e.g. Focus area, equipment specialty...)"
+              placeholder="Topic title (e.g. CDU-2 Operating Limit, Exchanger Cleaning Protocol...)"
               value={memoryTitle}
               onChange={(e) => setMemoryTitle(e.target.value)}
-              className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none"
+              className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none focus:border-accent"
             />
             <textarea
               rows={3}
-              placeholder="Memory content (operating boundaries, equipment notes, focus areas ZINGO will remember)..."
+              placeholder="Topic content (durable operating boundaries, technical rules, or workflow preferences ZINGO must remember)..."
               value={memoryContent}
               onChange={(e) => setMemoryContent(e.target.value)}
-              className="w-full p-2.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none resize-none"
+              className="w-full p-2.5 bg-elevated border border-border rounded-lg text-xs text-content-primary outline-none resize-none focus:border-accent"
             />
-            <div className="flex items-center justify-between gap-2 pt-1">
-              <div className="flex items-center gap-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                {/* Project Scope Selection */}
+                <select
+                  value={memoryScopeForNew}
+                  onChange={(e) => setMemoryScopeForNew(e.target.value)}
+                  className="px-2 py-1 bg-elevated border border-border rounded-md text-xs text-content-primary outline-none"
+                  title="Assign topic to a specific project or global space"
+                >
+                  <option value="global">Scope: Global</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      Scope: {p.title}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Category Selection */}
                 <select
                   value={memoryCategory}
                   onChange={(e) => setMemoryCategory(e.target.value as any)}
                   className="px-2 py-1 bg-elevated border border-border rounded-md text-xs text-content-primary outline-none"
                 >
                   <option value="preference">Preference</option>
+                  <option value="operational">Operational</option>
                   <option value="project">Project</option>
-                  <option value="general">General</option>
+                  <option value="technical">Technical</option>
                   <option value="sensitive">Sensitive</option>
                 </select>
+
                 <label className="inline-flex items-center gap-1.5 text-content-secondary cursor-pointer">
                   <input
                     type="checkbox"
@@ -2187,6 +2482,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                   <span>Mark Sensitive</span>
                 </label>
               </div>
+
               <div className="flex items-center gap-2">
                 {editingMemoryId && (
                   <button
@@ -2195,6 +2491,9 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                       setEditingMemoryId(null)
                       setMemoryTitle('')
                       setMemoryContent('')
+                      setMemoryCategory('preference')
+                      setMemoryScopeForNew('global')
+                      setMemoryIsSensitive(false)
                     }}
                     className="btn-ghost !py-1 !px-2.5 !text-xs"
                   >
@@ -2206,41 +2505,67 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                   onClick={handleSaveMemoryFile}
                   className="btn-primary !py-1 !px-3 !text-xs"
                 >
-                  {editingMemoryId ? 'Update Memory' : 'Save to Memory'}
+                  {editingMemoryId ? 'Update Topic' : 'Save to Memory'}
                 </button>
               </div>
             </div>
           </div>
 
-          {/* List of Memory Files */}
+          {/* List of Continuous Memory Topics */}
           <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
             {filteredMemories.length === 0 ? (
               <div className="text-center py-8 text-content-tertiary text-xs">
-                No memory files found for this filter.
+                No memory topics found matching your criteria.
               </div>
             ) : (
               filteredMemories.map((mem) => (
                 <div
                   key={mem.id}
-                  className="p-3 rounded-xl bg-elevated border border-border flex items-start justify-between gap-3 text-xs"
+                  className="p-3 rounded-xl bg-elevated border border-border flex items-start justify-between gap-3 text-xs hover:border-border-strong transition-colors"
                 >
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-content-primary truncate">{mem.title}</span>
-                      <span className="px-1.5 py-0.2 rounded bg-surface border border-border text-[10px] text-content-tertiary uppercase font-mono">
+
+                      {/* Project Scope Badge */}
+                      <span
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                          mem.projectId
+                            ? 'bg-violet-500/10 text-violet-300 border-violet-500/25'
+                            : 'bg-surface text-content-tertiary border-border'
+                        }`}
+                      >
+                        {mem.projectId ? <Folder size={10} /> : <Globe size={10} />}
+                        <span className="truncate max-w-[130px]">
+                          {mem.projectName || (mem.projectId ? 'Project' : 'Global')}
+                        </span>
+                      </span>
+
+                      {/* Category Tag */}
+                      <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-content-tertiary uppercase font-mono">
                         {mem.category}
                       </span>
-                      {mem.is_sensitive && (
-                        <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-mono">
+
+                      {mem.isSensitive && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-mono">
                           sensitive
                         </span>
                       )}
+
+                      <span className="text-[10px] text-content-tertiary ml-auto">
+                        {new Date(mem.updatedAt || mem.createdAt).toLocaleDateString([], {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </span>
                     </div>
+
                     <p className="text-content-secondary leading-relaxed whitespace-pre-wrap">
                       {mem.content}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
+
+                  <div className="flex items-center gap-1 shrink-0 pt-0.5">
                     <button
                       type="button"
                       onClick={() => {
@@ -2248,7 +2573,8 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                         setMemoryTitle(mem.title)
                         setMemoryContent(mem.content)
                         setMemoryCategory(mem.category)
-                        setMemoryIsSensitive(mem.is_sensitive)
+                        setMemoryScopeForNew(mem.projectId || 'global')
+                        setMemoryIsSensitive(Boolean(mem.isSensitive))
                       }}
                       className="btn-icon !w-7 !h-7 text-content-tertiary hover:text-content-primary"
                       title="Edit"
@@ -2267,6 +2593,42 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
                 </div>
               ))
             )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* SUB-MODAL: RESET CONTINUOUS MEMORY CONFIRMATION                            */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isResetConfirmOpen}
+        onClose={() => setIsResetConfirmOpen(false)}
+        title="Reset Continuous Memory"
+        description="Permanently wipe all remembered topics across global and project workspaces."
+        maxWidth="md"
+      >
+        <div className="space-y-4 pt-2 text-xs">
+          <div className="p-3.5 rounded-xl bg-danger/10 border border-danger/25 text-danger space-y-1.5">
+            <span className="font-semibold block text-sm">Irreversible Action</span>
+            <p className="text-content-secondary">
+              This will permanently erase all {memoryStore.topics.length} stored topic(s) from persistent memory. ZINGO will forget previously learned operating boundaries, preferences, and project-specific guidelines.
+            </p>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <button
+              type="button"
+              onClick={() => setIsResetConfirmOpen(false)}
+              className="btn-ghost !py-1.5 !px-3 !text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmResetMemory}
+              className="btn-danger !py-1.5 !px-3 !text-xs"
+            >
+              Yes, Reset Everything
+            </button>
           </div>
         </div>
       </Modal>

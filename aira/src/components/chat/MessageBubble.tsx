@@ -23,10 +23,12 @@ import {
   ShieldCheck,
   Presentation,
   Scale,
+  Bot,
 } from 'lucide-react'
 import type { Message } from '../../types'
 import { ModelBadge, formatModelDisplayName } from './ModelBadge'
 import { ThinkingBlock } from './ThinkingBlock'
+import { SubagentPanel } from './SubagentPanel'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -37,6 +39,8 @@ import { hasSearchReplaceDiffs } from '../../utils/diffEngine'
 import { pyodideEngine, type PyodideExecutionResult } from '../../services/pyodideService'
 import { isPresentationProject, exportVirtualProjectToPptx } from '../../services/pptxExportService'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
+import { PastChatSearchCard } from './PastChatSearchCard'
+import { DeliverableCard } from './DeliverableCard'
 
 import { exportMessageToPdf } from '../../services/pdfExport'
 
@@ -54,8 +58,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 }) => {
   const { settings } = useSettingsStore()
   const { addToast } = useToastStore()
-  const { toggleSourcePanel, setActiveSources } = useChatStore()
-  const { artifacts, openInSandbox } = useArtifactStore()
+  const { toggleSourcePanel, setActiveSources, activeChatId, updateMessage } = useChatStore()
+  const { artifacts, openInSandbox, createOrUpdateArtifact, openArtifact } = useArtifactStore()
 
   // Match artifacts associated with this message
   const matchedArtifacts = React.useMemo(() => {
@@ -64,9 +68,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
     if (!message.content) return []
     return artifacts.filter(
-      (a) => a.content && a.content.length > 30 && message.content.includes(a.content.slice(0, 50))
+      (a) =>
+        (a.content && a.content.length > 30 && message.content.includes(a.content.slice(0, 50))) ||
+        (a.identifier && a.identifier.startsWith(`plot-${message.id}`))
     )
-  }, [artifacts, message.artifactIds, message.content])
+  }, [artifacts, message.artifactIds, message.content, message.id])
 
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
@@ -107,6 +113,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       .replace(/(?:^|\n)={3,}\s*\nAIRA MODEL COUNCIL DELIBERATION BRIEF[\s\S]*?={3,}\s*\n/gi, '')
       .replace(/(?:^|\n)\[PERSPECTIVE [AB]:[\s\S]*?(?=\n\[PERSPECTIVE|\nARBITER INSTRUCTIONS:|\n={3,}|\n\n[A-Z]|$)/gi, '')
       .replace(/(?:^|\n)ARBITER INSTRUCTIONS:[\s\S]*?(?=\n={3,}|\n\n|$)/gi, '')
+      .replace(/(?:^|\n)={3,}\s*\n=== DELEGATED CLUSTER SUBAGENT BRIEFINGS[\s\S]*?=== SYNTHESIS INSTRUCTIONS FOR CHIEF ARBITER ===[\s\S]*?(?=\n\n[A-Z]|$)/gi, '')
+      .replace(/(?:^|\n)=== DELEGATED CLUSTER SUBAGENT BRIEFINGS[\s\S]*?=== SYNTHESIS INSTRUCTIONS FOR CHIEF ARBITER ===[^\n]*\n?/gi, '')
 
     // 4. Strip decorative AI-generated emojis and pseudo-icons from headers, bullets, and lists
     clean = clean
@@ -114,6 +122,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       .replace(/^(\s*[-*•]\s*)[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+\s*/gmu, '$1')
       .replace(/^(\s*\d+\.\s*)[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+\s*/gmu, '$1')
       .replace(/^(#{1,6}\s*.*?)\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+$/gmu, '$1')
+
+    // 5. Strip raw <artifact ...>...</artifact> and <antArtifact ...> tags so raw XML doesn't flood markdown text
+    clean = clean
+      .replace(/<(?:artifact|antArtifact)\b[^>]*>[\s\S]*?<\/(?:artifact|antArtifact)>/gi, '')
+      .replace(/<(?:artifact|antArtifact)\b[\s\S]*$/gi, '')
 
     return {
       sanitizedContent: clean.trim(),
@@ -388,6 +401,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               )}
             </div>
           )}
+          {message.subagents && message.subagents.length > 0 && (
+            <div
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 shadow-2xs select-none"
+              title={`${message.subagents.length} Autonomous Subagents executed in parallel across cluster`}
+            >
+              <Bot size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>Subagent Swarm</span>
+              <span className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 font-mono">
+                · {message.subagents.length} Specialists
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Content Body / Streaming Indicator / Error */}
@@ -427,17 +452,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   isThinkingPhase={Boolean(message.isThinkingPhase || (!isThinkingComplete && Boolean(thinkingText)))}
                   totalSteps={message.thinkTotalSteps || (displaySteps.length > 0 ? displaySteps.length : undefined)}
                   elapsedMs={message.thinkElapsedMs}
+                  isInterrupted={Boolean(message.isThinkingInterrupted)}
                 />
               </div>
             )}
 
-            {/* Artifact Cards: Interactive Applications & Visualizations */}
-            {matchedArtifacts.length > 0 && (
-              <div className="space-y-2.5 mb-3">
-                {matchedArtifacts.map((art) => (
-                  <ArtifactCard key={art.id} artifact={art} />
-                ))}
-              </div>
+            {/* Autonomous Subagent Swarm Panel */}
+            {message.subagents && message.subagents.length > 0 && (
+              <SubagentPanel subagents={message.subagents} />
+            )}
+
+            {/* Past Chat Search RAG Card */}
+            {message.pastChatSearch && message.pastChatSearch.results && message.pastChatSearch.results.length > 0 && (
+              <PastChatSearchCard meta={message.pastChatSearch} />
             )}
 
             {finalContent ? (
@@ -445,6 +472,35 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 remarkPlugins={[remarkGfm, remarkMath]}
                 rehypePlugins={[rehypeKatex]}
                 components={{
+                  a({ href, children, ...props }: any) {
+                    if (href && (href.startsWith('chat://') || href.startsWith('#chat-'))) {
+                      const targetChatId = href.replace(/^(?:chat:\/\/|#chat-)/, '')
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            useChatStore.getState().setActiveChat(targetChatId)
+                            addToast({
+                              type: 'info',
+                              title: 'Conversation Switched',
+                              message: 'Navigated to referenced past discussion.',
+                            })
+                          }}
+                          className="inline-flex items-center gap-1 font-medium text-sky-400 hover:text-sky-300 underline underline-offset-2 cursor-pointer bg-sky-950/40 border border-sky-500/20 px-1.5 py-0.5 rounded text-xs transition-colors my-0.5"
+                          title={`Jump to chat ${targetChatId}`}
+                        >
+                          <span>💬</span>
+                          <span>{children}</span>
+                        </button>
+                      )
+                    }
+                    return (
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent underline hover:text-accent-hover" {...props}>
+                        {children}
+                      </a>
+                    )
+                  },
                   code({ inline, className, children, ...props }: any) {
                     const match = /language-(\w+)/.exec(className || '')
                     const codeText = String(children).replace(/\n$/, '')
@@ -453,6 +509,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       const lang = match[1]
                       const codeIndex = Math.random()
                       const blockKey = `${message.id}_${codeText.slice(0, 32)}`
+
+                      // Claude style: If this code block was captured as an interactive Artifact,
+                      // suppress rendering the raw code block so the chat message stays clean and concise.
+                      const isArtifactCode = matchedArtifacts.some(
+                        (a) =>
+                          a.content.trim() === codeText.trim() ||
+                          a.versions?.some((v) => v.content.trim() === codeText.trim())
+                      )
+                      if (isArtifactCode) {
+                        return null
+                      }
 
                       // Claude/Gemini style: Suppress raw JSON manifest dump; presentation banner renders below
                       if (
@@ -537,6 +604,43 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                                     try {
                                       const res = await pyodideEngine.execute(codeText)
                                       setPyodideOutputs((prev) => ({ ...prev, [blockKey]: res }))
+
+                                      // Automatically catalog and save generated Matplotlib / Seaborn vector plots as Artifacts
+                                      if (res.plotSvg) {
+                                        const titleMatch = codeText.match(/(?:plt\.title|set_title)\s*\(\s*['"]([^'"]+)['"]/i)
+                                        const firstCommentMatch = codeText.match(/^#\s*(.+)$/m)
+                                        const inferredTitle = titleMatch
+                                          ? titleMatch[1].trim()
+                                          : firstCommentMatch
+                                          ? firstCommentMatch[1].trim()
+                                          : 'Matplotlib Vector Plot'
+
+                                        const artIdentifier = `plot-${message.id}-${blockKey}`
+                                        const artId = createOrUpdateArtifact({
+                                          identifier: artIdentifier,
+                                          title: inferredTitle,
+                                          type: 'svg',
+                                          language: 'svg',
+                                          content: res.plotSvg,
+                                          chatId: activeChatId || undefined,
+                                          summary: `Rendered vector plot from Python execution (${inferredTitle})`,
+                                        })
+
+                                        if (activeChatId) {
+                                          const existingIds = message.artifactIds || []
+                                          if (!existingIds.includes(artId)) {
+                                            updateMessage(activeChatId, message.id, {
+                                              artifactIds: [...existingIds, artId],
+                                            })
+                                          }
+                                        }
+
+                                        openArtifact(artId)
+                                        addToast({
+                                          type: 'success',
+                                          message: `Saved plot "${inferredTitle}" to Artifacts panel`,
+                                        })
+                                      }
                                     } catch (err: any) {
                                       setPyodideOutputs((prev) => ({
                                         ...prev,
@@ -660,7 +764,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                                 </div>
                               )}
 
-                              {pyodideOutputs[blockKey]?.stderr && (
+                              {pyodideOutputs[blockKey]?.stderr && pyodideOutputs[blockKey]!.stderr.trim().length > 0 && (
                                 <div className="mb-2">
                                   <div className="text-[10px] text-red-400 uppercase tracking-wider mb-1">Traceback / Error:</div>
                                   <pre className="p-2.5 rounded bg-red-950/20 text-red-300 border border-red-900/30 overflow-x-auto whitespace-pre-wrap leading-snug">
@@ -672,8 +776,32 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                               {pyodideOutputs[blockKey]?.plotSvg && (
                                 <div className="mt-3">
                                   <div className="text-[10px] text-content-secondary uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                                    <span>Rendered Vector Plot (Matplotlib / Seaborn):</span>
-                                    <span className="text-[9px] text-emerald-400">Vector SVG</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <Sparkles size={11} className="text-emerald-400" />
+                                      <span>Rendered Vector Plot (Matplotlib / Seaborn)</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                                        Saved as Artifact
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const artIdentifier = `plot-${message.id}-${blockKey}`
+                                          const art = artifacts.find(
+                                            (a) =>
+                                              a.identifier === artIdentifier ||
+                                              (activeChatId && a.chatId === activeChatId && a.type === 'svg')
+                                          )
+                                          if (art) {
+                                            openArtifact(art.id)
+                                          }
+                                        }}
+                                        className="text-[10px] text-violet-300 hover:text-white flex items-center gap-1 underline underline-offset-2 transition-colors cursor-pointer"
+                                      >
+                                        Open in Side Panel ›
+                                      </button>
+                                    </div>
                                   </div>
                                   <div
                                     className="p-3 rounded-lg bg-white flex items-center justify-center overflow-auto shadow-inner"
@@ -706,6 +834,23 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               ) : null
             )}
 
+            {/* Artifact Cards: Interactive Applications, Diagrams & Visualizations */}
+            {matchedArtifacts.length > 0 && (
+              <div className="space-y-2.5 my-3">
+                {matchedArtifacts.map((art) => (
+                  <ArtifactCard key={art.id} artifact={art} />
+                ))}
+              </div>
+            )}
+
+            {/* Sandboxed File Creation Deliverables (.docx, .pptx, .xlsx, .pdf) */}
+            {message.deliverables && message.deliverables.length > 0 && (
+              <div className="space-y-2.5 my-3">
+                {message.deliverables.map((deliv) => (
+                  <DeliverableCard key={deliv.id} deliverable={deliv} />
+                ))}
+              </div>
+            )}
           </div>
         )}
 

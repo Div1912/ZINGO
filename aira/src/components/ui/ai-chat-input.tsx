@@ -144,6 +144,25 @@ function DynamicBarsIcon({ level }: { level: string }) {
   );
 }
 
+function BrainIcon({ active }: { active?: boolean }) {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={active ? "2.2" : "1.8"}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("shrink-0 transition-colors", active ? "text-violet-400" : "text-muted-foreground")}
+    >
+      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04" />
+      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-2.04" />
+    </svg>
+  );
+}
+
 // ----------------------------------------------------------------------
 // Attachment Thumbnail
 // ----------------------------------------------------------------------
@@ -309,7 +328,14 @@ function AttachmentGalleryModal({
 export interface PromptInputProps {
   onSubmit?: (
     value: string,
-    meta: { model: string; effort: string; attachments: File[]; enableCouncil?: boolean }
+    meta: {
+      model: string;
+      effort: string;
+      attachments: File[];
+      enableCouncil?: boolean;
+      enableThinking?: boolean;
+      thinkingBudget?: number;
+    }
   ) => void;
   placeholder?: string;
   className?: string;
@@ -333,6 +359,11 @@ export interface PromptInputProps {
   // Model Council additions
   isCouncilEnabled?: boolean;
   onToggleCouncil?: () => void;
+  // Extended Thinking additions
+  isThinkingEnabled?: boolean;
+  onToggleThinking?: () => void;
+  thinkingBudgetTokens?: number;
+  onSetThinkingBudget?: (tokens: number) => void;
 }
 
 export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
@@ -341,7 +372,12 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       onSubmit,
       placeholder = "Ask anything",
       className,
-      models = ["Auto (Recommended)", "Qwen2.5-7B (Primary)", "Qwen2.5-Coder-7B", "GPT 5.5", "Opus 4.8"],
+      models = [
+        "Auto (Cluster Smart Router)",
+        "Qwen3-8B (Laptop 1 - Master Node)",
+        "Qwen3-4B (Laptop 1 - Fast Synthesis Node)",
+        "Qwen2.5-VL Multimodal (Laptop 2 - Vision Node)",
+      ],
       efforts = ["Fast", "Deep Research", "Max Effort"],
       defaultValue = "",
       value: controlledValue,
@@ -359,6 +395,10 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       maxWidthExpanded = 780,
       isCouncilEnabled,
       onToggleCouncil,
+      isThinkingEnabled,
+      onToggleThinking,
+      thinkingBudgetTokens,
+      onSetThinkingBudget: _onSetThinkingBudget,
     },
     ref
   ) => {
@@ -368,6 +408,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     const [localValue, setLocalValue] = useState(defaultValue);
     const [localCouncilEnabled, setLocalCouncilEnabled] = useState(false);
     const effectiveCouncil = isCouncilEnabled !== undefined ? isCouncilEnabled : localCouncilEnabled;
+    const [localThinkingEnabled, setLocalThinkingEnabled] = useState(true);
+    const effectiveThinking = isThinkingEnabled !== undefined ? isThinkingEnabled : localThinkingEnabled;
 
     useEffect(() => {
       if (defaultValue) {
@@ -725,6 +767,8 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
         effort: efforts[effortIndex],
         attachments: attachments.map((a) => a.file),
         enableCouncil: effectiveCouncil,
+        enableThinking: effectiveThinking,
+        thinkingBudget: thinkingBudgetTokens || 4096,
       });
       handleValueChange("");
       attachments.forEach((a) => URL.revokeObjectURL(a.url));
@@ -1038,13 +1082,43 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
                 </div>
               </div>
 
+              {/* Dial 1: Effort Level (Response Thoroughness) */}
               <button
                 type="button" onMouseDown={(e) => e.preventDefault()} onClick={cycleEffort}
                 className="group flex items-center gap-1 rounded-full px-2 py-1 text-foreground/70 transition-all duration-200 hover:bg-muted hover:text-foreground outline-none cursor-default"
-                title="Reasoning Effort"
+                title="Response Thoroughness & Scope (Effort Level)"
               >
                 <DynamicBarsIcon level={efforts[effortIndex]} />
                 <span className="text-xs font-semibold select-none transition-colors"><MorphingText text={efforts[effortIndex]} /></span>
+              </button>
+
+              {/* Dial 2: Extended Thinking Toggle (Pre-computation Deliberation) */}
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onToggleThinking) {
+                    onToggleThinking();
+                  } else {
+                    setLocalThinkingEnabled((prev) => !prev);
+                  }
+                }}
+                className={cn(
+                  "group flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-all duration-200 outline-none cursor-pointer select-none",
+                  effectiveThinking
+                    ? "bg-violet-500/15 text-violet-300 dark:text-violet-300 border border-violet-500/30 font-medium shadow-xs hover:bg-violet-500/25"
+                    : "text-foreground/60 hover:bg-muted hover:text-foreground border border-transparent"
+                )}
+                title={effectiveThinking ? "Extended Thinking: ON (Deliberate in scratchpad before answering)" : "Extended Thinking: OFF (Direct immediate answer)"}
+              >
+                <BrainIcon active={effectiveThinking} />
+                <span className="text-xs font-semibold select-none">
+                  {effectiveThinking ? "Thinking: ON" : "Thinking: OFF"}
+                </span>
+                {effectiveThinking && (
+                  <span className="size-1.5 rounded-full bg-violet-400 animate-pulse ml-0.5" />
+                )}
               </button>
 
               {/* Perplexity-style Model Council Deliberation Toggle */}

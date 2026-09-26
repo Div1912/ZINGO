@@ -370,6 +370,7 @@ from routers.learning import router as learning_router            # noqa: E402
 from routers.temporal import router as temporal_router            # noqa: E402
 from routers.settings import router as settings_router            # noqa: E402
 from routers.sandbox import router as sandbox_router              # noqa: E402
+from routers.subagents import router as subagents_router          # noqa: E402
 from mcp_host import mcp_router                                    # noqa: E402
 from self_healing import auto_heal_response                        # noqa: E402
 from model_orchestrator import hardware_router, calculate_safe_num_ctx  # noqa: E402
@@ -399,6 +400,7 @@ app.include_router(learning_router)
 app.include_router(temporal_router)
 app.include_router(settings_router)
 app.include_router(sandbox_router)
+app.include_router(subagents_router)
 app.include_router(mcp_router)
 app.include_router(hardware_router)
 
@@ -848,6 +850,8 @@ async def process_and_ask(
 
     raw_council = q.get("enable_council")
     is_council_enabled = str(raw_council).lower() in ("true", "1", "yes")
+    raw_subagents = q.get("enable_subagents", "true")
+    is_subagents_enabled = str(raw_subagents).lower() in ("true", "1", "yes")
 
     context = ""
     images_b64 = []
@@ -1042,6 +1046,31 @@ async def process_and_ask(
         except Exception as c_err:
             print(f"[process_and_ask] Model Council execution error: {c_err}")
 
+    # ── Autonomous Subagent Swarm Deliberation ───────────────────────────────
+    subagents_meta = None
+    if is_subagents_enabled and not images_b64 and len(user_query.strip()) >= 15:
+        try:
+            import subagent_engine as se
+            subagent_tasks = se.decompose_query_to_subagents(
+                query=user_query,
+                context=context,
+                l2_url=cluster_balancer.laptop2_url,
+                l3_url=cluster_balancer.laptop3_url,
+            )
+            if subagent_tasks:
+                subagent_results = se.dispatch_subagents_concurrent(
+                    tasks=subagent_tasks,
+                    default_url=MODEL_ENDPOINT,
+                    max_workers=3,
+                )
+                briefing = se.format_subagents_for_orchestrator(subagent_results)
+                if briefing:
+                    instruction = f"{instruction}\n\n{briefing}"
+                    display_model = f"{target_model} (Subagent Swarm · {len(subagent_results)} Nodes Deployed)"
+                subagents_meta = [res.dict() for res in subagent_results]
+        except Exception as sa_err:
+            print(f"[process_and_ask] Subagent swarm execution error: {sa_err}")
+
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
     safe_ctx = calculate_safe_num_ctx(target_model, ram_info["available_gb"])
@@ -1059,6 +1088,7 @@ async def process_and_ask(
         "_endpoint": target_endpoint,
         "_display_model": display_model,
         "_council": council_result,
+        "_subagents": subagents_meta,
     }
     if images_b64:
         payload["images"] = images_b64
@@ -1121,6 +1151,7 @@ async def process_and_ask(
             "cluster_node": node_key,
             "healed": healed,
             "tot_spec": test_spec,
+            "subagents": subagents_meta,
         }
     except requests.exceptions.RequestException as exc:
         return {"error": f"Node request failed: {exc}"}
@@ -1160,6 +1191,7 @@ class ChatPayload(BaseModel):
     node_url: Optional[str] = None
     chat_id: Optional[str] = None
     enable_council: bool = False
+    enable_subagents: bool = True
 
 
 
@@ -1376,6 +1408,31 @@ async def api_chat(payload_data: ChatPayload):
         except Exception as c_err:
             print(f"[api_chat] Model Council execution error: {c_err}")
 
+    # ── Autonomous Subagent Swarm Deliberation ───────────────────────────────
+    subagents_meta = None
+    if payload_data.enable_subagents and not payload_data.images and len(question.strip()) >= 15:
+        try:
+            import subagent_engine as se
+            subagent_tasks = se.decompose_query_to_subagents(
+                query=question,
+                context=context,
+                l2_url=cluster_balancer.laptop2_url,
+                l3_url=cluster_balancer.laptop3_url,
+            )
+            if subagent_tasks:
+                subagent_results = se.dispatch_subagents_concurrent(
+                    tasks=subagent_tasks,
+                    default_url=MODEL_ENDPOINT,
+                    max_workers=3,
+                )
+                briefing = se.format_subagents_for_orchestrator(subagent_results)
+                if briefing:
+                    system = f"{system}\n\n{briefing}"
+                    display_model = f"{model} (Subagent Swarm · {len(subagent_results)} Nodes Deployed)"
+                subagents_meta = [res.dict() for res in subagent_results]
+        except Exception as sa_err:
+            print(f"[api_chat] Subagent swarm execution error: {sa_err}")
+
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
     safe_ctx = calculate_safe_num_ctx(model, ram_info["available_gb"])
@@ -1404,6 +1461,7 @@ async def api_chat(payload_data: ChatPayload):
         "_endpoint": target_endpoint,
         "_display_model": display_model,
         "_council": council_result,
+        "_subagents": subagents_meta,
     }
     if payload_data.images:
         ollama_payload["images"] = payload_data.images
@@ -1455,6 +1513,7 @@ async def api_chat(payload_data: ChatPayload):
             "healed": healed,
             "tot_spec": test_spec,
             "council": council_result,
+            "subagents": subagents_meta,
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})

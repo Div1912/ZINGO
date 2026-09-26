@@ -102,8 +102,8 @@ export const ChatPage: React.FC = () => {
         />
 
         <InputBar
-          onSendMessage={(content, files, model, effort) => {
-            sendMessage(content, files, model, effort)
+          onSendMessage={(content, files, model, effort, thinkingEnabled) => {
+            sendMessage(content, files, model, effort, thinkingEnabled)
             setPromptToFill('')
           }}
           onStop={stopGeneration}

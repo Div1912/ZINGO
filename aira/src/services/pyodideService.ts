@@ -102,11 +102,17 @@ class PyodideEngine {
 
       // Intercept stdout, stderr, and matplotlib SVG figures
       const wrappedPython = `
-import sys, io
+import sys, io, warnings
 _stdout_buf = io.StringIO()
 _stderr_buf = io.StringIO()
 sys.stdout = _stdout_buf
 sys.stderr = _stderr_buf
+
+# Suppress headless non-GUI backend warnings
+warnings.filterwarnings('ignore', message='.*Matplotlib is currently using agg.*')
+warnings.filterwarnings('ignore', category=UserWarning, message='.*non-GUI backend.*')
+warnings.filterwarnings('ignore', message='.*non-GUI backend.*')
+warnings.simplefilter('ignore', UserWarning)
 
 _has_plt = False
 _plot_svg_data = ""
@@ -114,6 +120,9 @@ try:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    # Intercept plt.show() and plt.draw() so they do not trigger non-GUI backend warnings
+    plt.show = lambda *args, **kwargs: None
+    plt.draw = lambda *args, **kwargs: None
     _has_plt = True
 except Exception:
     pass
@@ -141,8 +150,31 @@ _final_stderr = _stderr_buf.getvalue()
       await py.runPythonAsync(wrappedPython)
 
       const stdout = py.globals.get('_final_stdout') || ''
-      const stderr = py.globals.get('_final_stderr') || ''
+      let stderr = py.globals.get('_final_stderr') || ''
       const plotSvg = py.globals.get('_plot_svg_data') || undefined
+
+      // Clean up harmless headless Matplotlib agg warnings from stderr
+      if (stderr) {
+        const lines = stderr.split('\n')
+        const filtered: string[] = []
+        let skipNext = false
+        for (const line of lines) {
+          if (
+            line.includes('Matplotlib is currently using agg') ||
+            line.includes('non-GUI backend') ||
+            (line.includes('UserWarning') && line.includes('agg'))
+          ) {
+            skipNext = true
+            continue
+          }
+          if (skipNext && (line.trim().startsWith('plt.show') || line.trim() === '')) {
+            continue
+          }
+          skipNext = false
+          filtered.push(line)
+        }
+        stderr = filtered.join('\n').trim()
+      }
 
       const elapsed = Math.round(performance.now() - start)
       return {

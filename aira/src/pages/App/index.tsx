@@ -15,6 +15,7 @@ import { ArtifactViewer } from '../../components/artifacts/ArtifactViewer'
 import { LiveSandboxCanvas } from '../../components/sandbox/LiveSandboxCanvas'
 import { GradientWave } from '../../components/ui/gradient-wave'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useArtifactStore } from '../../stores/artifactStore'
 import { useAuthStore } from '../../stores/authStore'
 import { NamePromptModal } from '../../components/auth/NamePromptModal'
 import { AuthModal } from '../../components/auth/AuthModal'
@@ -102,6 +103,26 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
 `)
   }
 
+  const handleOpenArtifacts = () => {
+    const { artifacts, activeArtifactId, openArtifact, isViewerOpen, closeArtifact } = useArtifactStore.getState()
+    const activeChatId = useChatStore.getState().activeChatId
+    const chatArtifacts = activeChatId ? artifacts.filter((a) => a.chatId === activeChatId) : []
+    const targetArtifact =
+      chatArtifacts[0] ||
+      (activeArtifactId && artifacts.find((a) => a.id === activeArtifactId)) ||
+      artifacts[0]
+
+    if (targetArtifact) {
+      if (isViewerOpen && activeArtifactId === targetArtifact.id) {
+        closeArtifact()
+      } else {
+        openArtifact(targetArtifact.id)
+      }
+    } else {
+      setIsArtifactsOpen(true)
+    }
+  }
+
   // Register global shortcuts
   useKeyboard({
     onOpenCommandBar: () => setIsCommandBarOpen(true),
@@ -178,7 +199,7 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
         onOpenSettings={handleOpenSettings}
         onOpenCodeRunner={handleOpenCodeRunner}
         onOpenProjects={() => setIsProjectsOpen(true)}
-        onOpenArtifacts={() => setIsArtifactsOpen(true)}
+        onOpenArtifacts={handleOpenArtifacts}
       />
 
       {/* Main Content Viewport */}
@@ -199,10 +220,15 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
           }}
         />
 
-        {/* Dynamic Nested Content (Chat or Settings) */}
-        <main className="flex-1 flex min-w-0 overflow-hidden relative">
-          <Outlet />
-        </main>
+        {/* Dynamic Nested Content (Chat or Settings) with Side-by-Side Live Artifact Workspace */}
+        <div className="flex-1 flex min-w-0 overflow-hidden relative">
+          <main className="flex-1 flex min-w-0 overflow-hidden relative">
+            <Outlet />
+          </main>
+
+          {/* Claude-Style Live Interactive Artifact Side Panel */}
+          <ArtifactViewer />
+        </div>
       </div>
 
       {/* Projects Modal */}
@@ -217,9 +243,6 @@ print(f"  Coil Outlet Temperature: {cot_temp_c} °C [PASS NORMAL]")
         onClose={() => setIsArtifactsOpen(false)}
         onOpenCodeRunner={handleOpenCodeRunner}
       />
-
-      {/* Live Interactive Artifact Side Panel / Viewer */}
-      <ArtifactViewer />
 
       {/* Claude-Style Live Interactive Multi-File Sandbox Canvas */}
       <LiveSandboxCanvas

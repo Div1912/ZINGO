@@ -58,6 +58,7 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
     else if (art.type === 'svg') ext = '.svg'
     else if (art.type === 'react') ext = '.tsx'
     else if (art.type === 'markdown') ext = '.md'
+    else if (art.type === 'mermaid') ext = '.mmd'
     else if (art.language === 'python' || art.language === 'py') ext = '.py'
 
     const blob = new Blob([art.content], { type: 'text/plain;charset=utf-8' })
@@ -110,18 +111,24 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 text-xs">
-            {(['all', 'html', 'svg', 'code', 'markdown'] as const).map((filter) => (
+            {(['all', 'html', 'react', 'svg', 'mermaid', 'markdown', 'code'] as const).map((filter) => (
               <button
                 key={filter}
                 type="button"
-                onClick={() => setSelectedFilter(filter)}
+                onClick={() => setSelectedFilter(filter as any)}
                 className={`px-2.5 py-1 rounded-md capitalize transition font-medium ${
                   selectedFilter === filter
                     ? 'bg-elevated text-content-primary border border-border'
                     : 'text-content-secondary hover:text-content-primary hover:bg-surface'
                 }`}
               >
-                {filter === 'all' ? 'All Artifacts' : filter === 'html' ? 'Web Apps' : filter}
+                {filter === 'all'
+                  ? 'All Artifacts'
+                  : filter === 'html'
+                  ? 'Web Apps'
+                  : filter === 'mermaid'
+                  ? 'Diagrams'
+                  : filter}
               </button>
             ))}
           </div>
@@ -132,6 +139,7 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
           {filteredArtifacts.map((art) => {
             const isHtml = art.type === 'html' || art.type === 'react'
             const approxKb = (new Blob([art.content]).size / 1024).toFixed(1)
+            const versionCount = art.versions?.length || 1
 
             return (
               <div
@@ -144,9 +152,16 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
                     {isHtml ? <Sparkles size={16} /> : <FileCode size={16} />}
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-xs sm:text-sm font-semibold text-content-primary group-hover:text-accent transition-colors truncate">
-                      {art.title}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs sm:text-sm font-semibold text-content-primary group-hover:text-accent transition-colors truncate">
+                        {art.title}
+                      </h3>
+                      {versionCount > 1 && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                          v{versionCount}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-content-tertiary mt-1">
                       <span className="uppercase font-mono font-semibold text-violet-400">
                         {art.type.toUpperCase()}
