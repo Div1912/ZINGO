@@ -23,11 +23,14 @@ export const SubagentPanel: React.FC<SubagentPanelProps> = ({ subagents }) => {
   const [expandedSubagentId, setExpandedSubagentId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
-  if (!subagents || subagents.length === 0) return null
+  const displayAgents = (subagents || []).filter(
+    (s) => s.status === 'completed' && s.output && !s.output.startsWith('[Subagent')
+  )
 
-  const completedCount = subagents.filter((s) => s.status === 'completed').length
-  const maxElapsedMs = Math.max(...subagents.map((s) => s.elapsed_ms || 0), 0)
-  const totalTokens = subagents.reduce((acc, s) => acc + (s.tokens_used || 0), 0)
+  if (displayAgents.length === 0) return null
+
+  const maxElapsedMs = Math.max(...displayAgents.map((s) => s.elapsed_ms || 0), 0)
+  const totalTokens = displayAgents.reduce((acc, s) => acc + (s.tokens_used || 0), 0)
 
   const handleCopySubagent = (sub: SubagentExecution, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -67,7 +70,7 @@ export const SubagentPanel: React.FC<SubagentPanelProps> = ({ subagents }) => {
               Autonomous Subagent Swarm
             </span>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
-              {completedCount}/{subagents.length} Specialists Executed
+              {displayAgents.length} {displayAgents.length === 1 ? 'Specialist' : 'Specialists'} Executed
             </span>
             {maxElapsedMs > 0 && (
               <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-mono text-content-tertiary">
@@ -99,7 +102,7 @@ export const SubagentPanel: React.FC<SubagentPanelProps> = ({ subagents }) => {
           </p>
 
           <div className="grid grid-cols-1 gap-2 pt-1">
-            {subagents.map((agent) => {
+            {displayAgents.map((agent) => {
               const isCardOpen = expandedSubagentId === agent.id
               const isCompleted = agent.status === 'completed'
               const isTimedOut = agent.status === 'timed_out'

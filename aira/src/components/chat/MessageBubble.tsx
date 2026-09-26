@@ -401,15 +401,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               )}
             </div>
           )}
-          {message.subagents && message.subagents.length > 0 && (
+          {message.subagents && message.subagents.some((s) => s.status === 'completed') && (
             <div
               className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 shadow-2xs select-none"
-              title={`${message.subagents.length} Autonomous Subagents executed in parallel across cluster`}
+              title={`${message.subagents.filter((s) => s.status === 'completed').length} Autonomous Subagents executed in parallel across cluster`}
             >
               <Bot size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Subagent Swarm</span>
               <span className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 font-mono">
-                · {message.subagents.length} Specialists
+                · {message.subagents.filter((s) => s.status === 'completed').length} Specialists
               </span>
             </div>
           )}
@@ -458,7 +458,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             )}
 
             {/* Autonomous Subagent Swarm Panel */}
-            {message.subagents && message.subagents.length > 0 && (
+            {message.subagents && message.subagents.some((s) => s.status === 'completed') && (
               <SubagentPanel subagents={message.subagents} />
             )}
 

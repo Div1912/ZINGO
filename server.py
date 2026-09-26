@@ -1048,7 +1048,7 @@ async def process_and_ask(
 
     # ── Autonomous Subagent Swarm Deliberation ───────────────────────────────
     subagents_meta = None
-    if is_subagents_enabled and not images_b64 and len(user_query.strip()) >= 15:
+    if is_subagents_enabled and not images_b64:
         try:
             import subagent_engine as se
             subagent_tasks = se.decompose_query_to_subagents(
@@ -1056,6 +1056,7 @@ async def process_and_ask(
                 context=context,
                 l2_url=cluster_balancer.laptop2_url,
                 l3_url=cluster_balancer.laptop3_url,
+                effort=effort or "",
             )
             if subagent_tasks:
                 subagent_results = se.dispatch_subagents_concurrent(
@@ -1063,13 +1064,17 @@ async def process_and_ask(
                     default_url=MODEL_ENDPOINT,
                     max_workers=3,
                 )
+                successful = [r for r in subagent_results if r.status == "completed" and not r.output.startswith("[Subagent")]
                 briefing = se.format_subagents_for_orchestrator(subagent_results)
-                if briefing:
+                if briefing and successful:
                     instruction = f"{instruction}\n\n{briefing}"
-                    display_model = f"{target_model} (Subagent Swarm · {len(subagent_results)} Nodes Deployed)"
-                subagents_meta = [res.dict() for res in subagent_results]
+                    display_model = f"{target_model} (Subagent Swarm · {len(successful)} Nodes Deployed)"
+                    subagents_meta = [res.dict() for res in successful]
+                else:
+                    subagents_meta = None
         except Exception as sa_err:
             print(f"[process_and_ask] Subagent swarm execution error: {sa_err}")
+            subagents_meta = None
 
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
@@ -1410,7 +1415,7 @@ async def api_chat(payload_data: ChatPayload):
 
     # ── Autonomous Subagent Swarm Deliberation ───────────────────────────────
     subagents_meta = None
-    if payload_data.enable_subagents and not payload_data.images and len(question.strip()) >= 15:
+    if payload_data.enable_subagents and not payload_data.images:
         try:
             import subagent_engine as se
             subagent_tasks = se.decompose_query_to_subagents(
@@ -1418,6 +1423,7 @@ async def api_chat(payload_data: ChatPayload):
                 context=context,
                 l2_url=cluster_balancer.laptop2_url,
                 l3_url=cluster_balancer.laptop3_url,
+                effort=payload_data.effort or "",
             )
             if subagent_tasks:
                 subagent_results = se.dispatch_subagents_concurrent(
@@ -1425,13 +1431,17 @@ async def api_chat(payload_data: ChatPayload):
                     default_url=MODEL_ENDPOINT,
                     max_workers=3,
                 )
+                successful = [r for r in subagent_results if r.status == "completed" and not r.output.startswith("[Subagent")]
                 briefing = se.format_subagents_for_orchestrator(subagent_results)
-                if briefing:
+                if briefing and successful:
                     system = f"{system}\n\n{briefing}"
-                    display_model = f"{model} (Subagent Swarm · {len(subagent_results)} Nodes Deployed)"
-                subagents_meta = [res.dict() for res in subagent_results]
+                    display_model = f"{model} (Subagent Swarm · {len(successful)} Nodes Deployed)"
+                    subagents_meta = [res.dict() for res in successful]
+                else:
+                    subagents_meta = None
         except Exception as sa_err:
             print(f"[api_chat] Subagent swarm execution error: {sa_err}")
+            subagents_meta = None
 
     from model_orchestrator import get_system_ram
     ram_info = get_system_ram()
