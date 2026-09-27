@@ -724,14 +724,14 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
             ),
         }
     else:
-        # Fast mode: responsive, direct — no thinking overhead, just answer
+        # Fast mode: responsive, direct — no thinking overhead, complete comprehensive answers
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.3, "num_predict": 384, "num_ctx": 2048, "top_p": 0.85},
+            "options": {"temperature": 0.3, "num_predict": 3072, "num_ctx": 4096, "top_p": 0.85},
             "think": False,
             "instruction": (
-                "Operating in FAST mode. Give an immediate, direct, concise answer. "
-                "No preamble, no meta-commentary, no emojis. Answer in plain sentences."
+                "Operating in FAST mode. Give an immediate, direct, and complete answer without truncation. "
+                "No preamble, no meta-commentary, no emojis. Provide complete, thorough explanations."
             ),
         }
 
