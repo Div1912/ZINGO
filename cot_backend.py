@@ -99,6 +99,8 @@ def run_ollama_stream_cot(
     on_done_context=None,
     content_prefix: str = "",
     tools_executed: Optional[List[Dict[str, Any]]] = None,
+    skip_meta: bool = False,
+    skip_tools: bool = False,
 ) -> Generator[str, None, None]:
 
     """
@@ -128,28 +130,30 @@ def run_ollama_stream_cot(
 
     subagents_data = payload.get("_subagents")
 
-    meta_payload = {
-        "type": "meta",
-        "ocr_context_found": bool(context),
-        "context_length": len(context),
-        "model": model_name,
-        "sources": sources or [],
-        "effort": effort,
-        "node_endpoint": endpoint,
-        "thinking_enabled": bool(think_enabled),
-        "council": council_client_meta,
-        "subagents": subagents_data,
-    }
-    yield f"data: {json.dumps(meta_payload)}\n\n"
+    if not skip_meta:
+        meta_payload = {
+            "type": "meta",
+            "ocr_context_found": bool(context),
+            "context_length": len(context),
+            "model": model_name,
+            "sources": sources or [],
+            "effort": effort,
+            "node_endpoint": endpoint,
+            "thinking_enabled": bool(think_enabled),
+            "council": council_client_meta,
+            "subagents": subagents_data,
+        }
+        yield f"data: {json.dumps(meta_payload)}\n\n"
 
     # ── Tool execution telemetry events (Agent Working Phase) ───────────────
-    tools = tools_executed or payload.get("_tools_executed") or []
-    for t in tools:
-        t_name = t.get("tool", "agent_tool")
-        t_action = t.get("action", "Executing action")
-        t_dur = t.get("duration_ms", 0)
-        yield f"data: {json.dumps({'type': 'tool_activity', 'tool': t_name, 'action': t_action, 'status': 'running'})}\n\n"
-        yield f"data: {json.dumps({'type': 'tool_done', 'tool': t_name, 'summary': t_action, 'duration_ms': t_dur})}\n\n"
+    if not skip_tools:
+        tools = tools_executed or payload.get("_tools_executed") or []
+        for t in tools:
+            t_name = t.get("tool", "agent_tool")
+            t_action = t.get("action", "Executing action")
+            t_dur = t.get("duration_ms", 0)
+            yield f"data: {json.dumps({'type': 'tool_activity', 'tool': t_name, 'action': t_action, 'status': 'running'})}\n\n"
+            yield f"data: {json.dumps({'type': 'tool_done', 'tool': t_name, 'summary': t_action, 'duration_ms': t_dur})}\n\n"
 
     if council_client_meta:
         yield f"data: {json.dumps({'type': 'council_meta', 'council': council_client_meta})}\n\n"
@@ -253,6 +257,7 @@ def run_ollama_stream_cot(
     CLOSE_TAG = "</think>"
     open_idx = 0
     close_idx = 0
+    thinking_has_ended = not bool(think_enabled)
 
     content_prefix_emitted = False
 
@@ -336,6 +341,7 @@ def run_ollama_stream_cot(
             if is_dedicated_thinking and chunk_text:
                 is_dedicated_thinking = False
                 in_think_block = False
+                thinking_has_ended = True
                 think_buf, events = flush_think_buf(think_buf, force=True)
                 for ev in events:
                     yield f"data: {ev}\n\n"
@@ -343,8 +349,8 @@ def run_ollama_stream_cot(
                 for ev in emit_content_prefix_events():
                     yield ev
 
-            # Fast-path: When outside thinking tags and no partial tag match, stream entire token chunk
-            if not in_think_block and open_idx == 0 and OPEN_TAG not in chunk_text and "<" not in chunk_text:
+            # Fast-path: When thinking has concluded (or disabled), outside thinking tags, stream entire chunk
+            if thinking_has_ended and not in_think_block and open_idx == 0 and OPEN_TAG not in chunk_text and "<" not in chunk_text:
                 for ev in emit_content_prefix_events():
                     yield ev
                 answer_buf += chunk_text
@@ -356,6 +362,10 @@ def run_ollama_stream_cot(
                 char_buf += char
 
                 if not in_think_block:
+                    if not thinking_has_ended and not answer_buf and not think_buf and char.isspace() and open_idx == 0:
+                        # Ignore leading whitespace before potential <think> tag
+                        continue
+
                     if OPEN_TAG[open_idx] == char:
                         open_idx += 1
                         if open_idx == len(OPEN_TAG):
@@ -364,6 +374,7 @@ def run_ollama_stream_cot(
                             yield f"data: {json.dumps({'type': 'thinking_start', 'message': 'Reasoning...'})}\n\n"
                             char_buf = ""
                     else:
+                        thinking_has_ended = True
                         if open_idx > 0:
                             emit_text = OPEN_TAG[:open_idx]
                             for ev in emit_content_prefix_events():
@@ -383,6 +394,7 @@ def run_ollama_stream_cot(
                         close_idx += 1
                         if close_idx == len(CLOSE_TAG):
                             in_think_block = False
+                            thinking_has_ended = True
                             close_idx = 0
                             think_buf, events = flush_think_buf(think_buf, force=True)
                             for ev in events:

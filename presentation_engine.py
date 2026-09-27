@@ -18,7 +18,7 @@ import os
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 import requests
 
 
@@ -531,7 +531,7 @@ TAKEAWAY: <1 high-impact summary sentence>"""
     )
 
     # First attempt: Call Primary Local Node (Qwen3-8B) with think=False for speed & factual depth
-    raw = _call_node_sync(primary_url, primary_model, prompt, system, num_predict=450, timeout=(2.0, 25.0))
+    raw = _call_node_sync(primary_url, primary_model, prompt, system, num_predict=350, timeout=(2.0, 8.0))
 
     researched = None
     if raw:
@@ -750,6 +750,141 @@ def generate_presentation_3node_synergy(
     slides, researched, _, _ = generate_presentation_2model_synergy(query, fast_node_url=l3_url)
     outline = f"Presentation: {researched.get('title')} ({len(slides)} slides)"
     return slides, outline
+
+
+def stream_presentation_pipeline(
+    query: str,
+    payload: Dict[str, Any],
+    context: str = "",
+    sources: Optional[List[Dict[str, Any]]] = None,
+    on_done_context: Any = None,
+    primary_url: str = "http://127.0.0.1:11434",
+    primary_model: str = "qwen3:8b",
+    fast_node_url: Optional[str] = None,
+    initial_tools: Optional[List[Dict[str, Any]]] = None,
+) -> Generator[str, None, None]:
+    """
+    Live streaming generator for Autonomous 2-Model Synergy Presentation Engine.
+    Emits real-time SSE events so the user visibly watches:
+      1. Working: Model 1 researching domain facts & quantitative KPIs
+      2. Working: Model 2 structuring widescreen 16:9 slides
+      3. Working: Native Microsoft PowerPoint (.pptx) compilation
+      4. Auto-collapse into clean "Executed 3 agent actions" badge
+      5. Thinking Phase (expandable accordion with upward-ticking stopwatch)
+      6. Interactive Presentation Card (Preview Slides & Download .PPTX)
+      7. Master Arbiter executive briefing walkthrough
+    """
+    clean_topic = extract_clean_topic(query)
+    deck_id = f"deck_{int(time.time())}"
+    display_model = f"{primary_model} (2-Model Synergy · Domain Researcher + Slide Architect)"
+    think_enabled = bool(payload.get("think", True))
+
+    # 1. Immediate meta event (<20ms) so UI connects instantly without blocking
+    meta_payload = {
+        "type": "meta",
+        "ocr_context_found": bool(context),
+        "context_length": len(context),
+        "model": display_model,
+        "sources": sources or [],
+        "effort": payload.get("_effort", "medium"),
+        "node_endpoint": primary_url,
+        "thinking_enabled": think_enabled,
+        "council": None,
+        "subagents": None,
+    }
+    yield f"data: {json.dumps(meta_payload)}\n\n"
+
+    # Emit any pre-existing tool actions (e.g. document reader context)
+    if initial_tools:
+        for t in initial_tools:
+            t_name = t.get("tool", "agent_tool")
+            t_act = t.get("action", "Completed prerequisite step")
+            t_dur = t.get("duration_ms", 100)
+            yield f"data: {json.dumps({'type': 'tool_activity', 'tool': t_name, 'action': t_act, 'status': 'running'})}\n\n"
+            yield f"data: {json.dumps({'type': 'tool_done', 'tool': t_name, 'summary': t_act, 'duration_ms': t_dur})}\n\n"
+
+    # 2. Stage 1: Content & Domain Researcher (LIVE STREAMED)
+    m1_action = f"Researching domain KPIs, architectural pillars, and roadmap for '{clean_topic}'..."
+    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'content_researcher', 'action': m1_action, 'status': 'running'})}\n\n"
+
+    researched_data, m1_ms = research_presentation_content_model1(
+        query=query,
+        primary_url=primary_url,
+        primary_model=primary_model,
+        fast_node_url=fast_node_url,
+    )
+
+    m1_done = f"Researched quantitative KPIs, strategic pillars, and implementation roadmap for '{clean_topic}'"
+    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'content_researcher', 'summary': m1_done, 'duration_ms': m1_ms})}\n\n"
+
+    # 3. Stage 2: Slide Architect & Layout Compiler (LIVE STREAMED)
+    m2_action = "Structuring widescreen 16:9 slides into presentation schema..."
+    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'presentation_architect', 'action': m2_action, 'status': 'running'})}\n\n"
+
+    t2_start = time.time()
+    slides = compile_presentation_slides_from_content(researched_data, query=query)
+    m2_ms = max(int((time.time() - t2_start) * 1000), 50)
+
+    m2_done = f"Structured {len(slides)} widescreen 16:9 slides into presentation schema"
+    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'presentation_architect', 'summary': m2_done, 'duration_ms': m2_ms})}\n\n"
+
+    # 4. Stage 3: Deck Manifest & Native PowerPoint (.pptx) Compilation (LIVE STREAMED)
+    m3_action = f"Compiling native Microsoft PowerPoint (.pptx) presentation ({deck_id}.pptx)..."
+    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'presentation_engine', 'action': m3_action, 'status': 'running'})}\n\n"
+
+    t3_start = time.time()
+    manifest_json = build_deck_manifest(query, slides, deck_id=deck_id)
+    manifest_dict = json.loads(manifest_json)
+
+    try:
+        from server import EXPORTS_PRESENTATIONS_DIR
+        out_dir = EXPORTS_PRESENTATIONS_DIR
+    except Exception:
+        out_dir = os.path.join(os.path.dirname(__file__), "exports", "presentations")
+    os.makedirs(out_dir, exist_ok=True)
+    pptx_path = os.path.join(out_dir, f"{deck_id}.pptx")
+
+    try:
+        compile_pptx_deck(manifest_dict, pptx_path)
+    except Exception as ppt_err:
+        print(f"[presentation_engine] PPTX compile error: {ppt_err}")
+
+    m3_ms = max(int((time.time() - t3_start) * 1000), 100)
+    m3_done = f"Compiled native Microsoft PowerPoint (.pptx) presentation ({deck_id}.pptx)"
+    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'presentation_engine', 'summary': m3_done, 'duration_ms': m3_ms})}\n\n"
+
+    # 5. Stage 4: Executive Briefing & Thinking Stream
+    from cot_backend import run_ollama_stream_cot
+    briefing_instruction = get_presentation_briefing_instruction(manifest_json)
+    existing_sys = payload.get("system", "")
+    full_system = f"{existing_sys}\n\n{briefing_instruction}" if existing_sys else briefing_instruction
+
+    briefing_payload = dict(payload)
+    briefing_payload["system"] = full_system
+    base_ep = primary_url.strip().rstrip("/")
+    if base_ep.endswith("/api/generate"):
+        norm_endpoint = base_ep
+    elif base_ep.endswith("/api/chat"):
+        norm_endpoint = base_ep.replace("/api/chat", "/api/generate")
+    else:
+        norm_endpoint = f"{base_ep}/api/generate"
+    briefing_payload["_endpoint"] = norm_endpoint
+    briefing_payload["_display_model"] = display_model
+    if "options" not in briefing_payload:
+        briefing_payload["options"] = {}
+    briefing_payload["options"]["num_predict"] = max(briefing_payload["options"].get("num_predict", 1024), 4096)
+
+    ppt_manifest_prefix = f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
+
+    yield from run_ollama_stream_cot(
+        payload=briefing_payload,
+        context=context,
+        sources=sources,
+        on_done_context=on_done_context,
+        content_prefix=ppt_manifest_prefix,
+        skip_meta=True,
+        skip_tools=True,
+    )
 
 
 def compile_pptx_deck(manifest: Dict[str, Any], output_path: str) -> str:

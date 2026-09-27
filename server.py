@@ -389,6 +389,7 @@ from presentation_engine import (
     get_html_generation_instruction,
     compile_pptx_deck,
     get_presentation_briefing_instruction,
+    stream_presentation_pipeline,
 )  # noqa: E402
 
 app.include_router(ingestion_router)
@@ -1074,12 +1075,41 @@ async def process_and_ask(
     is_ppt = is_presentation_intent(user_query)
 
     if is_ppt:
-        # Autonomous 2-Model Collaborative Presentation Engine:
-        # Stage 1: Model A (Domain & Content Specialist) researches deep metrics & narrative
-        # Stage 2: Model B (Presentation Architect) structures 16:9 widescreen layout & compiles PPTX
         target_endpoint = MODEL_ENDPOINT
         target_model = "qwen3:8b"
         node_key = "primary"
+
+        if stream:
+            cluster_balancer.acquire_slot(node_key)
+            return StreamingResponse(
+                stream_with_slot_cleanup(
+                    stream_presentation_pipeline(
+                        query=user_query,
+                        payload={
+                            "model": target_model,
+                            "prompt": full_prompt,
+                            "system": instruction,
+                            "stream": True,
+                            "think": cfg["think"],
+                            "options": cfg["options"],
+                            "keep_alive": -1,
+                            "_effort": cfg["effort"],
+                            "_endpoint": target_endpoint,
+                        },
+                        context=context,
+                        sources=sources,
+                        on_done_context=None,
+                        primary_url=target_endpoint,
+                        primary_model=target_model,
+                        fast_node_url=cluster_balancer.laptop3_url,
+                        initial_tools=tools_executed,
+                    ),
+                    node_key,
+                ),
+                media_type="text/event-stream"
+            )
+
+        # Synchronous fallback:
         deck_id = f"deck_{int(time.time())}"
         slides, researched_data, manifest_json, ppt_tools = generate_presentation_2model_synergy(
             query=user_query,
@@ -1089,12 +1119,9 @@ async def process_and_ask(
             deck_id=deck_id,
         )
         tools_executed.extend(ppt_tools)
-
-        # Presentation manifest code block (rendered as interactive presentation card + PPTX download banner)
         ppt_manifest_prefix = (
             f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
-        # Master Arbiter generates an executive briefing and slide walkthrough (NO HTML!)
         instruction = f"{instruction}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
         display_model = f"{target_model} (2-Model Synergy · Domain Researcher + Slide Architect)"
@@ -1535,12 +1562,47 @@ async def api_chat(payload_data: ChatPayload):
     is_ppt = is_presentation_intent(question)
 
     if is_ppt:
-        # Autonomous 2-Model Collaborative Presentation Engine:
-        # Stage 1: Model A (Domain & Content Specialist) researches deep metrics & narrative
-        # Stage 2: Model B (Presentation Architect) structures 16:9 widescreen layout & compiles PPTX
         target_endpoint = payload_data.node_url or MODEL_ENDPOINT
         model = "qwen3:8b"
         node_key = "primary"
+
+        if payload_data.stream:
+            on_done = None
+            if payload_data.chat_id:
+                def on_done(ctx):
+                    if ctx and isinstance(ctx, list):
+                        session_kv_store.set_context(payload_data.chat_id, model, ctx)
+
+            cluster_balancer.acquire_slot(node_key)
+            return StreamingResponse(
+                stream_with_slot_cleanup(
+                    stream_presentation_pipeline(
+                        query=question,
+                        payload={
+                            "model": model,
+                            "prompt": full_prompt,
+                            "system": system,
+                            "stream": True,
+                            "think": cfg["think"],
+                            "options": cfg["options"],
+                            "keep_alive": -1,
+                            "_effort": cfg["effort"],
+                            "_endpoint": target_endpoint,
+                        },
+                        context=context,
+                        sources=retrieval["sources"],
+                        on_done_context=on_done,
+                        primary_url=target_endpoint,
+                        primary_model=model,
+                        fast_node_url=cluster_balancer.laptop3_url,
+                        initial_tools=tools_executed,
+                    ),
+                    node_key,
+                ),
+                media_type="text/event-stream"
+            )
+
+        # Synchronous fallback:
         deck_id = f"deck_{int(time.time())}"
         slides, researched_data, manifest_json, ppt_tools = generate_presentation_2model_synergy(
             query=question,
@@ -1550,8 +1612,6 @@ async def api_chat(payload_data: ChatPayload):
             deck_id=deck_id,
         )
         tools_executed.extend(ppt_tools)
-
-        # Presentation manifest code block (rendered as interactive presentation card + PPTX download banner)
         ppt_manifest_prefix = (
             f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
