@@ -157,14 +157,6 @@ def run_ollama_stream_cot(
     if subagents_data:
         yield f"data: {json.dumps({'type': 'subagents_meta', 'subagents': subagents_data})}\n\n"
 
-    # ── Prepend guaranteed content (e.g. deck_manifest.json for PPT) ──────────
-    if content_prefix:
-        # Stream the prefix in chunks so the frontend renders it progressively
-        chunk_size = 120
-        for i in range(0, len(content_prefix), chunk_size):
-            chunk = content_prefix[i:i + chunk_size]
-            yield f"data: {json.dumps({'type': 'chunk', 'chunk': chunk, 'done': False})}\n\n"
-
     if context:
         yield f"data: {json.dumps({'type': 'context', 'context_length': len(context), 'sources': sources or []})}\n\n"
 
@@ -262,6 +254,20 @@ def run_ollama_stream_cot(
     open_idx = 0
     close_idx = 0
 
+    content_prefix_emitted = False
+
+    def emit_content_prefix_events():
+        nonlocal content_prefix_emitted
+        if content_prefix and not content_prefix_emitted:
+            content_prefix_emitted = True
+            chunk_size = 120
+            events = []
+            for i in range(0, len(content_prefix), chunk_size):
+                chunk = content_prefix[i:i + chunk_size]
+                events.append(f"data: {json.dumps({'type': 'chunk', 'chunk': chunk, 'done': False})}\n\n")
+            return events
+        return []
+
     def flush_think_buf(buf: str, force: bool = False):
         nonlocal think_step_count
         if not buf.strip():
@@ -334,9 +340,13 @@ def run_ollama_stream_cot(
                 for ev in events:
                     yield f"data: {ev}\n\n"
                 yield f"data: {json.dumps({'type': 'thinking_end', 'total_steps': think_step_count})}\n\n"
+                for ev in emit_content_prefix_events():
+                    yield ev
 
             # Fast-path: When outside thinking tags and no partial tag match, stream entire token chunk
             if not in_think_block and open_idx == 0 and OPEN_TAG not in chunk_text and "<" not in chunk_text:
+                for ev in emit_content_prefix_events():
+                    yield ev
                 answer_buf += chunk_text
                 yield f"data: {json.dumps({'type': 'chunk', 'chunk': chunk_text, 'done': False})}\n\n"
                 continue
@@ -356,10 +366,14 @@ def run_ollama_stream_cot(
                     else:
                         if open_idx > 0:
                             emit_text = OPEN_TAG[:open_idx]
+                            for ev in emit_content_prefix_events():
+                                yield ev
                             answer_buf += emit_text
                             yield f"data: {json.dumps({'type': 'chunk', 'chunk': emit_text, 'done': False})}\n\n"
                             open_idx = 0
 
+                        for ev in emit_content_prefix_events():
+                            yield ev
                         answer_buf += char
                         yield f"data: {json.dumps({'type': 'chunk', 'chunk': char, 'done': False})}\n\n"
                         char_buf = ""
@@ -375,6 +389,8 @@ def run_ollama_stream_cot(
                                 yield f"data: {ev}\n\n"
                             yield f"data: {json.dumps({'type': 'thinking_end', 'total_steps': think_step_count})}\n\n"
                             char_buf = ""
+                            for ev in emit_content_prefix_events():
+                                yield ev
                     else:
                         if close_idx > 0:
                             partial = CLOSE_TAG[:close_idx]
@@ -414,6 +430,9 @@ def run_ollama_stream_cot(
             on_done_context(ollama_context)
         except Exception:
             pass
+
+    for ev in emit_content_prefix_events():
+        yield ev
 
     done_payload = {
         'type': 'done',

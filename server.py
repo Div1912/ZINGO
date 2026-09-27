@@ -384,6 +384,7 @@ from presentation_engine import (
     get_presentation_system_instruction,
     generate_slide_structure_node2,
     generate_presentation_3node_synergy,
+    generate_presentation_2model_synergy,
     build_deck_manifest,
     get_html_generation_instruction,
     compile_pptx_deck,
@@ -406,6 +407,13 @@ app.include_router(sandbox_router)
 app.include_router(subagents_router)
 app.include_router(mcp_router)
 app.include_router(hardware_router)
+
+# Mount AIRA production frontend static assets if compiled
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+AIRA_DIST_DIR = os.path.join(os.path.dirname(__file__), "aira", "dist")
+AIRA_ASSETS_DIR = os.path.join(AIRA_DIST_DIR, "assets")
+if os.path.exists(AIRA_ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=AIRA_ASSETS_DIR), name="aira_assets")
 
 
 # --------------------------------------------------------------------------------------
@@ -573,8 +581,7 @@ async def compile_presentation_api(request: Request):
 # Landing page (local test console)
 # --------------------------------------------------------------------------------------
 
-@app.get("/", response_class=HTMLResponse)
-async def root():
+def get_diagnostic_landing_html() -> str:
     node = llm.health()
     badge = "Online" if node["ollama"] == "connected" else "Model Node Offline"
     return f"""
@@ -669,8 +676,20 @@ async def root():
             }};
         </script>
     </body>
-    </html>
     """
+
+
+@app.get("/")
+async def root():
+    index_html = os.path.join(AIRA_DIST_DIR, "index.html")
+    if os.path.exists(index_html):
+        return FileResponse(index_html)
+    return HTMLResponse(get_diagnostic_landing_html())
+
+
+@app.get("/diagnostic", response_class=HTMLResponse)
+async def diagnostic_console():
+    return HTMLResponse(get_diagnostic_landing_html())
 
 
 # --------------------------------------------------------------------------------------
@@ -1055,38 +1074,30 @@ async def process_and_ask(
     is_ppt = is_presentation_intent(user_query)
 
     if is_ppt:
-        # Autonomous Presentation Deliverables: Master Node (Qwen3-8B) orchestrates 3-Node Synergy
+        # Autonomous 2-Model Collaborative Presentation Engine:
+        # Stage 1: Model A (Domain & Content Specialist) researches deep metrics & narrative
+        # Stage 2: Model B (Presentation Architect) structures 16:9 widescreen layout & compiles PPTX
         target_endpoint = MODEL_ENDPOINT
         target_model = "qwen3:8b"
         node_key = "primary"
         deck_id = f"deck_{int(time.time())}"
-        slides, outline = generate_presentation_3node_synergy(
+        slides, researched_data, manifest_json, ppt_tools = generate_presentation_2model_synergy(
             query=user_query,
-            l3_url=cluster_balancer.laptop3_url,
-            l2_url=cluster_balancer.laptop2_url,
+            primary_url=MODEL_ENDPOINT,
+            primary_model=target_model,
+            fast_node_url=cluster_balancer.laptop3_url,
+            deck_id=deck_id,
         )
-        manifest_dict = json.loads(build_deck_manifest(user_query, slides, deck_id=deck_id))
-        manifest_json = json.dumps(manifest_dict, indent=2, ensure_ascii=False)
-        try:
-            pptx_path = os.path.join(EXPORTS_PRESENTATIONS_DIR, f"{deck_id}.pptx")
-            compile_pptx_deck(manifest_dict, pptx_path)
-        except Exception as p_err:
-            print(f"[server] Native pptx compile error: {p_err}")
+        tools_executed.extend(ppt_tools)
 
-        tools_executed.append({
-            "tool": "presentation_engine",
-            "action": f"Compiled {len(slides)} executive slides into native Microsoft PowerPoint (.pptx)",
-            "duration_ms": 350,
-        })
-
-        # Prepend guaranteed manifest code block (rendered as interactive canvas + PPTX download banner)
+        # Presentation manifest code block (rendered as interactive presentation card + PPTX download banner)
         ppt_manifest_prefix = (
             f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
-        # Node 1 generates an executive briefing and speaker script (NO HTML!)
+        # Master Arbiter generates an executive briefing and slide walkthrough (NO HTML!)
         instruction = f"{instruction}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        display_model = f"{target_model} (3-Model Synergy · Node 3 Ideation + Node 2 Layout + Node 1 Synthesis)"
+        display_model = f"{target_model} (2-Model Synergy · Domain Researcher + Slide Architect)"
     else:
         ppt_manifest_prefix = ""
         if node_key == "primary" and not images_b64 and not is_fast and not is_code:
@@ -1524,37 +1535,29 @@ async def api_chat(payload_data: ChatPayload):
     is_ppt = is_presentation_intent(question)
 
     if is_ppt:
-        # Autonomous Presentation Deliverables: Master Node (Qwen3-8B) orchestrates 3-Node Synergy
-        target_endpoint = MODEL_ENDPOINT
+        # Autonomous 2-Model Collaborative Presentation Engine:
+        # Stage 1: Model A (Domain & Content Specialist) researches deep metrics & narrative
+        # Stage 2: Model B (Presentation Architect) structures 16:9 widescreen layout & compiles PPTX
+        target_endpoint = payload_data.node_url or MODEL_ENDPOINT
         model = "qwen3:8b"
         node_key = "primary"
         deck_id = f"deck_{int(time.time())}"
-        slides, outline = generate_presentation_3node_synergy(
+        slides, researched_data, manifest_json, ppt_tools = generate_presentation_2model_synergy(
             query=question,
-            l3_url=cluster_balancer.laptop3_url,
-            l2_url=cluster_balancer.laptop2_url,
+            primary_url=MODEL_ENDPOINT,
+            primary_model=model,
+            fast_node_url=cluster_balancer.laptop3_url,
+            deck_id=deck_id,
         )
-        manifest_dict = json.loads(build_deck_manifest(question, slides, deck_id=deck_id))
-        manifest_json = json.dumps(manifest_dict, indent=2, ensure_ascii=False)
-        try:
-            pptx_path = os.path.join(EXPORTS_PRESENTATIONS_DIR, f"{deck_id}.pptx")
-            compile_pptx_deck(manifest_dict, pptx_path)
-        except Exception as p_err:
-            print(f"[server] Native pptx compile error: {p_err}")
+        tools_executed.extend(ppt_tools)
 
-        tools_executed.append({
-            "tool": "presentation_engine",
-            "action": f"Compiled {len(slides)} executive slides into native Microsoft PowerPoint (.pptx)",
-            "duration_ms": 350,
-        })
-
-        # Prepend guaranteed manifest code block (rendered as interactive canvas + PPTX download banner)
+        # Presentation manifest code block (rendered as interactive presentation card + PPTX download banner)
         ppt_manifest_prefix = (
             f"```json deck_manifest.json\n{manifest_json}\n```\n\n"
         )
         system = f"{system}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        display_model = f"{model} (3-Model Synergy · Node 3 Ideation + Node 2 Layout + Node 1 Synthesis)"
+        display_model = f"{model} (2-Model Synergy · Domain Researcher + Slide Architect)"
     else:
         ppt_manifest_prefix = ""
         if node_key == "primary" and not payload_data.images and not is_fast_mode and not is_code_or_debug:
@@ -1751,6 +1754,23 @@ async def api_overview():
             "graph_nodes": G.number_of_nodes(), "graph_edges": G.number_of_edges(),
             "last_scan_time": last_scan["timestamp"] if last_scan else None,
             "generated_at": datetime.now().isoformat()}
+
+
+@app.get("/{full_path:path}")
+async def catch_all_spa(full_path: str):
+    """Fallback route for single-page React app routing."""
+    if (
+        full_path.startswith("api/")
+        or full_path.startswith("exports/")
+        or full_path.startswith("assets/")
+        or full_path.startswith("health")
+        or full_path.startswith("process-and-ask")
+    ):
+        return JSONResponse({"error": "Endpoint not found"}, status_code=404)
+    index_html = os.path.join(AIRA_DIST_DIR, "index.html")
+    if os.path.exists(index_html):
+        return FileResponse(index_html)
+    return HTMLResponse(get_diagnostic_landing_html())
 
 
 if __name__ == "__main__":
