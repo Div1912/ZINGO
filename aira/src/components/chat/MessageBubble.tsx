@@ -37,13 +37,196 @@ import { useProjectStore } from '../../stores/projectStore'
 import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../../utils/multiFileParser'
 import { hasSearchReplaceDiffs } from '../../utils/diffEngine'
 import { pyodideEngine, type PyodideExecutionResult } from '../../services/pyodideService'
-import { isPresentationProject, exportVirtualProjectToPptx } from '../../services/pptxExportService'
+import { isPresentationProject, exportVirtualProjectToPptx, exportManifestToPptx } from '../../services/pptxExportService'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
 import { PastChatSearchCard } from './PastChatSearchCard'
 import { DeliverableCard } from './DeliverableCard'
 
 import { exportMessageToPdf } from '../../services/pdfExport'
 
+
+interface InlinePresentationCardProps {
+  codeText: string
+  messageId: string
+  detectedProject: any
+  saveVirtualProject: (proj: any) => string
+  openSandboxCanvas: (id?: string) => void
+  addToast: (toast: any) => void
+}
+
+const InlinePresentationCard: React.FC<InlinePresentationCardProps> = ({
+  codeText,
+  messageId,
+  detectedProject,
+  saveVirtualProject,
+  openSandboxCanvas,
+  addToast,
+}) => {
+  const [isExporting, setIsExporting] = useState(false)
+
+  let manifest: any = null
+  try {
+    const raw = codeText.trim().replace(/^<!--[\s\S]*?-->\s*/, '')
+    const jsonMatch = raw.match(/\{[\s\S]*"slides"\s*:\s*\[[\s\S]*\][\s\S]*\}/)
+    manifest = JSON.parse(jsonMatch ? jsonMatch[0] : raw)
+  } catch {}
+
+  const title = manifest?.title || detectedProject?.title || 'Executive Presentation Deck'
+  const slideCount = Array.isArray(manifest?.slides) ? manifest.slides.length : 5
+  const deckId = manifest?.deck_id
+
+  const handlePreview = () => {
+    let proj = detectedProject
+    if (!proj && manifest) {
+      proj = createVirtualProjectFromParsed(
+        {
+          title,
+          entryPoint: 'deck_manifest.json',
+          files: {
+            'deck_manifest.json': {
+              name: 'deck_manifest.json',
+              path: 'deck_manifest.json',
+              content: JSON.stringify(manifest, null, 2),
+              language: 'json',
+            },
+          },
+          isMultiFile: true,
+          isInteractiveApp: true,
+        },
+        { messageId }
+      )
+    }
+    if (proj) {
+      const id = saveVirtualProject(proj)
+      openSandboxCanvas(id)
+      addToast({
+        type: 'info',
+        title,
+        message: 'Opening interactive slide deck in Live Sandbox...',
+      })
+    } else {
+      addToast({
+        type: 'error',
+        message: 'Could not load presentation slides for preview.',
+      })
+    }
+  }
+
+  const handleDownloadPptx = async () => {
+    setIsExporting(true)
+    addToast({
+      type: 'info',
+      title: 'PowerPoint Compilation',
+      message: 'Preparing your native presentation (.pptx) file...',
+    })
+    try {
+      if (deckId) {
+        try {
+          const resp = await fetch(`/api/presentations/${deckId}/download`)
+          if (resp.ok) {
+            const blob = await resp.blob()
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            const safeTitle = (title || 'presentation').replace(/[^a-zA-Z0-9_\-]/g, '_').toLowerCase()
+            a.download = `${safeTitle}.pptx`
+            a.click()
+            URL.revokeObjectURL(url)
+            addToast({
+              type: 'success',
+              title: 'Download Complete',
+              message: `Saved ${safeTitle}.pptx ready for PowerPoint.`,
+            })
+            return
+          }
+        } catch (serverErr) {
+          console.warn('[InlinePresentationCard] Server download failed, falling back to browser synthesis:', serverErr)
+        }
+      }
+
+      if (manifest && Array.isArray(manifest.slides) && manifest.slides.length > 0) {
+        const fileName = await exportManifestToPptx(manifest)
+        addToast({
+          type: 'success',
+          title: 'Download Complete',
+          message: `Saved ${fileName} ready for PowerPoint & Google Slides.`,
+        })
+        return
+      }
+
+      if (detectedProject) {
+        const fileName = await exportVirtualProjectToPptx(detectedProject)
+        addToast({
+          type: 'success',
+          title: 'Download Complete',
+          message: `Saved ${fileName} ready for PowerPoint & Google Slides.`,
+        })
+        return
+      }
+
+      throw new Error('No valid slide definitions found in manifest.')
+    } catch (err: any) {
+      console.error('[InlinePresentationCard] PPTX export failed:', err)
+      addToast({
+        type: 'error',
+        title: 'Export Failed',
+        message: err?.message || 'Could not compile PowerPoint file.',
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  return (
+    <div className="my-3.5 p-3.5 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-950/40 via-slate-900/80 to-orange-950/40 shadow-lg shadow-amber-950/20">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-600/30 to-orange-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0 shadow-inner">
+            <Presentation size={20} className="text-amber-400" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+                {title}
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">
+                {slideCount} Slides · 16:9 Widescreen
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-200/80 truncate mt-0.5">
+              Executive Presentation Deck · Native Microsoft PowerPoint (.pptx) & Interactive Preview
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          <button
+            type="button"
+            onClick={handlePreview}
+            className="btn-glass !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-1.5 text-slate-200 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 transition cursor-pointer"
+            title="Preview interactive slides in Live Sandbox"
+          >
+            <Eye size={13} className="text-slate-300" />
+            <span>Preview Slides ›</span>
+          </button>
+          <button
+            type="button"
+            disabled={isExporting}
+            onClick={handleDownloadPptx}
+            className="btn-glass !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-1.5 text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 border border-amber-400/40 transition shadow-md shadow-amber-600/25 cursor-pointer disabled:opacity-50"
+            title="Compile and download standard Microsoft PowerPoint .pptx file"
+          >
+            {isExporting ? (
+              <Clock size={13} className="animate-spin text-white" />
+            ) : (
+              <FileDown size={13} />
+            )}
+            <span>{isExporting ? 'Compiling PPTX...' : 'Download .PPTX'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 interface MessageBubbleProps {
   message: Message
@@ -516,21 +699,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       const codeIndex = Math.random()
                       const blockKey = `${message.id}_${codeText.slice(0, 32)}`
 
-                      // Claude/Gemini style: Suppress raw JSON manifest dump; presentation banner renders below
+                      // Render fully functional, interactive slide presentation card with preview & download
                       if (
                         (lang === 'json' || (className && className.includes('json'))) &&
                         codeText.includes('"slides"') &&
                         (codeText.includes('"title"') || codeText.includes('"layout"'))
                       ) {
                         return (
-                          <div className="my-3 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-xs text-amber-300 shadow-sm">
-                            <div className="flex items-center gap-2">
-                              <Presentation size={15} className="text-amber-400" />
-                              <span className="font-semibold text-slate-100">Executive Slide Deck Compiled</span>
-                              <span className="text-[11px] text-amber-200/80 font-mono">· 16:9 Widescreen</span>
-                            </div>
-                            <span className="text-[11px] text-amber-400 font-mono font-medium">Ready for PPTX Export ↓</span>
-                          </div>
+                          <InlinePresentationCard
+                            codeText={codeText}
+                            messageId={message.id}
+                            detectedProject={detectedProject}
+                            saveVirtualProject={saveVirtualProject}
+                            openSandboxCanvas={openSandboxCanvas}
+                            addToast={addToast}
+                          />
                         )
                       }
 

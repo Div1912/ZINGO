@@ -1050,15 +1050,15 @@ async def process_and_ask(
         target_endpoint = MODEL_ENDPOINT
         target_model = "qwen3:8b"
         node_key = "primary"
+        deck_id = f"deck_{int(time.time())}"
         slides, outline = generate_presentation_3node_synergy(
             query=user_query,
             l3_url=cluster_balancer.laptop3_url,
             l2_url=cluster_balancer.laptop2_url,
         )
-        manifest_dict = json.loads(build_deck_manifest(user_query, slides))
+        manifest_dict = json.loads(build_deck_manifest(user_query, slides, deck_id=deck_id))
         manifest_json = json.dumps(manifest_dict, indent=2, ensure_ascii=False)
         try:
-            deck_id = f"deck_{int(time.time())}"
             pptx_path = os.path.join(EXPORTS_PRESENTATIONS_DIR, f"{deck_id}.pptx")
             compile_pptx_deck(manifest_dict, pptx_path)
         except Exception as p_err:
@@ -1481,15 +1481,15 @@ async def api_chat(payload_data: ChatPayload):
         target_endpoint = MODEL_ENDPOINT
         model = "qwen3:8b"
         node_key = "primary"
+        deck_id = f"deck_{int(time.time())}"
         slides, outline = generate_presentation_3node_synergy(
             query=question,
             l3_url=cluster_balancer.laptop3_url,
             l2_url=cluster_balancer.laptop2_url,
         )
-        manifest_dict = json.loads(build_deck_manifest(question, slides))
+        manifest_dict = json.loads(build_deck_manifest(question, slides, deck_id=deck_id))
         manifest_json = json.dumps(manifest_dict, indent=2, ensure_ascii=False)
         try:
-            deck_id = f"deck_{int(time.time())}"
             pptx_path = os.path.join(EXPORTS_PRESENTATIONS_DIR, f"{deck_id}.pptx")
             compile_pptx_deck(manifest_dict, pptx_path)
         except Exception as p_err:

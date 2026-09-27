@@ -242,19 +242,37 @@ export function extractProjectFromMessage(
     }
   }
 
+  // Check if this project contains a presentation slide deck
+  const isPresentation =
+    Boolean(filesMap['deck_manifest.json'] || filesMap['presentation.json']) ||
+    fileKeys.some((k) => k.includes('manifest.json') || k.includes('presentation.json')) ||
+    fileKeys.some((k) => {
+      const f = filesMap[k]
+      return f && f.language === 'json' && f.content.includes('"slides"') && (f.content.includes('"title"') || f.content.includes('"layout"'))
+    })
+
   // Infer title
-  let inferredTitle = suggestedTitle || 'Interactive Application'
-  if (filesMap['index.html']) {
+  let inferredTitle = suggestedTitle || (isPresentation ? 'Executive Presentation' : 'Interactive Application')
+  if (filesMap['deck_manifest.json'] || filesMap['presentation.json']) {
+    try {
+      const manifestRaw = (filesMap['deck_manifest.json'] || filesMap['presentation.json']).content
+      const parsedManifest = JSON.parse(manifestRaw)
+      if (parsedManifest.title && typeof parsedManifest.title === 'string') {
+        inferredTitle = parsedManifest.title.trim()
+      }
+    } catch {}
+  } else if (filesMap['index.html']) {
     const titleMatch = filesMap['index.html'].content.match(/<title>([^<]+)<\/title>/i)
     if (titleMatch && titleMatch[1].trim()) {
       inferredTitle = titleMatch[1].trim()
     }
   }
 
-  const isMultiFile = fileKeys.length >= 2
+  const isMultiFile = fileKeys.length >= 2 || isPresentation
   const isInteractiveApp =
     Boolean(filesMap['index.html']) ||
-    fileKeys.some((k) => k.endsWith('.html') || k.endsWith('.jsx') || k.endsWith('.tsx'))
+    fileKeys.some((k) => k.endsWith('.html') || k.endsWith('.jsx') || k.endsWith('.tsx')) ||
+    isPresentation
 
   return {
     title: inferredTitle,

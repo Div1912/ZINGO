@@ -69,6 +69,7 @@ def _call_node_sync(
         "prompt": prompt,
         "system": system,
         "stream": False,
+        "think": False,
         "options": {"num_predict": num_predict, "temperature": 0.2},
         "keep_alive": -1,
     }
@@ -100,7 +101,7 @@ def ideate_presentation_outline_node3(
         "Use clean corporate typography, numbers, and professional text only."
     )
     prompt = f"Topic: {query.strip()[:500]}\nGenerate a structured executive presentation outline:"
-    return _call_node_sync(l3_url, "qwen3:4b", prompt, system, num_predict=450, timeout=(1.5, 3.5))
+    return _call_node_sync(l3_url, "qwen3:4b", prompt, system, num_predict=350, timeout=(1.0, 2.5))
 
 
 def audit_and_structure_slides_node2(
@@ -150,7 +151,7 @@ Now generate the JSON array for: {query.strip()[:400]}"""
         "MANDATORY: Absolutely NO icons, emojis, or inline SVGs. Only clean text and numbers."
     )
 
-    raw = _call_node_sync(l2_url, "qwen2.5-vl:3b", prompt, system, num_predict=800, timeout=(1.5, 4.0))
+    raw = _call_node_sync(l2_url, "qwen2.5-vl:3b", prompt, system, num_predict=800, timeout=(1.0, 2.5))
     if not raw:
         return None
 
@@ -177,12 +178,195 @@ Now generate the JSON array for: {query.strip()[:400]}"""
     return None
 
 
+def generate_slides_local_node1(
+    query: str,
+    outline: Optional[str] = None,
+) -> Optional[List[Dict]]:
+    """
+    Local Master Node (Laptop 1 · Qwen3-8B) generates structured presentation slide JSON.
+    Fast, reliable, zero remote network dependency.
+    """
+    context_outline = f"\nUse this conceptual outline as foundation:\n{outline.strip()[:400]}\n" if outline else ""
+    prompt = f"""Generate a professional presentation slide schema for: {query.strip()[:300]}
+{context_outline}
+Output ONLY a valid JSON array. No other text before or after the JSON.
+Each slide must have "title" and "layout". Use 5-6 slides.
+Available layouts: "title", "kpi_metrics", "card_grid", "timeline", "bullets".
+STRICT NEGATIVE CONSTRAINT: DO NOT include any icons, emojis, or inline SVGs. Only clean text and numbers.
+
+Example:
+[
+  {{"title": "{query.strip()[:60]}", "subtitle": "Executive Strategic Briefing", "layout": "title"}},
+  {{"title": "Key Indicators", "layout": "kpi_metrics", "cards": [{{"stat": "98%", "title": "Accuracy", "description": "Operational standard"}}, {{"stat": "3x", "title": "Speed", "description": "Velocity enhancement"}}, {{"stat": "-35%", "title": "Risk", "description": "Incident reduction"}}]}},
+  {{"title": "Core Strategic Pillars", "layout": "card_grid", "cards": [{{"title": "Architecture", "description": "Robust design"}}, {{"title": "Deployment", "description": "Scalable rollout"}}, {{"title": "Governance", "description": "Continuous monitoring"}}]}},
+  {{"title": "Execution Roadmap", "layout": "timeline", "cards": [{{"title": "Phase 1: Pilot", "description": "Initial setup and validation"}}, {{"title": "Phase 2: Scale", "description": "Broader organization rollout"}}, {{"title": "Phase 3: Optimize", "description": "Full continuous operations"}}]}},
+  {{"title": "Strategic Recommendations", "layout": "bullets", "bullets": ["Deploy targeted capability in high-impact areas", "Establish transparent reporting metrics", "Ensure compliance and team enablement"], "takeaway": "Strategic execution delivers measurable return on investment."}}
+]
+
+Generate the JSON array:"""
+
+    system = "You are a JSON generator for executive presentations. Output ONLY a valid JSON array starting with '[' and ending with ']'. No markdown fences, no explanations. Absolutely NO emojis or icons."
+    raw = _call_node_sync("http://127.0.0.1:11434", "qwen3:8b", prompt, system, num_predict=600, timeout=(1.0, 14.0))
+    if not raw:
+        return None
+
+    for candidate in [raw, raw.strip()]:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, list) and len(parsed) >= 2:
+                return parsed
+        except Exception:
+            pass
+
+    match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', raw)
+    if match:
+        try:
+            parsed = json.loads(match.group())
+            if isinstance(parsed, list) and len(parsed) >= 2:
+                return parsed
+        except Exception:
+            pass
+
+    return None
+
+
 def generate_slide_structure_node2(
     query: str,
     l2_url: str,
 ) -> Optional[List[Dict]]:
     """Legacy wrapper for Node 2 layout generator."""
     return audit_and_structure_slides_node2(query, l2_url)
+
+
+def extract_clean_topic(query: str) -> str:
+    """Extract clean concise presentation topic from raw user query."""
+    topic = query.strip()
+    topic = re.sub(r"(?i)\b(generate|create|build|make|prepare|show|give me|write|design)\b", "", topic)
+    topic = re.sub(r"(?i)\b(a|an|the)\b", "", topic)
+    topic = re.sub(r"(?i)\b(presentation|slides?|slide deck|pptx?|powerpoint|pitch deck|executive deck|keynote)\b", "", topic)
+    topic = re.sub(r"(?i)\b(about|on|for|regarding|with)\b", "", topic)
+    topic = re.sub(r" +", " ", topic).strip(" :.-")
+    return topic.title() if (topic and len(topic) >= 3) else "Executive Briefing"
+
+
+def build_default_slides(query: str, outline: Optional[str] = None) -> List[Dict]:
+    """
+    Topic-tailored slide structure generator.
+    Guarantees rich, domain-specific slides for the user's exact topic even if all LLM nodes fail.
+    """
+    topic = extract_clean_topic(query)
+    q_lower = query.lower()
+
+    # Detect domain keywords to provide highly relevant metrics and pillars
+    if any(k in q_lower for k in ("churn", "retention", "customer", "attrition")):
+        kpis = [
+            {"stat": "88.4%", "title": "Retention Benchmark", "description": "Target customer retention rate"},
+            {"stat": "-32%", "title": "Churn Mitigation", "description": "Reduction in high-risk account loss"},
+            {"stat": "3.8x", "title": "LTV Multiplier", "description": "Customer lifetime value expansion"},
+        ]
+        pillars = [
+            {"title": "Predictive Scoring", "description": "Early detection of churn signals via behavioral analysis"},
+            {"title": "Proactive Intervention", "description": "Automated engagement triggers for at-risk accounts"},
+            {"title": "Customer Value Lifecycle", "description": "Ongoing value delivery and success management"},
+        ]
+        roadmap = [
+            {"title": "Phase 1: Diagnostic", "description": "Audit historical churn vectors and customer data"},
+            {"title": "Phase 2: Automated Triggers", "description": "Deploy real-time risk scoring and alert playbooks"},
+            {"title": "Phase 3: Scale & Refine", "description": "Integrate feedback loops across customer success teams"},
+        ]
+    elif any(k in q_lower for k in ("warm", "climat", "solar", "wind", "renew", "green", "carbon", "sustain")):
+        kpis = [
+            {"stat": "1.5°C", "title": "Global Climate Target", "description": "Critical warming threshold ceiling"},
+            {"stat": "-45%", "title": "Emission Trajectory", "description": "Target reduction milestone by 2030"},
+            {"stat": "62%", "title": "Clean Energy Share", "description": "Renewable generation mix objective"},
+        ]
+        pillars = [
+            {"title": "Grid-Scale Renewables", "description": "Solar photovoltaic and offshore wind integration"},
+            {"title": "Energy Storage Systems", "description": "Grid-scale battery infrastructure and peak management"},
+            {"title": "Policy & Capital Mobilization", "description": "Carbon pricing, tax incentives, and ESG investments"},
+        ]
+        roadmap = [
+            {"title": "Phase 1: Transition", "description": "Decommission peak-pollutant legacy facilities"},
+            {"title": "Phase 2: Scale", "description": "Deploy multi-gigawatt renewable storage networks"},
+            {"title": "Phase 3: Net-Zero", "description": "Achieve carbon neutrality and 100% resilient grid"},
+        ]
+    elif any(k in q_lower for k in ("ai", "intelligence", "ml", "learning", "neural", "agent", "llm")):
+        kpis = [
+            {"stat": "99.4%", "title": "Model Precision", "description": "Inference benchmark on production callsets"},
+            {"stat": "10x", "title": "Throughput Velocity", "description": "Execution speed enhancement across workflows"},
+            {"stat": "<15ms", "title": "Edge Latency", "description": "Real-time sovereign AI response time"},
+        ]
+        pillars = [
+            {"title": "Sovereign Architecture", "description": "Air-gapped on-premise foundation model deployment"},
+            {"title": "Agentic Orchestration", "description": "Multi-agent swarm coordination for complex tasks"},
+            {"title": "Continuous Verification", "description": "Automated guardrails and output verification"},
+        ]
+        roadmap = [
+            {"title": "Phase 1: Sandbox Validation", "description": "Calibrate models on proprietary benchmarks"},
+            {"title": "Phase 2: Cluster Integration", "description": "Scale across multi-node distributed infrastructure"},
+            {"title": "Phase 3: Full Autonomy", "description": "Institutionalize self-optimizing sovereign AI workflows"},
+        ]
+    elif any(k in q_lower for k in ("financ", "money", "invest", "stock", "market", "revenue", "sales")):
+        kpis = [
+            {"stat": "+28.5%", "title": "Revenue Growth", "description": "Year-over-year top-line expansion target"},
+            {"stat": "3.4x", "title": "Pipeline Velocity", "description": "Acceleration of deal closing cycle"},
+            {"stat": "22.0%", "title": "EBITDA Margin", "description": "Operational profitability threshold"},
+        ]
+        pillars = [
+            {"title": "Revenue Diversification", "description": "Expanding recurring subscription and service lines"},
+            {"title": "Cost Optimization", "description": "Automating manual back-office overhead and audits"},
+            {"title": "Capital Efficiency", "description": "Disciplined allocation focused on high-ROI initiatives"},
+        ]
+        roadmap = [
+            {"title": "Phase 1: Capital Alignment", "description": "Reallocate capital expenditures to top-performing units"},
+            {"title": "Phase 2: Operational Scaling", "description": "Deploy automated financial intelligence and risk controls"},
+            {"title": "Phase 3: Market Expansion", "description": "Capture dominant market share across target sectors"},
+        ]
+    else:
+        kpis = [
+            {"stat": "99.2%", "title": "Operational Integrity", "description": f"Core performance benchmark for {topic}"},
+            {"stat": "3.5x", "title": "Execution Velocity", "description": "Target acceleration over baseline metrics"},
+            {"stat": "-26%", "title": "Variance Minimization", "description": "Defect and risk containment objective"},
+        ]
+        pillars = [
+            {"title": "Strategic Architecture", "description": f"Robust engineering foundation tailored for {topic}"},
+            {"title": "Operational Governance", "description": "Real-time monitoring, telemetry, and automated controls"},
+            {"title": "Systemic Resilience", "description": "Proactive mitigation and continuous quality assurance"},
+        ]
+        roadmap = [
+            {"title": "Phase 1: Baseline Audit", "description": f"Calibrate key operational parameters for {topic}"},
+            {"title": "Phase 2: Systemic Deployment", "description": "Roll out high-impact capabilities across core teams"},
+            {"title": "Phase 3: Enterprise Scale", "description": "Institutionalize standard operating procedures and review"},
+        ]
+
+    return [
+        {"title": topic, "subtitle": "Executive Strategic Briefing", "layout": "title"},
+        {
+            "title": "Key Performance Indicators",
+            "layout": "kpi_metrics",
+            "cards": kpis,
+        },
+        {
+            "title": "Core Strategic Pillars",
+            "layout": "card_grid",
+            "cards": pillars,
+        },
+        {
+            "title": "Implementation Roadmap",
+            "layout": "timeline",
+            "cards": roadmap,
+        },
+        {
+            "title": "Strategic Recommendations & Takeaways",
+            "layout": "bullets",
+            "bullets": [
+                f"Prioritize high-impact operational optimizations for {topic}",
+                "Establish real-time KPI telemetry and weekly leadership reviews",
+                "Ensure regulatory compliance and continuous capability verification",
+            ],
+            "takeaway": f"Strategic execution on {topic} delivers quantifiable ROI, accelerated performance, and systemic resilience.",
+        },
+    ]
 
 
 def generate_presentation_3node_synergy(
@@ -194,62 +378,35 @@ def generate_presentation_3node_synergy(
     Coordinates all 3 models in synergy:
       1. Node 3 (Qwen3-4B): Fast Ideation produces slide concept outline.
       2. Node 2 (Qwen2.5-VL 3B): Layout Auditor validates and structures JSON schema.
-      3. Fallback: If either node is offline or times out, uses domain templates.
+      3. Node 1 Fallback (Laptop 1 Qwen3-8B): Local synthesis if remote nodes unavailable.
+      4. Dynamic Topic Fallback: Topic-tailored deterministic slide generation.
     Returns: (slides_list, conceptual_outline)
     """
-    outline = ideate_presentation_outline_node3(query, l3_url)
-    slides = audit_and_structure_slides_node2(query, l2_url, outline=outline)
+    outline = None
+    if l3_url:
+        try:
+            outline = ideate_presentation_outline_node3(query, l3_url)
+        except Exception as e:
+            print(f"[presentation_engine] Node 3 outline error: {e}")
+
+    slides = None
+    if l2_url:
+        try:
+            slides = audit_and_structure_slides_node2(query, l2_url, outline=outline)
+        except Exception as e:
+            print(f"[presentation_engine] Node 2 layout error: {e}")
+
+    # Fallback to local Node 1 if remote nodes didn't produce slides
     if not slides:
-        slides = build_default_slides(query)
+        print("[presentation_engine] Remote nodes offline/timed out. Generating slides via local Node 1 (qwen3:8b)...")
+        slides = generate_slides_local_node1(query, outline=outline)
+
+    # Final guarantee: topic-tailored deterministic presentation
+    if not slides:
+        print("[presentation_engine] Using topic-tailored deterministic presentation...")
+        slides = build_default_slides(query, outline=outline)
+
     return slides, outline
-
-
-def build_default_slides(query: str) -> List[Dict]:
-    """
-    Fallback: build a reasonable slide structure from just the query topic.
-    Used when Node 2 fails or is offline.
-    """
-    topic = query.strip()[:80]
-    return [
-        {"title": topic, "subtitle": "Executive Strategic Briefing", "layout": "title"},
-        {
-            "title": "Key Performance Indicators",
-            "layout": "kpi_metrics",
-            "cards": [
-                {"stat": "99.4%", "title": "Primary Efficiency", "description": "Core operational benchmark"},
-                {"stat": "3.2x", "title": "Throughput Optimization", "description": "Capacity enhancement target"},
-                {"stat": "-24%", "title": "Variance Reduction", "description": "Operating loss minimization"},
-            ],
-        },
-        {
-            "title": "Strategic Architecture & Pillars",
-            "layout": "card_grid",
-            "cards": [
-                {"title": "Process Integrity", "description": "Rigorous adherence to standards and safety margins"},
-                {"title": "Operational Control", "description": "Continuous monitoring and closed-loop optimization"},
-                {"title": "Systemic Resilience", "description": "Proactive mitigation of equipment downtime"},
-            ],
-        },
-        {
-            "title": "Implementation Roadmap",
-            "layout": "timeline",
-            "cards": [
-                {"title": "Phase 1: Baseline", "description": "Audit current operating parameters and calibrate controls"},
-                {"title": "Phase 2: Execution", "description": "Deploy optimized workflows across target subsystems"},
-                {"title": "Phase 3: Scale", "description": "Institutionalize best practices and continuous review"},
-            ],
-        },
-        {
-            "title": "Recommendations & Strategic Takeaways",
-            "layout": "bullets",
-            "bullets": [
-                f"Prioritize high-impact operational controls for {topic}",
-                "Establish automated KPI telemetry and daily review cadence",
-                "Ensure regulatory compliance and safety interlocking at every milestone",
-            ],
-            "takeaway": f"Strategic execution on {topic} delivers immediate gains in safety, efficiency, and reliability.",
-        },
-    ]
 
 
 EMOJI_REGEX = re.compile(
@@ -280,6 +437,7 @@ def build_deck_manifest(
     query: str,
     slides: List[Dict],
     author: str = "AIRA Sovereign Intelligence",
+    deck_id: Optional[str] = None,
 ) -> str:
     """
     Stage 2: Build the complete deck_manifest.json from validated slide list.
@@ -299,6 +457,10 @@ def build_deck_manifest(
         "theme": "dark",
         "slides": slides,
     }
+    if deck_id:
+        manifest["deck_id"] = deck_id
+        manifest["download_url"] = f"/api/presentations/{deck_id}/download"
+
     return json.dumps(manifest, indent=2, ensure_ascii=False)
 
 
