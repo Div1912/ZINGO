@@ -92,8 +92,11 @@ class ClusterLoadBalancer:
         local_models = available_local_models or []
         laptop1_endpoint = MODEL_ENDPOINT
 
-        # Laptop 2: Multimodal & Vision Node (Qwen2.5-VL:3b)
-        laptop2_base = (custom_node_url or self.laptop2_url).strip().rstrip("/")
+        # Laptop 2: Multimodal & Vision Node (Qwen2.5-VL:3b @ https://unfailing-idealism-caretaker.ngrok-free.dev)
+        l2_url = self.laptop2_url
+        if custom_node_url and ("unfailing" in custom_node_url or "caretaker" in custom_node_url or "vl" in custom_node_url):
+            l2_url = custom_node_url
+        laptop2_base = l2_url.strip().rstrip("/")
         if laptop2_base.endswith("/api/generate"):
             laptop2_endpoint = laptop2_base
         elif laptop2_base.endswith("/api/chat"):
@@ -101,8 +104,11 @@ class ClusterLoadBalancer:
         else:
             laptop2_endpoint = f"{laptop2_base}/api/generate"
 
-        # Laptop 3: Fast Synthesis Node (Qwen3:4b)
-        laptop3_base = (custom_node_url if custom_node_url and ("yoyo" in custom_node_url or "4b" in custom_node_url) else self.qwen3_4b_url).strip().rstrip("/")
+        # Laptop 3: Fast Synthesis Node (Qwen3:4b @ https://yoyo-evolve-untimed.ngrok-free.dev)
+        l3_url = self.qwen3_4b_url
+        if custom_node_url and ("yoyo" in custom_node_url or "evolve" in custom_node_url or "4b" in custom_node_url):
+            l3_url = custom_node_url
+        laptop3_base = l3_url.strip().rstrip("/")
         if laptop3_base.endswith("/api/generate"):
             laptop3_endpoint = laptop3_base
         elif laptop3_base.endswith("/api/chat"):
@@ -110,65 +116,24 @@ class ClusterLoadBalancer:
         else:
             laptop3_endpoint = f"{laptop3_base}/api/generate"
 
-        # Use local loopback if qwen3:4b is resident on this machine and no remote URL forced
-        laptop3_target_endpoint = laptop1_endpoint if ("qwen3:4b" in local_models and not custom_node_url) else laptop3_endpoint
-
         model_req = (requested_model or "").strip().lower()
         is_auto = not model_req or model_req in ("auto", "auto (recommended)", "auto (cluster smart router)")
 
-        # 1. Vision constraint: must always use Laptop 2 (qwen2.5-vl:3b)
-        if has_images or task_type == "vision":
+        # 1. Vision constraint: MUST use Laptop 2 (qwen2.5-vl:3b)
+        if has_images or task_type == "vision" or "vl" in model_req or "vision" in model_req:
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
-        # 2. Explicit model requested by user
-            if "vl" in model_req or "vision" in model_req:
-                if not custom_node_url and not has_images and "qwen2.5-vl:3b" not in local_models and "qwen3:8b" in local_models:
-                    return laptop1_endpoint, "qwen3:8b", "primary"
-                return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
-            if "4b" in model_req:
-                if "qwen3:4b" not in local_models and not custom_node_url:
-                    # Remote Laptop 3 tunnel is offline; route to local primary node directly (no 150s hang)
-                    primary_model = "qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b")
-                    return laptop1_endpoint, primary_model, "primary"
-                target_4b = "qwen3:4b" if ("qwen3:4b" in local_models or not local_models) else ([m for m in local_models if "4b" in m.lower()][0] if any("4b" in m.lower() for m in local_models) else "qwen3:4b")
-                return laptop3_target_endpoint, target_4b, "laptop3"
-            if "coder" in model_req:
-                coder_name = "qwen2.5-coder:7b"
-                return (laptop2_endpoint if custom_node_url else laptop1_endpoint), coder_name, ("laptop2" if custom_node_url else "primary")
-            if "r1" in model_req or "deepseek" in model_req:
-                return laptop1_endpoint, "deepseek-r1:8b", "primary"
-            # Explicit standard model
-            return (laptop2_endpoint if custom_node_url else laptop1_endpoint), requested_model, ("laptop2" if custom_node_url else "primary")
+        # 2. Fast / 4B constraint: MUST use Laptop 3 (qwen3:4b)
+        if "4b" in model_req:
+            return laptop3_endpoint, "qwen3:4b", "laptop3"
 
-        # 3. Dynamic Auto Task Routing across the 3 models on 3 laptops:
-        # Laptop 1 (Master Node): qwen3:8b -> Deep Document Analysis, Engineering & Safety Verification
-        # Laptop 2 (Vision Node): qwen2.5-vl:3b -> Vision, Blueprints, Schematics, Multimodal QA
-        # Laptop 3 (Fast Node):   qwen3:4b -> Fast Conversational, Quick Extraction & General QA
-
+        # 3. Dynamic Auto Task Routing across 3 laptops:
         normalized_task = (task_type or "chat").lower()
-        with self._lock:
-            p_active = self.active_streams.get("primary", 0)
-            l2_active = self.active_streams.get("laptop2", 0)
-            l3_active = self.active_streams.get("laptop3", 0)
+        if is_auto and normalized_task in ("fast", "lightweight", "quick", "outline"):
+            return laptop3_endpoint, "qwen3:4b", "laptop3"
 
-        # Fast synthesis / quick lookups -> Route to local primary node (no remote latency)
-        if normalized_task in ("fast", "lightweight", "quick"):
-            primary_model = "qwen3:8b" if "qwen3:8b" in local_models else ("qwen3:4b" if "qwen3:4b" in local_models else (local_models[0] if local_models else "qwen3:4b"))
-            return laptop1_endpoint, primary_model, "primary"
-
-        # Deep document synthesis, presentations, code & engineering analysis -> Prefer Laptop 1 (Qwen3-8B)
-        if normalized_task in ("document", "analysis", "presentation", "ppt", "code"):
-            if "qwen3:8b" in local_models:
-                return laptop1_endpoint, "qwen3:8b", "primary"
-            elif "qwen3:4b" in local_models:
-                return laptop1_endpoint, "qwen3:4b", "primary"
-
-        # Default Chat / Auto Lane:
-        # Determine available primary model
-        primary_model = "qwen3:8b" if "qwen3:8b" in local_models else ("qwen3:4b" if "qwen3:4b" in local_models else (local_models[0] if local_models else "qwen3:4b"))
-
-        # Standard Engineering, Code & Chat: Always route to Primary Master Node (Qwen3-8B)
-        # Prevents degradation of complex engineering/coding tasks to smaller edge models
+        # 4. Master Node (Laptop 1): Qwen3:8b for Document Synthesis, Presentations, Code, Engineering & Standard Chat
+        primary_model = "qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b")
         return laptop1_endpoint, primary_model, "primary"
 
 

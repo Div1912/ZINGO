@@ -322,8 +322,13 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         } else if (selectedModel.includes('r1')) {
           targetNodeUrl = server.reasoning_url
         } else if (isAuto) {
-          // Provide Laptop 2 URL to the backend so it can dynamically spill over when Laptop 1 is busy!
-          targetNodeUrl = server.vision_url || server.g15_2_url || undefined
+          if (hasImageFile) {
+            targetNodeUrl = server.vision_url || server.g15_2_url || undefined
+          } else if (detectedTask === 'fast') {
+            targetNodeUrl = server.fast_4b_url || undefined
+          } else {
+            targetNodeUrl = undefined
+          }
         }
 
         const userInfo = getActiveUserInfo()
