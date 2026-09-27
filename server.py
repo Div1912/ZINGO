@@ -252,17 +252,35 @@ def speculative_plan_decomposition(query: str, custom_node_url: Optional[str] = 
     high-level architecture and task decomposition blueprint in ~800ms.
     This speculative plan is fed into Laptop 1 (qwen3:8b) for deep synthesis.
     Fails safely with a 3.5s strict timeout if Laptop 2 is busy or offline.
+    Circuit breaker: skips instantly if Node 2 health check fails (cached 30s).
     """
     if not query or len(query.strip()) < 15:
         return None
 
+    # Only trigger for genuinely complex multi-component engineering/coding tasks.
+    # Excludes simple scripts, one-liner questions, explain/summarize requests.
     complex_triggers = (
-        "create", "build", "code", "app", "application", "design", "system",
-        "component", "implement", "develop", "refactor", "fix", "architecture",
-        "html", "react", "python", "script", "database", "api", "pipeline", "function"
+        "build", "implement", "architect", "design system", "full stack",
+        "develop", "refactor", "pipeline", "microservice", "database schema",
+    )
+    simple_exclusions = (
+        "write a python", "write a script", "write code", "what is", "explain",
+        "how does", "summarize", "list", "show me", "give me", "optimize",
     )
     q_low = query.lower()
+    if any(ex in q_low for ex in simple_exclusions):
+        return None
     if not any(k in q_low for k in complex_triggers):
+        return None
+
+    # ── Circuit breaker: skip if Node 2 is offline (uses 30s TTL cache) ──
+    try:
+        from subagent_engine import is_cluster_node_healthy
+        l2_check_url = (custom_node_url or cluster_balancer.laptop2_url).strip().rstrip("/")
+        if not is_cluster_node_healthy(l2_check_url):
+            print("[synergy] Node 2 offline (circuit breaker). Speculative planning skipped.")
+            return None
+    except Exception:
         return None
 
     l2_base = (custom_node_url or cluster_balancer.laptop2_url).strip().rstrip("/")

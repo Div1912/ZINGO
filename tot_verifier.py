@@ -53,17 +53,34 @@ def generate_test_specification(
     """
     Queries Node 2 (qwen2.5-vl:3b worker) to generate a formal, executable test suite
     and edge-case contracts for the user's task in < 1 second.
+    Circuit breaker: returns None instantly if Node 2 is offline (30s TTL cache).
     """
     if not query or len(query.strip()) < 15:
         return None
 
+    # Tighter trigger list — only for genuine implementation tasks, not simple scripts/explains
     complex_coding_keywords = (
-        "create", "build", "code", "app", "function", "implement", "calculate",
-        "algorithm", "validate", "convert", "parse", "component", "script",
-        "pipeline", "class", "module", "discount", "cart", "todo"
+        "implement", "algorithm", "validate", "convert", "parse",
+        "pipeline", "class", "module", "microservice", "full stack",
+    )
+    simple_exclusions = (
+        "write a python", "write a script", "write code", "what is", "explain",
+        "how does", "summarize", "list", "optimize", "write a function",
     )
     q_low = query.lower()
+    if any(ex in q_low for ex in simple_exclusions):
+        return None
     if not any(k in q_low for k in complex_coding_keywords):
+        return None
+
+    # ── Circuit breaker: skip entirely if Node 2 is offline ──
+    try:
+        from subagent_engine import is_cluster_node_healthy
+        l2_check_url = (custom_node_url or default_l2_url).strip().rstrip("/")
+        if not is_cluster_node_healthy(l2_check_url):
+            print("[tot_verifier] Node 2 offline (circuit breaker). Test specification skipped.")
+            return None
+    except Exception:
         return None
 
     l2_base = (custom_node_url or default_l2_url).strip().rstrip("/")
