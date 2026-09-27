@@ -146,9 +146,10 @@ class ClusterLoadBalancer:
             l2_active = self.active_streams.get("laptop2", 0)
             l3_active = self.active_streams.get("laptop3", 0)
 
-        # Fast synthesis / quick lookups -> Route to Laptop 3 (Qwen3-4B)
+        # Fast synthesis / quick lookups -> Route to local primary node (no remote latency)
         if normalized_task in ("fast", "lightweight", "quick"):
-            return laptop3_target_endpoint, "qwen3:4b", "laptop3"
+            primary_model = "qwen3:8b" if "qwen3:8b" in local_models else ("qwen3:4b" if "qwen3:4b" in local_models else (local_models[0] if local_models else "qwen3:4b"))
+            return laptop1_endpoint, primary_model, "primary"
 
         # Deep document synthesis, presentations, code & engineering analysis -> Prefer Laptop 1 (Qwen3-8B)
         if normalized_task in ("document", "analysis", "presentation", "ppt", "code"):
@@ -689,12 +690,11 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
     if is_greeting:
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.4, "num_predict": 512, "num_ctx": 4096, "top_p": 0.85},
-            "think": False,
+            "options": {"temperature": 0.3, "num_predict": 64, "num_ctx": 1024, "top_p": 0.8},
+            "think": True,
             "instruction": (
-                "The user is sending a friendly greeting or ping. Respond politely, warmly, and concisely as ZINGO, "
-                "mentioning your role as their on-premise engineering assistant. Keep it brief and ready for their task. "
-                "Do not use decorative emojis or icons."
+                "You are AIRA. The user sent a greeting. Reply in 1-2 short sentences only. "
+                "No analysis, no preamble, no reasoning in your reply. Be warm and direct."
             ),
         }
 
@@ -734,11 +734,11 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
         # Fast mode: responsive, direct, with room for rich multi-turn conversation memory
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.3, "num_predict": 1024, "num_ctx": 4096, "top_p": 0.85},
-            "think": False,
+            "options": {"temperature": 0.3, "num_predict": 256, "num_ctx": 2048, "top_p": 0.85},
+            "think": True,
             "instruction": (
-                "Operating in FAST mode. Provide an immediate, direct, concise, and accurate answer. "
-                "Answer directly without conversational filler, preamble, repetition, emojis, or AI-generated icons."
+                "Operating in FAST mode. Give an immediate, direct, concise answer. "
+                "No preamble, no meta-commentary, no emojis. Answer in plain sentences."
             ),
         }
 
