@@ -161,30 +161,9 @@ class ClusterLoadBalancer:
         # Determine available primary model
         primary_model = "qwen3:8b" if "qwen3:8b" in local_models else ("qwen3:4b" if "qwen3:4b" in local_models else (local_models[0] if local_models else "qwen3:4b"))
 
-        # If primary has 0 active requests (IDLE) -> Route to primary model
-        if p_active == 0:
-            return laptop1_endpoint, primary_model, "primary"
-
-        # If primary is BUSY (p_active >= 1):
-        # Spill over to Laptop 3 (Fast Synthesis Node) if idle
-        if l3_active == 0:
-            print(f"[load_balancer] Laptop 1 busy ({p_active} active). Dynamically spilling over to Laptop 3 (idle).")
-            return laptop3_target_endpoint, "qwen3:4b", "laptop3"
-
-        # Spill over to Laptop 2 (Vision Node) if idle
-        if l2_active == 0:
-            print(f"[load_balancer] Laptop 1 & Laptop 3 busy. Dynamically spilling over to Laptop 2 (idle).")
-            return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
-
-        # All 3 nodes busy -> Route to the least loaded node
-        node_candidates = [
-            (p_active, laptop1_endpoint, primary_model, "primary"),
-            (l3_active, laptop3_target_endpoint, "qwen3:4b", "laptop3"),
-            (l2_active, laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"),
-        ]
-        node_candidates.sort(key=lambda x: x[0])
-        _, chosen_endpoint, chosen_model, chosen_key = node_candidates[0]
-        return chosen_endpoint, chosen_model, chosen_key
+        # Standard Engineering, Code & Chat: Always route to Primary Master Node (Qwen3-8B)
+        # Prevents degradation of complex engineering/coding tasks to smaller edge models
+        return laptop1_endpoint, primary_model, "primary"
 
 
 cluster_balancer = ClusterLoadBalancer()
@@ -1330,6 +1309,8 @@ async def api_chat(payload_data: ChatPayload):
 
     base_system = payload_data.system or (
         f"You are AIRA, an advanced sovereign engineering assistant. {cfg['instruction']} "
+        "Answer directly without meta-commentary, preamble, prompt dissection, or conversational filler. "
+        "NEVER output phrases like 'We are given a user request...', 'The context shows...', or 'The user is asking...'. "
         "Answer using the retrieved organisation documents where they are relevant, and cite them "
         "by their bracket number, e.g. [1]."
     )
@@ -1341,7 +1322,7 @@ async def api_chat(payload_data: ChatPayload):
         system_blocks.append(learned_guidelines)
     system = "\n\n".join(system_blocks)
 
-    current_user_text = f"{context}\n\nUser Question/Request: {question}" if context else question
+    current_user_text = f"Context:\n{context}\n\n{question}" if context else question
 
     if payload_data.messages:
         # Filter out empty or error messages so failed turns do not corrupt context

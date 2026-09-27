@@ -116,6 +116,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       .replace(/(?:^|\n)={3,}\s*\n=== DELEGATED CLUSTER SUBAGENT BRIEFINGS[\s\S]*?=== SYNTHESIS INSTRUCTIONS FOR CHIEF ARBITER ===[\s\S]*?(?=\n\n[A-Z]|$)/gi, '')
       .replace(/(?:^|\n)=== DELEGATED CLUSTER SUBAGENT BRIEFINGS[\s\S]*?=== SYNTHESIS INSTRUCTIONS FOR CHIEF ARBITER ===[^\n]*\n?/gi, '')
 
+    // 3b. Strip meta-reasoning leaks and prompt evaluation chatter (e.g. "We are given a user request...", "The context shows...")
+    clean = clean
+      .replace(/^(?:We are given\b[^\n]*\n*|The context shows\b[^\n]*\n*|However, the user[^\n]*\n*)+/gim, '')
+
     // 4. Strip decorative AI-generated emojis and pseudo-icons from headers, bullets, and lists
     clean = clean
       .replace(/^(#{1,6}\s*)[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+\s*/gmu, '$1')
