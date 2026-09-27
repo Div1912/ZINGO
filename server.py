@@ -690,11 +690,10 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
     if is_greeting:
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.3, "num_predict": 64, "num_ctx": 1024, "top_p": 0.8},
-            "think": True,
+            "options": {"temperature": 0.3, "num_predict": 80, "num_ctx": 1024, "top_p": 0.8},
+            "think": False,
             "instruction": (
-                "You are AIRA. The user sent a greeting. Reply in 1-2 short sentences only. "
-                "No analysis, no preamble, no reasoning in your reply. Be warm and direct."
+                "Reply in 1 sentence. Do not explain, analyze, or introduce yourself. Just greet."
             ),
         }
 
@@ -731,11 +730,11 @@ def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dic
             ),
         }
     else:
-        # Fast mode: responsive, direct, with room for rich multi-turn conversation memory
+        # Fast mode: responsive, direct — no thinking overhead, just answer
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.3, "num_predict": 256, "num_ctx": 2048, "top_p": 0.85},
-            "think": True,
+            "options": {"temperature": 0.3, "num_predict": 384, "num_ctx": 2048, "top_p": 0.85},
+            "think": False,
             "instruction": (
                 "Operating in FAST mode. Give an immediate, direct, concise answer. "
                 "No preamble, no meta-commentary, no emojis. Answer in plain sentences."
