@@ -1562,7 +1562,7 @@ async def api_chat(payload_data: ChatPayload):
     is_ppt = is_presentation_intent(question)
 
     if is_ppt:
-        target_endpoint = payload_data.node_url or MODEL_ENDPOINT
+        target_endpoint = MODEL_ENDPOINT
         model = "qwen3:8b"
         node_key = "primary"
 

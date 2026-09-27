@@ -265,33 +265,66 @@ def strip_icons_and_emojis(val: Any) -> Any:
 def extract_clean_topic(query: str) -> str:
     """
     Extract clean concise presentation topic from raw user query.
-    Thoroughly strips conversational prefixes, command verbs, formatting keywords, and fluff.
+    Thoroughly strips conversational prefixes, command verbs, formatting keywords,
+    instructional suffixes (e.g. 'elaborate everything properly', 'in detail'), and typos.
     """
     if not query:
-        return "Executive Briefing"
+        return "Executive Strategic Briefing"
     topic = query.strip()
-    # Strip common conversational preambles
+
+    # 1. Correct user typos first so downstream regexes match cleanly
+    typo_map = {
+        r"\bpolution\b": "pollution",
+        r"\bellaborate\b": "elaborate",
+        r"\bevrything\b": "everything",
+        r"\benviroment\b": "environment",
+        r"\bclimat\b": "climate",
+        r"\bsustainablity\b": "sustainability",
+        r"\benginering\b": "engineering",
+        r"\barchitechture\b": "architecture",
+        r"\binteligence\b": "intelligence",
+    }
+    for pat, repl in typo_map.items():
+        topic = re.sub(pat, repl, topic, flags=re.IGNORECASE)
+
+    # 2. Strip common conversational preambles
     topic = re.sub(r"(?i)^(can you\s+|could you\s+|please\s+|help me\s+|i want to\s+|i need to\s+)+", "", topic)
     # Strip command verbs
     topic = re.sub(r"(?i)\b(generate|create|build|make|prepare|show|give me|write|design|draft|produce)\b", "", topic)
     # Strip slide count / quantity qualifiers
     topic = re.sub(r"(?i)\b(\d+\s*slides?|a\s+few\s+slides?)\b", "", topic)
-    topic = re.sub(r"(?i)\b(a|an|the)\b", "", topic)
     # Strip presentation keywords
     topic = re.sub(r"(?i)\b(presentation|slide deck|slides|slide|pptx?|powerpoint|pitch deck|executive deck|keynote|slideshow)\b", "", topic)
-    # Strip prepositions
+    # Strip topic preambles like "on the topic of", "on the topic", "topic", "subject of"
+    topic = re.sub(r"(?i)\b(on the topic of|on the topic|about the topic of|about the topic|the topic of|the topic|topic of|topic|subject of|subject)\b", "", topic)
+    topic = re.sub(r"(?i)\b(a|an|the)\b", "", topic)
     topic = re.sub(r"(?i)\b(about|on|for|regarding|with|explaining|discussing)\b", "", topic)
+
+    # 3. Strip conversational/quality instructions often added by users
+    instructional_patterns = [
+        r"(?i)\b(elaborate\s+everything(\s+properly)?|properly|everything)\b",
+        r"(?i)\b(elaborate\s+(all|points?|details?)\s*(properly|well|fully|in detail)?)\b",
+        r"(?i)\b(explain\s+(everything|all|points?|details?)\s*(properly|well|fully|in detail)?)\b",
+        r"(?i)\b(in\s+depth|in\s+detail|with\s+details|detailed|properly|fully|comprehensive(ly)?)\b",
+        r"(?i)\b(make\s+it\s+(good|detailed|professional|great|rich))\b",
+        r"(?i)\b(cover\s+(everything|all\s+aspects))\b",
+    ]
+    for pat in instructional_patterns:
+        topic = re.sub(pat, "", topic)
+
     # Strip punctuation and multiple spaces
     topic = re.sub(r"[\"\'`]", "", topic)
     topic = re.sub(r"\s+", " ", topic).strip(" :.-_")
 
-    if len(topic) < 3 or topic.lower() in ("topic", "subject", "thing", "it"):
+    if len(topic) < 3 or topic.lower() in ("topic", "subject", "thing", "it", "everything", "properly"):
         return "Executive Strategic Briefing"
 
     words = topic.split(" ")
     title_words = []
-    acronyms = {"ai", "ml", "kpi", "roi", "crm", "rfm", "api", "esg", "it", "ot", "iot", "erp", "hr", "qa", "qc"}
+    acronyms = {"ai", "ml", "kpi", "roi", "crm", "rfm", "api", "esg", "it", "ot", "iot", "erp", "hr", "qa", "qc", "co2", "ghg", "ev", "pm25"}
     for w in words:
+        if not w:
+            continue
         if w.lower() in acronyms:
             title_words.append(w.upper())
         elif w.isupper() and len(w) <= 5:
@@ -299,7 +332,8 @@ def extract_clean_topic(query: str) -> str:
         else:
             title_words.append(w.capitalize())
 
-    return " ".join(title_words)
+    clean_res = " ".join(title_words)
+    return clean_res if clean_res else "Executive Strategic Briefing"
 
 
 def parse_structured_research(text: str, clean_topic: str) -> Dict[str, Any]:
@@ -435,6 +469,32 @@ def build_rich_domain_research(clean_topic: str) -> Dict[str, Any]:
             ],
             "takeaway": f"Strategic execution on {clean_topic} achieves essential emission targets while lowering long-term levelized cost of electricity.",
         }
+    elif any(k in t_lower for k in ("pollut", "waste", "environ", "air qual", "smog", "plastic", "effluent", "toxic")):
+        return {
+            "title": "Global Environmental Pollution: Analysis, Impact & Solutions",
+            "subtitle": "Systemic Sources, Public Health Burdens & Mitigation Pathways",
+            "kpis": [
+                {"stat": "9.0M", "title": "Annual Premature Deaths", "description": "Global mortality linked directly to ambient air, water, and toxic chemical pollution (Lancet Commission)"},
+                {"stat": "40 µg/m³", "title": "Global Mean PM2.5", "description": "Particulate matter exposure exceeding the WHO annual safety threshold of 5 µg/m³"},
+                {"stat": "350M T", "title": "Annual Plastic Waste Output", "description": "Global municipal and industrial polymer waste accumulating in marine and terrestrial ecosystems"},
+            ],
+            "pillars": [
+                {"title": "Industrial Effluent & Atmospheric Emissions", "description": "Flue-gas desulfurization, VOC vapor capture, and continuous point-source discharge telemetry"},
+                {"title": "Urban Air Quality & Transport Electrification", "description": "Transition to zero-emission transit networks and low-emission particulate containment zones"},
+                {"title": "Circular Material Stewardship", "description": "Closed-loop polymer recycling, non-toxic industrial substitutions, and microplastic filtration systems"},
+            ],
+            "roadmap": [
+                {"title": "Phase 1: Source Auditing & Sensor Telemetry", "description": "Deploy distributed continuous emission monitoring systems (CEMS) and water quality sensors"},
+                {"title": "Phase 2: Filtration Mandates & Emission Caps", "description": "Enforce high-efficiency particulate scrubbers, biological effluent plants, and regulatory penalties"},
+                {"title": "Phase 3: Circular Industrial Ecosystems", "description": "Scale zero-liquid discharge (ZLD) manufacturing and bio-benign agricultural replacements"},
+            ],
+            "recommendations": [
+                "Establish real-time public telemetry for PM2.5, heavy metal, and industrial effluent violations",
+                "Phase out single-use petrochemical polymers and subsidize biodegradable agricultural feedstocks",
+                "Mandate rigorous environmental impact assessments (EIA) for all industrial zoning permits",
+            ],
+            "takeaway": "Combating global pollution requires systemic industrial transition, verified sensor telemetry, and strict circular economy enforcement.",
+        }
     elif any(k in t_lower for k in ("financ", "money", "invest", "stock", "market", "revenue", "sales", "bank")):
         return {
             "title": f"{clean_topic}: Financial Strategy & Capital Allocation",
@@ -531,7 +591,7 @@ TAKEAWAY: <1 high-impact summary sentence>"""
     )
 
     # First attempt: Call Primary Local Node (Qwen3-8B) with think=False for speed & factual depth
-    raw = _call_node_sync(primary_url, primary_model, prompt, system, num_predict=350, timeout=(2.0, 8.0))
+    raw = _call_node_sync(primary_url, primary_model, prompt, system, num_predict=350, timeout=(2.0, 6.0))
 
     researched = None
     if raw:
