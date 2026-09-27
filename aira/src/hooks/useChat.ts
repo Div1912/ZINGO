@@ -102,51 +102,57 @@ export function useChat(chatId?: string | null) {
       addMessage(sendToChatId, userMsg)
 
       // 2. Add Assistant Message placeholder
+      const targetChat = getChat(sendToChatId)
+      // Only bind project knowledge if this chat explicitly belongs to a project
+      const chatProjectId = targetChat?.projectId
+      const activeProject = chatProjectId ? useProjectStore.getState().getProject(chatProjectId) : undefined
+      const activeProjectId = activeProject?.id || null
+
+      const isGreeting = /^(hi|hello|hey|hii|hiii|heyy|greetings|good\s+(morning|afternoon|evening)|yo|sup|who are you|who r u|test|ping)\b/i.test(content.trim())
+      const isFastOrGreeting = isGreeting || detectedTask === 'fast' || effort === 'Fast'
+
       const assistantId = 'ast-' + Date.now()
-      const isThinking =
+      const isThinking = isFastOrGreeting ? false : (
         thinkingEnabled !== undefined
           ? thinkingEnabled
           : useChatStore.getState().isThinkingEnabled
+      )
 
-      const isCouncilActive = Boolean(useChatStore.getState().isCouncilEnabled)
-
-      const activeProject = useProjectStore.getState().getActiveProject()
-      const activeProjectId = activeProject?.id || null
-      if (activeProject) {
-        useProjectStore.getState().linkChatToProject(activeProject.id, sendToChatId)
-      }
+      const isCouncilActive = isFastOrGreeting ? false : Boolean(useChatStore.getState().isCouncilEnabled)
 
       // Continuous Memory: Extract explicit triggers right away so memories are saved mid-chat
       try {
-        const preExtracted = useMemoryStore
-          .getState()
-          .extractFromTurn(content, '', activeProjectId, sendToChatId)
-        if (preExtracted && preExtracted.length > 0) {
-          addToast({
-            type: 'info',
-            title: 'Memory Saved',
-            message: `ZINGO remembered: "${preExtracted[0].title}"`,
-          })
+        if (!isGreeting) {
+          const preExtracted = useMemoryStore
+            .getState()
+            .extractFromTurn(content, '', activeProjectId, sendToChatId)
+          if (preExtracted && preExtracted.length > 0) {
+            addToast({
+              type: 'info',
+              title: 'Memory Saved',
+              message: `ZINGO remembered: "${preExtracted[0].title}"`,
+            })
+          }
         }
       } catch (err) {
         console.warn('Pre-turn memory extraction error:', err)
       }
 
       // Past Chat Search (Conversational RAG Tool)
-      const pastChatIntent = detectPastChatIntent(content)
+      const pastChatIntent = isGreeting ? { isIntent: false } : detectPastChatIntent(content)
       let pastChatSearchMeta: PastChatSearchMeta | undefined = undefined
       let pastChatPromptContext = ''
 
       if (pastChatIntent.isIntent) {
         const searchResults = searchPastChats({
-          query: pastChatIntent.query,
+          query: (pastChatIntent as any).query,
           projectId: activeProjectId,
           currentChatId: sendToChatId,
           limit: 4,
         })
         if (searchResults.length > 0) {
           pastChatSearchMeta = {
-            query: pastChatIntent.query,
+            query: (pastChatIntent as any).query,
             searchedAt: new Date().toISOString(),
             resultsCount: searchResults.length,
             results: searchResults,
@@ -165,9 +171,9 @@ export function useChat(chatId?: string | null) {
         isThinkingPhase: isThinking,
         thinkingEnabled: isThinking,
         isStreaming: true,
-        modelUsed: selectedModel,
-        taskType: detectedTask,
-        effort: effort || 'Fast',
+        modelUsed: isGreeting ? 'qwen3:8b' : selectedModel,
+        taskType: isGreeting ? 'fast' : detectedTask,
+        effort: isGreeting ? 'Fast' : (effort || 'Fast'),
         pastChatSearch: pastChatSearchMeta,
         councilMeta: isCouncilActive
           ? {
@@ -180,14 +186,14 @@ export function useChat(chatId?: string | null) {
       }
       addMessage(sendToChatId, assistantMsg)
 
-      const isComplex = taskClassification.isComplex
+      const isComplex = !isFastOrGreeting && taskClassification.isComplex
       setIsComplexGenerating(isComplex, detectedTask, content, (files?.length || 0) > 0)
 
       // Build active project system prompt & knowledge base context
       let systemPrompt = settings.systemPrompt || ''
       let projectContextText = ''
 
-      if (activeProject) {
+      if (activeProject && !isGreeting) {
         if (activeProject.customInstructions) {
           systemPrompt = `PROJECT WORKSPACE: ${activeProject.title}\n${activeProject.customInstructions}\n\n${systemPrompt}`
         }
@@ -199,18 +205,20 @@ export function useChat(chatId?: string | null) {
       }
 
       // Inject Persistent Memory Context (Continuously Maintained & Project-Isolated)
-      const memoryContext = useMemoryStore.getState().formatMemoryContextForPrompt(activeProjectId)
-      if (memoryContext) {
-        systemPrompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${memoryContext}`
+      if (!isGreeting) {
+        const memoryContext = useMemoryStore.getState().formatMemoryContextForPrompt(activeProjectId)
+        if (memoryContext) {
+          systemPrompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${memoryContext}`
+        }
       }
 
       // Inject Past Chat Search Context if requested conversationally
-      if (pastChatPromptContext) {
+      if (pastChatPromptContext && !isGreeting) {
         systemPrompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${pastChatPromptContext}`
       }
 
-      // Append Claude-standard Artifacts protocol
-      const artifactsProtocol = `
+      // Append Claude-standard Artifacts protocol for substantive tasks (skip for greetings)
+      const artifactsProtocol = isGreeting ? '' : `
 # Artifacts Protocol
 You have the ability to create substantial, self-contained deliverables called "Artifacts" that render in a dedicated side panel next to the chat.
 
@@ -232,10 +240,6 @@ Wrap the deliverable in an <artifact> tag:
 <artifact identifier="kebab-case-id" type="html|react|svg|mermaid|markdown|code" title="Concise Descriptive Title">
 ...complete self-contained content...
 </artifact>
-
-## Revising / Updating an Artifact:
-- When modifying an artifact from earlier in the conversation, always re-use the EXACT SAME identifier attribute.
-- Provide the complete updated version inside the <artifact> tag. The system will automatically track it as a new version (e.g. v2, v3) without overwriting past history.
 `.trim()
 
       const extendedThinkingProtocol = isThinking
@@ -247,33 +251,38 @@ You MUST deliberate and work through your reasoning inside a <think> block first
 - Deliberate deeply, but keep the internal monologue authentic, rigorous, and direct.
 - When finished deliberating, close with </think> and immediately provide your verified, well-structured final answer.
 `.trim()
-        : `
+        : (isGreeting ? 'You are AIRA. Reply directly in 1 short friendly sentence. Do not reason.' : `
 ## Direct Response Protocol:
 Do NOT output any <think> or reasoning tags. Provide your response directly, concisely, and immediately without internal scratchpad deliberation.
-`.trim()
+`.trim())
 
       // Inject Format Skill and Sandboxed File Creation Protocol
-      const formatSkillResolution = detectFormatSkillIntent(content)
+      const formatSkillResolution = isGreeting ? { requiresSkill: false } : detectFormatSkillIntent(content)
       let formatSkillPrompt = ''
       if (
+        !isGreeting &&
         settings.codeExecution !== false &&
-        formatSkillResolution.requiresSkill &&
-        formatSkillResolution.format &&
-        formatSkillResolution.skillPrompt
+        (formatSkillResolution as any).requiresSkill &&
+        (formatSkillResolution as any).format &&
+        (formatSkillResolution as any).skillPrompt
       ) {
         formatSkillPrompt = `
-${formatSkillResolution.skillPrompt}
+${(formatSkillResolution as any).skillPrompt}
 
 ## Deliverable Generation Directive:
-When generating the requested ${formatSkillResolution.format.toUpperCase()} file:
+When generating the requested ${(formatSkillResolution as any).format.toUpperCase()} file:
 1. Provide a complete, standalone Python script inside a \`\`\`python code block.
-2. The script must save the completed file to "output${formatSkillResolution.expectedExtension || `.${formatSkillResolution.format}`}".
+2. The script must save the completed file to "output${(formatSkillResolution as any).expectedExtension || `.${(formatSkillResolution as any).format}`}".
 3. For scripts >100 lines, use clean modular functions rather than monolithic execution.
 4. Our sovereign sandbox will run this script, verify the file creation, and provide an interactive download card directly in chat.
 `.trim()
       }
 
-      systemPrompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${extendedThinkingProtocol}\n\n${artifactsProtocol}${formatSkillPrompt ? '\n\n' + formatSkillPrompt : ''}`.trim()
+      if (isGreeting) {
+        systemPrompt = 'You are AIRA, a helpful and polite AI assistant. Respond warmly and concisely in 1-2 short sentences. Do not introduce yourself unless asked.'
+      } else {
+        systemPrompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${extendedThinkingProtocol}${artifactsProtocol ? '\n\n' + artifactsProtocol : ''}${formatSkillPrompt ? '\n\n' + formatSkillPrompt : ''}`.trim()
+      }
 
       const controller = new AbortController()
       abortRef.current = controller

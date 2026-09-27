@@ -247,21 +247,6 @@ def run_ollama_stream_cot(
     total_tokens = 0
     think_step_count = 0
 
-    # Qwen3 think=False reasoning-leak gate
-    # When think=False, Qwen3 writes reasoning directly into `response` as plain text.
-    # We buffer the first 120 chars and check if it starts with a reasoning pattern.
-    # If so, we silently route all leaked reasoning to the hidden thinking block,
-    # then emit only the final clean answer.
-    _LEAK_STARTERS = (
-        "we are given", "step 1", "according to the", "according to strict",
-        "let me ", "the user is", "the context", "i need to", "okay, ",
-        "alright,", "first,", "so, ", "looking at", "analyzing",
-    )
-    _leak_gate_buf = ""       # Pre-classification accumulation buffer
-    _leak_gate_done = False   # Whether we've classified this stream (True = pass-through, False = suppress)
-    _leak_gate_is_leak = False  # Whether we detected a reasoning leak
-    _GATE_SIZE = 120          # Characters to accumulate before classifying
-
     OPEN_TAG = "<think>"
     CLOSE_TAG = "</think>"
     open_idx = 0
@@ -315,52 +300,6 @@ def run_ollama_stream_cot(
             if "context" in data and isinstance(data["context"], list):
                 ollama_context = data["context"]
 
-
-
-            # ── Qwen3 think=False reasoning-leak gate ────────────────────────
-            # When think=False, Qwen3 writes chain-of-thought directly into the
-            # `response` field as plain text. We buffer the first _GATE_SIZE chars,
-            # check if it looks like leaked reasoning, and if so route it to the
-            # hidden thinking block instead of the visible answer stream.
-            if chunk_text and not dedicated_thinking and not _leak_gate_done:
-                _leak_gate_buf += chunk_text
-                if len(_leak_gate_buf) >= _GATE_SIZE or done:
-                    _leak_gate_done = True
-                    sample = _leak_gate_buf.lstrip().lower()
-                    _leak_gate_is_leak = any(sample.startswith(p) for p in _LEAK_STARTERS)
-                    if _leak_gate_is_leak:
-                        yield "data: " + json.dumps({"type": "thinking_start", "message": "Reasoning..."}) + "\n\n"
-                        yield "data: " + json.dumps({"type": "think_step", "step_number": 1, "content": _leak_gate_buf.strip()}) + "\n\n"
-                        think_step_count += 1
-                        chunk_text = ""
-                        if done:
-                            yield "data: " + json.dumps({"type": "thinking_end", "total_steps": think_step_count}) + "\n\n"
-                            yield "data: " + json.dumps({"type": "chunk", "chunk": "Got it.", "done": False}) + "\n\n"
-                    else:
-                        answer_buf += _leak_gate_buf
-                        yield "data: " + json.dumps({"type": "chunk", "chunk": _leak_gate_buf, "done": False}) + "\n\n"
-                        chunk_text = ""
-                else:
-                    continue
-            elif chunk_text and not dedicated_thinking and _leak_gate_done and _leak_gate_is_leak:
-                nl2 = "\n\n"
-                if nl2 in chunk_text:
-                    parts = chunk_text.split(nl2, 1)
-                    if len(parts) == 2 and parts[1].strip():
-                        yield "data: " + json.dumps({"type": "thinking_end", "total_steps": think_step_count}) + "\n\n"
-                        _leak_gate_is_leak = False
-                        answer_buf += parts[1]
-                        yield "data: " + json.dumps({"type": "chunk", "chunk": parts[1], "done": False}) + "\n\n"
-                    else:
-                        think_step_count += 1
-                        yield "data: " + json.dumps({"type": "think_step", "step_number": think_step_count, "content": chunk_text.strip()}) + "\n\n"
-                else:
-                    think_step_count += 1
-                    yield "data: " + json.dumps({"type": "think_step", "step_number": think_step_count, "content": chunk_text.strip()}) + "\n\n"
-                if done and _leak_gate_is_leak:
-                    yield "data: " + json.dumps({"type": "thinking_end", "total_steps": think_step_count}) + "\n\n"
-                    yield "data: " + json.dumps({"type": "chunk", "chunk": "Got it.", "done": False}) + "\n\n"
-                continue
 
             # Handle dedicated thinking field if Ollama returns it directly
             if dedicated_thinking:

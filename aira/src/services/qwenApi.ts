@@ -221,9 +221,9 @@ export function classifyTaskIntensity(
   if (isGreeting) {
     return {
       intensity: 'light',
-      recommendedModel: 'qwen3:4b',
+      recommendedModel: 'qwen3:8b',
       taskType: 'fast',
-      reason: 'Fast synthesis, low-latency response & conversational agility',
+      reason: 'Fast local synthesis, low-latency response & conversational agility',
       isComplex: false,
     }
   }

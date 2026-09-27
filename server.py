@@ -121,10 +121,15 @@ class ClusterLoadBalancer:
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
         # 2. Explicit model requested by user
-        if not is_auto:
             if "vl" in model_req or "vision" in model_req:
+                if not custom_node_url and not has_images and "qwen2.5-vl:3b" not in local_models and "qwen3:8b" in local_models:
+                    return laptop1_endpoint, "qwen3:8b", "primary"
                 return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
             if "4b" in model_req:
+                if "qwen3:4b" not in local_models and not custom_node_url:
+                    # Remote Laptop 3 tunnel is offline; route to local primary node directly (no 150s hang)
+                    primary_model = "qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b")
+                    return laptop1_endpoint, primary_model, "primary"
                 target_4b = "qwen3:4b" if ("qwen3:4b" in local_models or not local_models) else ([m for m in local_models if "4b" in m.lower()][0] if any("4b" in m.lower() for m in local_models) else "qwen3:4b")
                 return laptop3_target_endpoint, target_4b, "laptop3"
             if "coder" in model_req:
@@ -672,28 +677,32 @@ async def root():
 # Reasoning effort mapper (query-adaptive & fast)
 # --------------------------------------------------------------------------------------
 
+# Truly trivial conversational greetings that do not warrant burning reasoning tokens
+TRIVIAL_GREETINGS = {
+    "hi", "hello", "hey", "hii", "hiii", "heyy", "test", "ping",
+    "thanks", "thank you", "thx", "ok", "okay", "bye", "good morning",
+    "good evening", "good afternoon", "who are you", "who r u",
+    "what is your name", "how are you", "sup", "yo"
+}
+
+
+def is_trivial_greeting(text: str) -> bool:
+    q = (text or "").strip().lower()
+    return q in TRIVIAL_GREETINGS or (len(q) <= 10 and any(q.startswith(g) for g in ["hi ", "hey ", "yo "]))
+
+
 def get_effort_config(effort: Optional[str] = None, user_query: str = "") -> Dict[str, Any]:
     """Map UI reasoning effort to inference parameters, thinking mode, and system guidance.
     Ensures adequate token budget and context window so deep deliberation never truncates the final response."""
     eff = (effort or "Fast").lower()
-    q = (user_query or "").strip().lower()
 
-    # Truly trivial conversational greetings that do not warrant burning reasoning tokens
-    TRIVIAL_GREETINGS = {
-        "hi", "hello", "hey", "hii", "hiii", "heyy", "test", "ping",
-        "thanks", "thank you", "thx", "ok", "okay", "bye", "good morning",
-        "good evening", "good afternoon", "who are you", "who r u",
-        "what is your name", "how are you", "sup", "yo"
-    }
-    is_greeting = q in TRIVIAL_GREETINGS or (len(q) <= 10 and any(q.startswith(g) for g in ["hi ", "hey ", "yo "]))
-
-    if is_greeting:
+    if is_trivial_greeting(user_query):
         return {
             "effort": "Fast",
-            "options": {"temperature": 0.3, "num_predict": 80, "num_ctx": 1024, "top_p": 0.8},
+            "options": {"temperature": 0.3, "num_predict": 128, "num_ctx": 1024, "top_p": 0.8},
             "think": False,
             "instruction": (
-                "Reply in 1 sentence. Do not explain, analyze, or introduce yourself. Just greet."
+                "Reply in 1 short sentence. Just greet warmly and politely."
             ),
         }
 
@@ -896,6 +905,56 @@ async def process_and_ask(
             except Exception as ocr_err:
                 print(f"--- OCR fallback warning: {ocr_err} ---")
     else:
+        # Fast path for trivial greetings: Zero RAG, zero thinking overhead, instant 1.2s response
+        if is_trivial_greeting(user_query):
+            available_local_models = llm.list_models()
+            target_model = "qwen3:8b" if "qwen3:8b" in available_local_models else (available_local_models[0] if available_local_models else "qwen3:8b")
+            greeting_system = "You are AIRA, a helpful and polite AI assistant. Respond warmly and concisely in 1-2 short sentences. Do not introduce yourself unless asked."
+            ollama_payload = {
+                "model": target_model,
+                "prompt": user_query,
+                "system": greeting_system,
+                "stream": stream,
+                "think": False,
+                "options": {"temperature": 0.3, "num_predict": 128, "num_ctx": 1024, "top_p": 0.8},
+                "keep_alive": -1,
+                "_effort": "Fast",
+                "_endpoint": MODEL_ENDPOINT,
+                "_display_model": target_model,
+            }
+            if stream:
+                cluster_balancer.acquire_slot("primary")
+                return StreamingResponse(
+                    stream_with_slot_cleanup(
+                        run_ollama_stream(
+                            ollama_payload,
+                            context="",
+                            sources=[],
+                            feature="process_and_ask",
+                            content_prefix="",
+                        ),
+                        "primary",
+                    ),
+                    media_type="text/event-stream"
+                )
+            else:
+                try:
+                    resp = requests.post(
+                        MODEL_ENDPOINT,
+                        json={k: v for k, v in ollama_payload.items() if not k.startswith("_")},
+                        timeout=30,
+                    )
+                    data = resp.json()
+                    ans = data.get("response", "Hey! How can I help you today?")
+                except Exception:
+                    ans = "Hey! How can I help you today?"
+                return ProcessAndAskResponse(
+                    answer=ans,
+                    sources=[],
+                    model=target_model,
+                    effort="Fast",
+                )
+
         eff_lower = (effort or "Fast").lower()
         is_fast = "fast" in eff_lower
         q_low = user_query.lower().strip()
@@ -1015,7 +1074,7 @@ async def process_and_ask(
         display_model = f"{target_model} (3-Model Synergy · Node 3 Ideation + Node 2 Layout + Node 1 Synthesis)"
     else:
         ppt_manifest_prefix = ""
-        if node_key == "primary" and not images_b64:
+        if node_key == "primary" and not images_b64 and not is_fast and not is_code:
             spec_plan = speculative_plan_decomposition(user_query, node_url)
             if spec_plan:
                 instruction = f"INTERNAL ARCHITECTURAL CONTEXT (DO NOT REPEAT TO USER OR MENTION NODE 2):\n{spec_plan}\n\n{instruction}"
@@ -1026,7 +1085,7 @@ async def process_and_ask(
 
     # ── Model Council Deliberation (Opt-in via search bar) ────────────────────
     council_result = None
-    if is_council_enabled:
+    if is_council_enabled and not is_fast:
         try:
             from council_engine import run_council_deliberation
             council_result = run_council_deliberation(
@@ -1044,7 +1103,8 @@ async def process_and_ask(
 
     # ── Autonomous Subagent Swarm Deliberation ───────────────────────────────
     subagents_meta = None
-    if is_subagents_enabled and not images_b64:
+    is_high_end_task = ("deep" in eff_lower or "max" in eff_lower or "analysis" in eff_lower) and not is_fast and not is_code
+    if is_subagents_enabled and not images_b64 and is_high_end_task:
         try:
             import subagent_engine as se
             subagent_tasks = se.decompose_query_to_subagents(
@@ -1209,6 +1269,58 @@ async def api_chat(payload_data: ChatPayload):
     eff = (payload_data.effort or "Fast").lower()
     is_fast_mode = "fast" in eff
     q_lower = question.lower().strip()
+
+    # Fast path for trivial greetings: Zero RAG, zero thinking overhead, instant 1.2s response
+    if is_trivial_greeting(question):
+        available_local_models = llm.list_models()
+        target_model = "qwen3:8b" if "qwen3:8b" in available_local_models else (available_local_models[0] if available_local_models else "qwen3:8b")
+        greeting_system = "You are AIRA, a helpful and polite AI assistant. Respond warmly and concisely in 1-2 short sentences. Do not introduce yourself unless asked."
+        ollama_payload = {
+            "model": target_model,
+            "prompt": question,
+            "system": greeting_system,
+            "stream": payload_data.stream,
+            "think": False,
+            "options": {"temperature": 0.3, "num_predict": 128, "num_ctx": 1024, "top_p": 0.8},
+            "keep_alive": -1,
+            "_effort": "Fast",
+            "_endpoint": MODEL_ENDPOINT,
+            "_display_model": target_model,
+            "_council": None,
+            "_subagents": None,
+        }
+        if payload_data.stream:
+            cluster_balancer.acquire_slot("primary")
+            return StreamingResponse(
+                stream_with_slot_cleanup(
+                    run_ollama_stream(
+                        ollama_payload,
+                        context="",
+                        sources=[],
+                        feature="chat",
+                        content_prefix="",
+                    ),
+                    "primary",
+                ),
+                media_type="text/event-stream"
+            )
+        else:
+            try:
+                resp = requests.post(
+                    MODEL_ENDPOINT,
+                    json={k: v for k, v in ollama_payload.items() if not k.startswith("_")},
+                    timeout=30,
+                )
+                data = resp.json()
+                ans = data.get("response", "Hey! How can I help you today?")
+            except Exception:
+                ans = "Hey! How can I help you today?"
+            return ChatResponse(
+                answer=ans,
+                sources=[],
+                model=target_model,
+                effort="Fast",
+            )
 
     is_plant_query = (
         bool(payload_data.equipment_tag) or
@@ -1392,7 +1504,7 @@ async def api_chat(payload_data: ChatPayload):
         display_model = f"{model} (3-Model Synergy · Node 3 Ideation + Node 2 Layout + Node 1 Synthesis)"
     else:
         ppt_manifest_prefix = ""
-        if node_key == "primary" and not payload_data.images:
+        if node_key == "primary" and not payload_data.images and not is_fast_mode and not is_code_or_debug:
             spec_plan = speculative_plan_decomposition(question, payload_data.node_url)
             if spec_plan:
                 system = f"INTERNAL ARCHITECTURAL CONTEXT (DO NOT REPEAT TO USER OR MENTION NODE 2):\n{spec_plan}\n\n{system}"
@@ -1403,7 +1515,7 @@ async def api_chat(payload_data: ChatPayload):
 
     # ── Model Council Deliberation (Opt-in via search bar) ────────────────────
     council_result = None
-    if payload_data.enable_council:
+    if payload_data.enable_council and not is_fast_mode:
         try:
             from council_engine import run_council_deliberation
             council_result = run_council_deliberation(
@@ -1419,9 +1531,10 @@ async def api_chat(payload_data: ChatPayload):
         except Exception as c_err:
             print(f"[api_chat] Model Council execution error: {c_err}")
 
-    # ── Autonomous Subagent Swarm Deliberation ───────────────────────────────
+    # ── Autonomous Subagent Swarm Deliberation (Classified only for High-End tasks) ──
     subagents_meta = None
-    if payload_data.enable_subagents and not payload_data.images:
+    is_high_end_task = ("deep" in eff or "max" in eff or "analysis" in eff) and not is_fast_mode and not is_code_or_debug
+    if payload_data.enable_subagents and not payload_data.images and is_high_end_task:
         try:
             import subagent_engine as se
             subagent_tasks = se.decompose_query_to_subagents(
