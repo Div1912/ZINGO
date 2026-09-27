@@ -123,10 +123,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       .replace(/^(\s*\d+\.\s*)[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+\s*/gmu, '$1')
       .replace(/^(#{1,6}\s*.*?)\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}-\u{2B55}\u{FE0E}\u{FE0F}]+$/gmu, '$1')
 
-    // 5. Strip raw <artifact ...>...</artifact> and <antArtifact ...> tags so raw XML doesn't flood markdown text
+    // 5. Strip raw <artifact ...> opening and </artifact> closing tags so raw XML syntax doesn't show in markdown,
+    // while keeping all the code, text, and engineering scripts inside completely intact and visible!
     clean = clean
-      .replace(/<(?:artifact|antArtifact)\b[^>]*>[\s\S]*?<\/(?:artifact|antArtifact)>/gi, '')
-      .replace(/<(?:artifact|antArtifact)\b[\s\S]*$/gi, '')
+      .replace(/<(?:artifact|antArtifact)\b[^>]*>/gi, '')
+      .replace(/<\/(?:artifact|antArtifact)>/gi, '')
+      .replace(/<(?:artifact|antArtifact)\b[^>]*$/gi, '')
 
     return {
       sanitizedContent: clean.trim(),
@@ -510,17 +512,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       const codeIndex = Math.random()
                       const blockKey = `${message.id}_${codeText.slice(0, 32)}`
 
-                      // Claude style: If this code block was captured as an interactive Artifact,
-                      // suppress rendering the raw code block so the chat message stays clean and concise.
-                      const isArtifactCode = matchedArtifacts.some(
-                        (a) =>
-                          a.content.trim() === codeText.trim() ||
-                          a.versions?.some((v) => v.content.trim() === codeText.trim())
-                      )
-                      if (isArtifactCode) {
-                        return null
-                      }
-
                       // Claude/Gemini style: Suppress raw JSON manifest dump; presentation banner renders below
                       if (
                         (lang === 'json' || (className && className.includes('json'))) &&
@@ -826,7 +817,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 {finalContent}
               </Markdown>
             ) : (
-              hasAnyThinking && (message.isThinkingPhase || !isThinkingComplete) ? (
+              message.isStreaming ? (
+                <div className="flex items-center gap-2 text-content-tertiary text-xs font-mono py-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+                  <span>Generating response...</span>
+                </div>
+              ) : hasAnyThinking && (message.isThinkingPhase || !isThinkingComplete) ? (
                 <div className="flex items-center gap-2 text-content-tertiary text-xs font-mono py-1">
                   <span className="inline-block w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
                   <span>Composing answer...</span>
