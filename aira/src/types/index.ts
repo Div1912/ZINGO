@@ -75,6 +75,21 @@ export interface Message {
   deliverables?: import('./deliverable').DeliverableFile[]
   // Subagent Swarm additions
   subagents?: SubagentExecution[]
+  // Agentic Working / Tool Telemetry additions
+  activeTool?: AgentToolActivity
+  completedTools?: CompletedTool[]
+}
+
+export interface AgentToolActivity {
+  tool: string
+  action: string
+  status: 'running' | 'done'
+}
+
+export interface CompletedTool {
+  tool: string
+  summary: string
+  durationMs?: number
 }
 
 export interface SubagentExecution {

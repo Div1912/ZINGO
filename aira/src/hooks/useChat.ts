@@ -431,6 +431,8 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
             }
           : undefined
         let subagentsMeta: import('../types').SubagentExecution[] | undefined = undefined
+        let activeTool: import('../types').AgentToolActivity | undefined = undefined
+        let completedTools: import('../types').CompletedTool[] = []
 
         const flush = (isStillStreaming: boolean = true) => {
           updateLastAssistantMessage(sendToChatId, {
@@ -445,6 +447,8 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
             sources,
             councilMeta,
             subagents: subagentsMeta,
+            activeTool,
+            completedTools: [...completedTools],
             isStreaming: isStillStreaming,
             tokensUsed: evalCount || Math.max(1, Math.floor(answerContent.length / 4)),
             latencyMs: thinkElapsedMs,
@@ -495,6 +499,30 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
 
               case 'subagents_meta':
                 if (evt.subagents && Array.isArray(evt.subagents)) subagentsMeta = evt.subagents
+                flush()
+                break
+
+              case 'tool_activity':
+                activeTool = {
+                  tool: evt.tool || 'agent_tool',
+                  action: evt.action || 'Executing background action...',
+                  status: evt.status || 'running',
+                }
+                flush()
+                break
+
+              case 'tool_done':
+                if (activeTool && activeTool.tool === evt.tool) {
+                  activeTool = undefined
+                }
+                completedTools = [
+                  ...completedTools,
+                  {
+                    tool: evt.tool || 'agent_tool',
+                    summary: evt.summary || evt.action || 'Completed action',
+                    durationMs: evt.duration_ms,
+                  },
+                ]
                 flush()
                 break
 
@@ -564,6 +592,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
                 evalCount = evt.eval_count ?? evalCount
                 if (evt.model) resolvedModelUsed = evt.model
                 isThinkingPhase = false
+                activeTool = undefined
                 if (rawThinking.trim()) {
                   thinkSteps = [
                     ...thinkSteps,

@@ -28,6 +28,7 @@ import {
 import type { Message } from '../../types'
 import { ModelBadge, formatModelDisplayName } from './ModelBadge'
 import { ThinkingBlock } from './ThinkingBlock'
+import { AgentActivityStepper } from './AgentActivityStepper'
 import { SubagentPanel } from './SubagentPanel'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
@@ -644,6 +645,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   isInterrupted={Boolean(message.isThinkingInterrupted)}
                 />
               </div>
+            )}
+
+            {/* Autonomous Agent Activity Telemetry ('Working...' & Completed Tool Actions) */}
+            {(message.activeTool || (message.completedTools && message.completedTools.length > 0)) && (
+              <AgentActivityStepper
+                activeTool={message.activeTool}
+                completedTools={message.completedTools}
+                isStreaming={Boolean(message.isStreaming)}
+              />
             )}
 
             {/* Autonomous Subagent Swarm Panel */}

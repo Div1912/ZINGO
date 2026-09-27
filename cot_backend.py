@@ -98,6 +98,7 @@ def run_ollama_stream_cot(
     log_ollama_call=None,
     on_done_context=None,
     content_prefix: str = "",
+    tools_executed: Optional[List[Dict[str, Any]]] = None,
 ) -> Generator[str, None, None]:
 
     """
@@ -140,6 +141,15 @@ def run_ollama_stream_cot(
         "subagents": subagents_data,
     }
     yield f"data: {json.dumps(meta_payload)}\n\n"
+
+    # ── Tool execution telemetry events (Agent Working Phase) ───────────────
+    tools = tools_executed or payload.get("_tools_executed") or []
+    for t in tools:
+        t_name = t.get("tool", "agent_tool")
+        t_action = t.get("action", "Executing action")
+        t_dur = t.get("duration_ms", 0)
+        yield f"data: {json.dumps({'type': 'tool_activity', 'tool': t_name, 'action': t_action, 'status': 'running'})}\n\n"
+        yield f"data: {json.dumps({'type': 'tool_done', 'tool': t_name, 'summary': t_action, 'duration_ms': t_dur})}\n\n"
 
     if council_client_meta:
         yield f"data: {json.dumps({'type': 'council_meta', 'council': council_client_meta})}\n\n"
