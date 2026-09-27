@@ -70,7 +70,7 @@ def _call_node_sync(
         "system": system,
         "stream": False,
         "think": False,
-        "options": {"num_predict": num_predict, "temperature": 0.2},
+        "options": {"num_predict": num_predict, "num_ctx": 4096, "temperature": 0.2},
         "keep_alive": -1,
     }
     headers = {"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoPPTEngine/3.0"}
@@ -338,39 +338,41 @@ def extract_clean_topic(query: str) -> str:
 
 def parse_structured_research(text: str, clean_topic: str) -> Dict[str, Any]:
     """Parse Model 1 structured research output into rich domain presentation data."""
-    title_match = re.search(r"TITLE:\s*(.+)", text, re.IGNORECASE)
-    sub_match = re.search(r"SUBTITLE:\s*(.+)", text, re.IGNORECASE)
+    # Clean markdown asterisks and backticks for robust parsing
+    clean_text = re.sub(r"[\*`]", "", text).strip()
+    title_match = re.search(r"TITLE:\s*(.+)", clean_text, re.IGNORECASE)
+    sub_match = re.search(r"SUBTITLE:\s*(.+)", clean_text, re.IGNORECASE)
 
     raw_title = title_match.group(1).strip() if title_match else ""
     if raw_title and not is_presentation_intent(raw_title) and len(raw_title) >= 3:
-        title = raw_title
+        title = raw_title.strip(" :.-_")
     else:
         title = clean_topic
 
-    subtitle = sub_match.group(1).strip() if sub_match else "Executive Strategic Briefing"
+    subtitle = sub_match.group(1).strip(" :.-_") if sub_match else "Executive Strategic Briefing"
 
     kpis = []
-    for line in re.findall(r"-\s*Stat:\s*([^|]+)\|\s*Title:\s*([^|]+)\|\s*Desc:\s*(.+)", text, re.IGNORECASE):
+    for line in re.findall(r"-\s*Stat:\s*([^|]+)\|\s*Title:\s*([^|]+)\|\s*Desc:\s*(.+)", clean_text, re.IGNORECASE):
         kpis.append({"stat": line[0].strip(), "title": line[1].strip(), "description": line[2].strip()})
 
     pillars = []
-    for line in re.findall(r"-\s*Title:\s*([^|]+)\|\s*Desc:\s*(.+)", text, re.IGNORECASE):
+    for line in re.findall(r"-\s*Title:\s*([^|]+)\|\s*Desc:\s*(.+)", clean_text, re.IGNORECASE):
         pillars.append({"title": line[0].strip(), "description": line[1].strip()})
     filtered_pillars = [p for p in pillars if not any(k["title"] == p["title"] for k in kpis)][:3]
 
     roadmap = []
-    for line in re.findall(r"-\s*Phase:\s*([^|]+)\|\s*Desc:\s*(.+)", text, re.IGNORECASE):
+    for line in re.findall(r"-\s*Phase:\s*([^|]+)\|\s*Desc:\s*(.+)", clean_text, re.IGNORECASE):
         roadmap.append({"title": line[0].strip(), "description": line[1].strip()})
 
     recs = []
-    rec_block = re.search(r"RECOMMENDATIONS:(.*?)(?:TAKEAWAY:|$)", text, re.IGNORECASE | re.DOTALL)
+    rec_block = re.search(r"RECOMMENDATIONS:(.*?)(?:TAKEAWAY:|$)", clean_text, re.IGNORECASE | re.DOTALL)
     if rec_block:
         for r in rec_block.group(1).strip().split("\n"):
             cleaned = re.sub(r"^[-\d.*]+\s*", "", r).strip()
             if cleaned and len(cleaned) > 5:
                 recs.append(cleaned)
 
-    takeaway_match = re.search(r"TAKEAWAY:\s*(.+)", text, re.IGNORECASE)
+    takeaway_match = re.search(r"TAKEAWAY:\s*(.+)", clean_text, re.IGNORECASE)
     takeaway = takeaway_match.group(1).strip() if takeaway_match else f"Strategic execution on {clean_topic} delivers measurable enterprise value."
 
     return {
@@ -521,6 +523,32 @@ def build_rich_domain_research(clean_topic: str) -> Dict[str, Any]:
             ],
             "takeaway": f"Disciplined financial execution on {clean_topic} delivers compounding returns and sustained competitive resilience.",
         }
+    elif any(k in t_lower for k in ("transport", "transit", "mobility", "traffic", "vehicle", "rail", "fleet", "metro")):
+        return {
+            "title": f"{clean_topic}: Next-Gen Intelligent Mobility Architecture",
+            "subtitle": "Multimodal Integration, AI Dispatch & Decarbonized Transit",
+            "kpis": [
+                {"stat": "65%", "title": "Commuter Satisfaction", "description": "Benchmark rider approval achieved via real-time arrival telemetry and unified contactless ticketing"},
+                {"stat": "30%", "title": "Energy Consumption Reduction", "description": "Traction power and fuel optimization through predictive speed profiles and fleet electrification"},
+                {"stat": "40%", "title": "Commute Time Compression", "description": "Average reduction in transit latency achieved via dynamic route optimization and bus rapid transit"},
+            ],
+            "pillars": [
+                {"title": "Unified Multimodal Telemetry", "description": "Real-time data aggregation across metro, electric buses, and micro-mobility hubs for seamless ticketing"},
+                {"title": "AI Route & Dispatch Optimization", "description": "Predictive neural networks forecasting commuter congestion and dynamically rescheduling high-frequency routes"},
+                {"title": "Fleet Electrification & Smart Depots", "description": "Depot charging orchestration and regenerative braking integration across municipal transit corridors"},
+            ],
+            "roadmap": [
+                {"title": "Phase 1: Sensor & Dispatch Integration", "description": "Deploy GPS automated vehicle location (AVL) and contactless open-loop payment gateways"},
+                {"title": "Phase 2: Predictive Traffic Prioritization", "description": "Synchronize transit signal priority (TSP) with traffic light algorithms across congested arteries"},
+                {"title": "Phase 3: Autonomous Multimodal Ecosystems", "description": "Scale autonomous feeder shuttles and integrated Mobility-as-a-Service (MaaS) platforms"},
+            ],
+            "recommendations": [
+                "Deploy transit signal priority (TSP) algorithms at critical arterial intersections",
+                "Integrate multimodal open-loop payment platforms supporting contactless mobile cards",
+                "Establish automated predictive maintenance telemetry across electric transit fleets",
+            ],
+            "takeaway": f"Deploying {clean_topic} reduces urban congestion, compresses commuter travel times, and accelerates municipal decarbonization.",
+        }
     else:
         return {
             "title": f"{clean_topic}: Strategic Executive Overview",
@@ -591,7 +619,7 @@ TAKEAWAY: <1 high-impact summary sentence>"""
     )
 
     # First attempt: Call Primary Local Node (Qwen3-8B) with think=False for speed & factual depth
-    raw = _call_node_sync(primary_url, primary_model, prompt, system, num_predict=350, timeout=(2.0, 6.0))
+    raw = _call_node_sync(primary_url, primary_model, prompt, system, num_predict=350, timeout=(2.0, 32.0))
 
     researched = None
     if raw:
