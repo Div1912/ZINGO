@@ -94,9 +94,20 @@ class _FallbackCollection:
     def count(self) -> int:
         return len(self._rows)
 
-    @staticmethod
-    def _tokens(text: str) -> set:
-        return {t for t in "".join(c.lower() if c.isalnum() else " " for c in text).split() if len(t) > 2}
+    STOPWORDS = {
+        "the", "and", "for", "are", "was", "with", "this", "that", "from",
+        "have", "has", "had", "can", "will", "what", "when", "where", "which",
+        "who", "why", "how", "all", "any", "both", "each", "few", "more",
+        "most", "other", "some", "such", "than", "too", "very", "about",
+        "into", "through", "during", "before", "after", "above", "below",
+        "check", "show", "tell", "give", "please", "help", "here", "there"
+    }
+
+    @classmethod
+    def _tokens(cls, text: str) -> set:
+        raw = [t for t in "".join(c.lower() if c.isalnum() else " " for c in text).split() if len(t) > 2]
+        meaningful = {t for t in raw if t not in cls.STOPWORDS}
+        return meaningful or set(raw)
 
     def query(self, query_texts, n_results: int = 5, where: Optional[dict] = None, **_kw):
         ids, docs, metas, dists = [], [], [], []

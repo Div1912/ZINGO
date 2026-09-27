@@ -290,7 +290,6 @@ export const useProjectStore = create<ProjectStore>()(
             virtualProjects: updatedVirtual,
             projects: updatedProjects,
             activeVirtualProjectId: vproj.id,
-            activeProjectId: vproj.id,
           }
         })
         return vproj.id

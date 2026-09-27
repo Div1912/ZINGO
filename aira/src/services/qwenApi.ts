@@ -19,7 +19,9 @@ export function detectTaskType(content: string): TaskType {
 
   const codeKeywords = [
     'code', 'script', 'python', 'bash', 'function', 'def ', 'import ', 'sql',
-    'algorithm', 'regex', 'curl', 'api', 'calculator', 'formula', 'yield'
+    'algorithm', 'regex', 'curl', 'api', 'calculator', 'formula', 'yield',
+    'error', 'debug', 'fix', 'traceback', 'exception', 'syntax', 'compile',
+    'bug', 'issue', 'fail', 'patch', 'correct', 'broken', 'stack trace'
   ]
   const documentKeywords = [
     'sop', 'oisd', 'permit', 'manual', 'procedure', 'cdu', 'vdu', 'valve',
@@ -148,11 +150,11 @@ export function classifyTaskIntensity(
     }
   }
 
-  // 2. Code implementation & debugging
+  // 2. Code implementation & debugging -> Always Master Node (Qwen3-8B)
   if (detectedTask === 'code') {
     return {
       intensity: 'code',
-      recommendedModel: 'qwen2.5-coder:7b',
+      recommendedModel: 'qwen3:8b',
       taskType: 'code',
       reason: 'Programming syntax, script generation & code debugging',
       isComplex: true,
@@ -206,19 +208,17 @@ export function classifyTaskIntensity(
     }
   }
 
-  // 6. Fast / Lightweight queries -> Route to Qwen3-4B to save time and give ultra-fast sub-second answers!
-  // Simple greetings, casual chit-chat, quick factual questions, short summaries, or simple definitions
+  // 6. Fast / Lightweight queries -> Route to Qwen3-4B only for explicit greetings or when user chose Fast mode
   const simpleGreetings = [
     'hi', 'hii', 'hiii', 'hello', 'hey', 'heyy', 'who are you', 'who r u',
     'what is your name', 'how are you', 'good morning', 'good evening',
     'good afternoon', 'what can you do', 'test', 'ping', 'thanks', 'thank you',
-    'ok', 'okay', 'bye', 'good night', 'help', 'sup'
+    'bye', 'good night', 'sup'
   ]
 
-  const isGreeting = simpleGreetings.includes(text) || (text.length <= 15 && !/[0-9]/.test(text))
-  const isShortLookup = text.length <= 70 && !matchesHeavy && !hasFormulasOrMath
+  const isGreeting = simpleGreetings.includes(text)
 
-  if (isGreeting || isShortLookup || eff.includes('fast')) {
+  if (isGreeting) {
     return {
       intensity: 'light',
       recommendedModel: 'qwen3:4b',
@@ -228,7 +228,7 @@ export function classifyTaskIntensity(
     }
   }
 
-  // 7. Moderate queries: Default to Master Node (Qwen3-8B) for high-quality standard responses
+  // 7. Standard queries: Default to Master Node (Qwen3-8B) for high-quality engineering responses
   return {
     intensity: 'moderate',
     recommendedModel: 'qwen3:8b',

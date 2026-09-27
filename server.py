@@ -150,8 +150,8 @@ class ClusterLoadBalancer:
         if normalized_task in ("fast", "lightweight", "quick"):
             return laptop3_target_endpoint, "qwen3:4b", "laptop3"
 
-        # Deep document synthesis, presentations & engineering analysis -> Prefer Laptop 1 (Qwen3-8B)
-        if normalized_task in ("document", "analysis", "presentation", "ppt"):
+        # Deep document synthesis, presentations, code & engineering analysis -> Prefer Laptop 1 (Qwen3-8B)
+        if normalized_task in ("document", "analysis", "presentation", "ppt", "code"):
             if "qwen3:8b" in local_models:
                 return laptop1_endpoint, "qwen3:8b", "primary"
             elif "qwen3:4b" in local_models:
@@ -794,7 +794,7 @@ def retrieve_context(question: str, top_k: int = 5,
         hits = preferred + [h for h in hits if h not in preferred]
 
     # Filter out weak unrelated matches so general questions don't get false citations or prompt bloat
-    hits = [h for h in hits if h.get("similarity") is None or h.get("similarity", 0) >= 0.35]
+    hits = [h for h in hits if h.get("similarity") is not None and h.get("similarity", 0) >= 0.50]
 
     blocks, sources, doc_ids = [], [], []
     for i, hit in enumerate(hits[:top_k], start=1):
@@ -815,9 +815,8 @@ def retrieve_context(question: str, top_k: int = 5,
             doc_ids.append(doc_id)
 
     similarities = [s["relevanceScore"] for s in sources if isinstance(s["relevanceScore"], (int, float))]
-    coverage = min(1.0, len(sources) / max(top_k, 1))
     quality = (sum(similarities) / len(similarities)) if similarities else 0.0
-    confidence = round(0.4 * coverage + 0.6 * quality, 3) if sources else 0.0
+    confidence = round(quality, 3) if sources else 0.0
 
     return {"context": "\n\n".join(blocks), "sources": sources,
             "doc_ids": sorted(set(doc_ids)), "confidence": confidence,
@@ -923,9 +922,10 @@ async def process_and_ask(
         is_fast = "fast" in eff_lower
         q_low = user_query.lower().strip()
         is_plant = any(k in q_low for k in PLANT_KEYWORDS)
+        is_code = any(k in q_low for k in ["error", "bug", "fix", "debug", "traceback", "exception", "compile", "syntax", "python", "script", "code"])
 
-        # In Fast mode, only run RAG if query is specifically plant-related to avoid 2-3s delay and prompt bloat
-        if not is_fast or is_plant:
+        # Never run RAG on code or debugging follow-ups; only run if explicitly plant/SOP-related
+        if not is_code and (is_plant or any(k in q_low for k in ["sop", "manual", "document", "oisd", "permit", "standard"])):
             rag_query = user_query
             if chat_history and len(user_query.strip().split()) <= 4:
                 prev_user_queries = [m["content"] for m in chat_history if m["role"] == "user" and m["content"] != user_query]
@@ -934,7 +934,7 @@ async def process_and_ask(
 
             try:
                 retrieval = retrieve_context(rag_query, top_k=5)
-                if retrieval.get("context") and retrieval.get("confidence", 0) >= 0.25:
+                if retrieval.get("context") and retrieval.get("confidence", 0) >= 0.50:
                     context = "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
                     sources = retrieval.get("sources", [])
                     print(f"--- RAG retrieved {len(sources)} chunks from ChromaDB for query: {rag_query[:60]!r} ---")
@@ -1234,13 +1234,21 @@ async def api_chat(payload_data: ChatPayload):
 
     is_plant_query = (
         bool(payload_data.equipment_tag) or
-        any(k in q_lower for k in PLANT_KEYWORDS) or
-        bool(payload_data.context)
+        any(k in q_lower for k in PLANT_KEYWORDS)
+    )
+    is_code_or_debug = (
+        (payload_data.task_type or "").lower() == "code" or
+        any(k in q_lower for k in ["error", "bug", "fix", "debug", "traceback", "exception", "compile", "syntax", "python", "script", "code"])
     )
 
     retrieval = {"context": "", "sources": [], "doc_ids": [], "confidence": 0.0, "chunks_retrieved": 0}
-    # In Fast mode, only run RAG if query is specifically plant-related to eliminate 2-3s delay and prompt bloat
-    should_run_rag = payload_data.use_rag and question and (not is_fast_mode or is_plant_query)
+    # Never run RAG on code or debugging follow-ups; only run if explicitly plant/SOP-related
+    should_run_rag = (
+        payload_data.use_rag
+        and question
+        and not is_code_or_debug
+        and (is_plant_query or any(k in q_lower for k in ["sop", "manual", "document", "oisd", "permit", "standard"]))
+    )
     if should_run_rag:
         try:
             retrieval = retrieve_context(question, payload_data.top_k, payload_data.equipment_tag)
@@ -1248,7 +1256,7 @@ async def api_chat(payload_data: ChatPayload):
             print(f"[chat] retrieval failed: {exc}")
 
     context = payload_data.context or ""
-    if retrieval["context"] and retrieval.get("confidence", 0) >= 0.25:
+    if retrieval["context"] and retrieval.get("confidence", 0) >= 0.50:
         context = (context + "\n\n" if context else "") + \
             "RETRIEVED FROM ORGANISATION DOCUMENT INDEX:\n" + retrieval["context"]
 
