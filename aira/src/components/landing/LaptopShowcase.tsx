@@ -540,43 +540,66 @@ export const LaptopShowcase: React.FC = () => {
         </div>
 
         {/* ------------------------------------------------------------------ */}
-        {/* COLUMN 2: CENTERPIECE MACBOOK LAPTOP MOCKUP                        */}
+        {/* COLUMN 2: CENTERPIECE APPLE MACBOOK PRO MOCKUP                     */}
         {/* ------------------------------------------------------------------ */}
         <div
           ref={laptopScreenRef}
-          className="flex-1 max-w-[580px] xl:max-w-[620px] mx-1 z-20 flex flex-col items-center"
+          className="flex-1 max-w-[620px] xl:max-w-[660px] mx-1.5 z-20 flex flex-col items-center"
         >
-          {/* Laptop Screen Top Lid */}
-          <div className="w-full bg-[#0d1017] rounded-t-[18px] p-2.5 xl:p-3 border border-slate-700/60 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.4)] relative">
-            {/* Subtle Screen Glass Sheen */}
-            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent rounded-t-[18px] pointer-events-none" />
+          {/* MacBook Pro Display Clamshell Assembly */}
+          <div className="w-full bg-[#161820] dark:bg-[#11131a] rounded-t-[24px] p-2 xl:p-2.5 border-[1.5px] border-[#383d4c] dark:border-[#282d3b] ring-1 ring-black/70 shadow-[0_30px_70px_-15px_rgba(0,0,0,0.5)] relative overflow-hidden">
+            {/* CNC Machined Outer Bevel Highlight */}
+            <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent pointer-events-none" />
 
-            {/* Top Webcam Dot */}
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-700 mx-auto mb-2 ring-1 ring-slate-800 flex items-center justify-center">
-              <div className="w-0.5 h-0.5 rounded-full bg-sky-950" />
-            </div>
+            {/* Subtle Apple Anti-Reflective Glass Reflection Sheen */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent rounded-t-[22px] pointer-events-none z-30" />
 
-            {/* Inner Screen Display (AIRA App Workbench) */}
-            <div className="w-full bg-white dark:bg-[#0c0e15] rounded-[6px] border border-slate-200/60 dark:border-slate-800/80 overflow-hidden text-left flex flex-col shadow-inner min-h-[300px] xl:min-h-[315px]">
-              {/* App Bar */}
-              <div className="h-8 border-b border-slate-100 dark:border-slate-800/80 px-3 flex items-center justify-between bg-slate-50/70 dark:bg-[#0f121a]/70">
-                <div className="flex items-center gap-1.5">
-                  <svg
-                    className="w-3.5 h-3.5 text-slate-800 dark:text-slate-200"
-                    viewBox="0 0 100 100"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="10"
-                  >
-                    <polygon points="50,6 90,29 90,75 50,98 10,75 10,29" />
-                  </svg>
-                  <span className="font-bold text-[11px] tracking-tight text-slate-800 dark:text-slate-200">
-                    AIRA
-                  </span>
+            {/* Inner Screen Display (Apple Liquid Retina XDR + AIRA App Workbench) */}
+            <div className="w-full bg-white dark:bg-[#0c0e15] rounded-t-[14px] rounded-b-[4px] border border-slate-200/60 dark:border-slate-800/80 overflow-hidden text-left flex flex-col shadow-inner min-h-[315px] xl:min-h-[330px] relative">
+              {/* macOS Window Title Bar + Iconic MacBook Pro Camera Notch */}
+              <div className="h-8 border-b border-slate-100 dark:border-slate-800/80 px-3 flex items-center justify-between bg-slate-50/90 dark:bg-[#0e1119]/90 relative z-20">
+                {/* macOS Traffic Light Buttons + AIRA Wordmark */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f56] border border-[#e0443e]/60 shadow-2xs" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e] border border-[#dea123]/60 shadow-2xs" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#27c93f] border border-[#1aab29]/60 shadow-2xs" />
+                  </div>
+                  <div className="h-3 w-[1px] bg-slate-200 dark:bg-slate-700 hidden sm:block" />
+                  <div className="flex items-center gap-1.5">
+                    <svg
+                      className="w-3.5 h-3.5 text-slate-800 dark:text-slate-200"
+                      viewBox="0 0 100 100"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="10"
+                    >
+                      <polygon points="50,6 90,29 90,75 50,98 10,75 10,29" />
+                    </svg>
+                    <span className="font-bold text-[11px] tracking-tight text-slate-800 dark:text-slate-200">
+                      AIRA
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[9px] font-mono text-slate-400">MRPL SOVEREIGN</span>
+
+                {/* The Iconic MacBook Pro Notch */}
+                <div className="absolute left-1/2 -translate-x-1/2 top-0 w-24 h-4 bg-[#0a0a0f] rounded-b-[7px] flex items-center justify-center gap-2 shadow-xs">
+                  {/* FaceTime HD Camera Lens */}
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#1b1f2e] ring-[0.5px] ring-slate-600 flex items-center justify-center">
+                    <div className="w-0.5 h-0.5 rounded-full bg-cyan-400" />
+                  </div>
+                  {/* Camera Active Green Indicator LED */}
+                  <div className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_4px_rgba(52,211,153,0.8)]" />
+                </div>
+
+                {/* macOS Right Status Icons + MRPL Badge */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[8.5px] font-mono font-medium text-emerald-700 dark:text-emerald-300">
+                      SOVEREIGN
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -586,9 +609,12 @@ export const LaptopShowcase: React.FC = () => {
                 <div className="w-28 xl:w-32 border-r border-slate-100 dark:border-slate-800/80 p-2 bg-slate-50/40 dark:bg-[#0f121a]/40 flex flex-col justify-between shrink-0">
                   <div className="space-y-1">
                     {/* + New Task Button */}
-                    <div className="w-full py-1 px-2 rounded-md bg-slate-900 dark:bg-slate-800 text-white flex items-center gap-1.5 text-[10px] font-medium shadow-xs mb-2 cursor-default">
-                      <span className="text-xs leading-none">+</span>
-                      <span>New Task</span>
+                    <div className="w-full py-1.5 px-2 rounded-md bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white flex items-center justify-between text-[10px] font-medium shadow-xs mb-2 cursor-default">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs leading-none font-bold">+</span>
+                        <span>New Task</span>
+                      </div>
+                      <span className="text-[8px] font-mono opacity-50 px-1 py-0.2 rounded bg-white/15">⌘K</span>
                     </div>
 
                     {/* Nav List */}
@@ -603,7 +629,7 @@ export const LaptopShowcase: React.FC = () => {
                       return (
                         <div
                           key={idx}
-                          className="flex items-center gap-1.5 px-2 py-1 rounded text-[9.5px] text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 cursor-default"
+                          className="flex items-center gap-1.5 px-2 py-1 rounded text-[9.5px] text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 cursor-default transition-colors"
                         >
                           <NavIcon size={11} className="text-slate-400" />
                           <span>{nav.label}</span>
@@ -674,14 +700,21 @@ export const LaptopShowcase: React.FC = () => {
             </div>
           </div>
 
-          {/* Aluminum Laptop Base & Notch */}
-          <div className="w-[103%] -mt-0.5 h-3.5 bg-gradient-to-b from-[#e2e8f0] via-[#cbd5e1] to-[#94a3b8] dark:from-[#2a303c] dark:via-[#1e232d] dark:to-[#12161f] rounded-b-xl border-t border-slate-300 dark:border-slate-700 shadow-md relative z-10">
-            {/* Center Opening Notch */}
-            <div className="w-14 h-1 bg-slate-400 dark:bg-slate-600 rounded-b-sm mx-auto" />
+          {/* MacBook Pro Display Hinge Clutch Barrel */}
+          <div className="w-[96%] h-1.5 bg-gradient-to-r from-[#12141a] via-[#242834] to-[#12141a] border-t border-black/70 rounded-t-[1px]" />
+
+          {/* MacBook Pro Lower Aluminum Unibody Chassis Deck */}
+          <div className="w-[104%] h-4 bg-gradient-to-b from-[#e3e7ef] via-[#cbd2de] to-[#9aa3b4] dark:from-[#353b49] dark:via-[#222631] dark:to-[#161820] rounded-b-[14px] border-t border-white/60 dark:border-white/15 shadow-md relative z-10 flex items-start justify-center">
+            {/* Precision CNC-Machined Thumb Opening Notch */}
+            <div className="w-20 sm:w-24 h-1.5 bg-[#848c9c] dark:bg-[#0c0e14] rounded-b-[6px] shadow-inner mx-auto" />
+
+            {/* Subtle Rubber Non-Slip Feet (Corners) */}
+            <div className="absolute left-4 bottom-0 w-6 h-[2px] bg-black/40 rounded-full" />
+            <div className="absolute right-4 bottom-0 w-6 h-[2px] bg-black/40 rounded-full" />
           </div>
 
-          {/* Realistic Ambient Ground Shadow */}
-          <div className="w-[90%] h-4 bg-slate-900/20 dark:bg-black/50 blur-lg rounded-full -mt-2 pointer-events-none" />
+          {/* Multi-Layered Photorealistic MacBook Ambient Ground Shadow */}
+          <div className="w-[94%] h-5 bg-slate-900/25 dark:bg-black/60 blur-xl rounded-full -mt-2.5 pointer-events-none" />
         </div>
 
         {/* ------------------------------------------------------------------ */}
@@ -740,32 +773,49 @@ export const LaptopShowcase: React.FC = () => {
       {/* MOBILE / TABLET RESPONSIVE FALLBACK (< 1024px)                       */}
       {/* ==================================================================== */}
       <div className="lg:hidden flex flex-col items-center space-y-6">
-        {/* Mobile Central Laptop View */}
+        {/* Mobile Central MacBook Pro View */}
         <div className="w-full max-w-[500px]">
-          <div className="w-full bg-[#0d1017] rounded-t-[16px] p-2 border border-slate-700/60 shadow-xl">
-            <div className="w-1.5 h-1.5 rounded-full bg-slate-700 mx-auto mb-1.5" />
-            <div className="w-full bg-white dark:bg-[#0c0e15] rounded-[5px] p-3 text-left">
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-2">
-                <span className="font-bold text-xs">AIRA Sovereign Workbench</span>
-                <span className="text-[9px] font-mono text-emerald-500">MRPL LOCAL</span>
+          <div className="w-full bg-[#161820] dark:bg-[#11131a] rounded-t-[20px] p-2 border-[1.5px] border-[#383d4c] dark:border-[#282d3b] shadow-xl relative overflow-hidden">
+            {/* Gloss sheen */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent rounded-t-[18px] pointer-events-none" />
+
+            <div className="w-full bg-white dark:bg-[#0c0e15] rounded-t-[12px] rounded-b-[4px] border border-slate-200/60 dark:border-slate-800/80 p-2.5 text-left relative">
+              {/* Traffic lights + Notch */}
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-2 relative">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-[#ff5f56]" />
+                  <div className="w-2 h-2 rounded-full bg-[#ffbd2e]" />
+                  <div className="w-2 h-2 rounded-full bg-[#27c93f]" />
+                  <span className="font-bold text-[11px] ml-1.5">AIRA</span>
+                </div>
+                {/* Mobile Camera Notch */}
+                <div className="absolute left-1/2 -translate-x-1/2 top-0 w-16 h-3 bg-black rounded-b-md flex items-center justify-center gap-1.5">
+                  <div className="w-1 h-1 rounded-full bg-cyan-400" />
+                  <div className="w-0.5 h-0.5 rounded-full bg-emerald-400" />
+                </div>
+                <span className="text-[9px] font-mono text-emerald-500 font-medium">SOVEREIGN</span>
               </div>
-              <div className="rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1 text-xs text-slate-400 mb-3 flex items-center justify-between">
-                <span>Ask AIRA or give a task...</span>
+              <div className="rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1 text-xs text-slate-400 mb-2.5 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">
+                <span className="truncate">Ask AIRA or give a task...</span>
                 <ArrowRight size={12} />
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 {WORKBENCH_ACTIONS.map((action, i) => (
                   <div
                     key={i}
-                    className="p-1.5 rounded border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-[10px]"
+                    className="p-1.5 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-[10px]"
                   >
-                    <span className="font-semibold">{action.title}</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{action.title}</span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
-          <div className="w-[102%] -ml-[1%] h-2.5 bg-gradient-to-b from-slate-300 to-slate-400 dark:from-slate-700 dark:to-slate-800 rounded-b-lg" />
+          {/* Mobile MacBook Aluminum Base */}
+          <div className="w-[103%] -ml-[1.5%] h-3 bg-gradient-to-b from-[#e3e7ef] to-[#9aa3b4] dark:from-[#353b49] dark:to-[#161820] rounded-b-lg flex justify-center">
+            <div className="w-14 h-1 bg-[#848c9c] dark:bg-[#0c0e14] rounded-b-xs" />
+          </div>
+          <div className="w-[90%] h-3 bg-slate-900/20 dark:bg-black/50 blur-md rounded-full -mt-1 mx-auto" />
         </div>
 
         {/* Mobile Input Data Sources Pills */}
