@@ -7,17 +7,9 @@ import {
   FileSpreadsheet,
   Layers,
   Database,
-  Compass,
-  Calculator,
-  Search,
-  ArrowRight,
   ShieldCheck,
   Boxes,
   FileCheck2,
-  Wrench,
-  Bot,
-  Workflow,
-  History,
   Check,
 } from 'lucide-react'
 
@@ -86,43 +78,6 @@ const OUTPUT_DELIVERABLES = [
     desc: 'Annotated drawings and extracted details from P&IDs',
     type: 'drawing',
   },
-]
-
-// --- Laptop App Workbench Actions ---
-const WORKBENCH_ACTIONS = [
-  {
-    title: 'Generate Report',
-    desc: 'Create reports from inspection data',
-    icon: FileText,
-    iconColor: 'text-blue-600 bg-blue-50 dark:bg-blue-950/60 dark:text-blue-400',
-  },
-  {
-    title: 'Analyze Drawing',
-    desc: 'Extract details from P&IDs and drawings',
-    icon: Compass,
-    iconColor: 'text-purple-600 bg-purple-50 dark:bg-purple-950/60 dark:text-purple-400',
-  },
-  {
-    title: 'Run Calculation',
-    desc: 'Use approved engineering tools',
-    icon: Calculator,
-    iconColor: 'text-sky-600 bg-sky-50 dark:bg-sky-950/60 dark:text-sky-400',
-  },
-  {
-    title: 'Find Information',
-    desc: 'Search across SOPs, standards and records',
-    icon: Search,
-    iconColor: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 dark:text-indigo-400',
-  },
-]
-
-// --- Pipeline Stepper Stages ---
-const PIPELINE_STAGES = [
-  'Understand',
-  'Use Right Tools',
-  'Process',
-  'Verify',
-  'Deliver',
 ]
 
 // --- High-Fidelity Deliverable Preview Thumbnails ---
@@ -540,181 +495,22 @@ export const LaptopShowcase: React.FC = () => {
         </div>
 
         {/* ------------------------------------------------------------------ */}
-        {/* COLUMN 2: CENTERPIECE APPLE MACBOOK PRO MOCKUP                     */}
+        {/* COLUMN 2: CENTERPIECE AUTHENTIC 3D APPLE MACBOOK (FROM AIRAAA.PNG) */}
         {/* ------------------------------------------------------------------ */}
         <div
           ref={laptopScreenRef}
-          className="flex-1 max-w-[620px] xl:max-w-[660px] mx-1.5 z-20 flex flex-col items-center"
+          className="flex-1 max-w-[620px] xl:max-w-[660px] mx-1 z-20 flex flex-col items-center justify-center relative group"
         >
-          {/* MacBook Pro Display Clamshell Assembly */}
-          <div className="w-full bg-[#161820] dark:bg-[#11131a] rounded-t-[24px] p-2 xl:p-2.5 border-[1.5px] border-[#383d4c] dark:border-[#282d3b] ring-1 ring-black/70 shadow-[0_30px_70px_-15px_rgba(0,0,0,0.5)] relative overflow-hidden">
-            {/* CNC Machined Outer Bevel Highlight */}
-            <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent pointer-events-none" />
+          {/* Subtle Ambient Depth Glow Behind MacBook */}
+          <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 via-indigo-500/5 to-cyan-500/10 blur-2xl rounded-full pointer-events-none -z-10" />
 
-            {/* Subtle Apple Anti-Reflective Glass Reflection Sheen */}
-            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent rounded-t-[22px] pointer-events-none z-30" />
-
-            {/* Inner Screen Display (Apple Liquid Retina XDR + AIRA App Workbench) */}
-            <div className="w-full bg-white dark:bg-[#0c0e15] rounded-t-[14px] rounded-b-[4px] border border-slate-200/60 dark:border-slate-800/80 overflow-hidden text-left flex flex-col shadow-inner min-h-[315px] xl:min-h-[330px] relative">
-              {/* macOS Window Title Bar + Iconic MacBook Pro Camera Notch */}
-              <div className="h-8 border-b border-slate-100 dark:border-slate-800/80 px-3 flex items-center justify-between bg-slate-50/90 dark:bg-[#0e1119]/90 relative z-20">
-                {/* macOS Traffic Light Buttons + AIRA Wordmark */}
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f56] border border-[#e0443e]/60 shadow-2xs" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e] border border-[#dea123]/60 shadow-2xs" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#27c93f] border border-[#1aab29]/60 shadow-2xs" />
-                  </div>
-                  <div className="h-3 w-[1px] bg-slate-200 dark:bg-slate-700 hidden sm:block" />
-                  <div className="flex items-center gap-1.5">
-                    <svg
-                      className="w-3.5 h-3.5 text-slate-800 dark:text-slate-200"
-                      viewBox="0 0 100 100"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="10"
-                    >
-                      <polygon points="50,6 90,29 90,75 50,98 10,75 10,29" />
-                    </svg>
-                    <span className="font-bold text-[11px] tracking-tight text-slate-800 dark:text-slate-200">
-                      AIRA
-                    </span>
-                  </div>
-                </div>
-
-                {/* The Iconic MacBook Pro Notch */}
-                <div className="absolute left-1/2 -translate-x-1/2 top-0 w-24 h-4 bg-[#0a0a0f] rounded-b-[7px] flex items-center justify-center gap-2 shadow-xs">
-                  {/* FaceTime HD Camera Lens */}
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#1b1f2e] ring-[0.5px] ring-slate-600 flex items-center justify-center">
-                    <div className="w-0.5 h-0.5 rounded-full bg-cyan-400" />
-                  </div>
-                  {/* Camera Active Green Indicator LED */}
-                  <div className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_4px_rgba(52,211,153,0.8)]" />
-                </div>
-
-                {/* macOS Right Status Icons + MRPL Badge */}
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-[8.5px] font-mono font-medium text-emerald-700 dark:text-emerald-300">
-                      SOVEREIGN
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Workbench Main Body: Sidebar + Main Area */}
-              <div className="flex flex-1 overflow-hidden">
-                {/* Mini Left Sidebar */}
-                <div className="w-28 xl:w-32 border-r border-slate-100 dark:border-slate-800/80 p-2 bg-slate-50/40 dark:bg-[#0f121a]/40 flex flex-col justify-between shrink-0">
-                  <div className="space-y-1">
-                    {/* + New Task Button */}
-                    <div className="w-full py-1.5 px-2 rounded-md bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white flex items-center justify-between text-[10px] font-medium shadow-xs mb-2 cursor-default">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs leading-none font-bold">+</span>
-                        <span>New Task</span>
-                      </div>
-                      <span className="text-[8px] font-mono opacity-50 px-1 py-0.2 rounded bg-white/15">⌘K</span>
-                    </div>
-
-                    {/* Nav List */}
-                    {[
-                      { icon: FileText, label: 'Documents' },
-                      { icon: Wrench, label: 'Tools' },
-                      { icon: Bot, label: 'Agents' },
-                      { icon: Workflow, label: 'Workflows' },
-                      { icon: History, label: 'History' },
-                    ].map((nav, idx) => {
-                      const NavIcon = nav.icon
-                      return (
-                        <div
-                          key={idx}
-                          className="flex items-center gap-1.5 px-2 py-1 rounded text-[9.5px] text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 cursor-default transition-colors"
-                        >
-                          <NavIcon size={11} className="text-slate-400" />
-                          <span>{nav.label}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Main Content Area */}
-                <div className="flex-1 p-2.5 xl:p-3 flex flex-col justify-between bg-white dark:bg-[#0c0e15]">
-                  {/* Search / Command Prompt Bar */}
-                  <div className="w-full rounded-full border border-slate-200/90 dark:border-slate-700/80 px-3 py-1.5 flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 shadow-2xs bg-slate-50/50 dark:bg-[#121622]/50">
-                    <span className="truncate">Ask AIRA or give a task...</span>
-                    <div className="w-5 h-5 rounded-full bg-slate-900 dark:bg-slate-700 flex items-center justify-center text-white shrink-0 shadow-xs">
-                      <ArrowRight size={11} />
-                    </div>
-                  </div>
-
-                  {/* 4 Quick Action Cards Grid */}
-                  <div className="grid grid-cols-2 gap-1.5 my-2">
-                    {WORKBENCH_ACTIONS.map((action, idx) => {
-                      const ActionIcon = action.icon
-                      return (
-                        <div
-                          key={idx}
-                          className="p-1.5 xl:p-2 rounded-lg border border-slate-100 dark:border-slate-800/80 bg-slate-50/30 dark:bg-[#111420]/30 hover:border-blue-300 dark:hover:border-blue-900 transition-colors"
-                        >
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <div
-                              className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${action.iconColor}`}
-                            >
-                              <ActionIcon size={11} />
-                            </div>
-                            <span className="text-[10px] font-semibold text-slate-800 dark:text-slate-100 truncate">
-                              {action.title}
-                            </span>
-                          </div>
-                          <p className="text-[8.5px] text-slate-400 dark:text-slate-500 leading-tight line-clamp-1">
-                            {action.desc}
-                          </p>
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {/* Bottom Pipeline Stepper (5 Nodes) */}
-                  <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
-                    <div className="relative flex items-center justify-between px-2">
-                      {/* Connecting Line */}
-                      <div className="absolute left-3 right-3 top-1/2 -translate-y-1/2 h-[1.5px] bg-blue-500/30 dark:bg-blue-400/20 z-0" />
-
-                      {PIPELINE_STAGES.map((stage, idx) => (
-                        <div
-                          key={idx}
-                          className="relative z-10 flex flex-col items-center gap-1"
-                        >
-                          <div className="w-2 h-2 rounded-full bg-blue-600 ring-2 ring-blue-100 dark:ring-blue-900/60 shadow-xs" />
-                          <span className="text-[8px] xl:text-[8.5px] font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                            {stage}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* MacBook Pro Display Hinge Clutch Barrel */}
-          <div className="w-[96%] h-1.5 bg-gradient-to-r from-[#12141a] via-[#242834] to-[#12141a] border-t border-black/70 rounded-t-[1px]" />
-
-          {/* MacBook Pro Lower Aluminum Unibody Chassis Deck */}
-          <div className="w-[104%] h-4 bg-gradient-to-b from-[#e3e7ef] via-[#cbd2de] to-[#9aa3b4] dark:from-[#353b49] dark:via-[#222631] dark:to-[#161820] rounded-b-[14px] border-t border-white/60 dark:border-white/15 shadow-md relative z-10 flex items-start justify-center">
-            {/* Precision CNC-Machined Thumb Opening Notch */}
-            <div className="w-20 sm:w-24 h-1.5 bg-[#848c9c] dark:bg-[#0c0e14] rounded-b-[6px] shadow-inner mx-auto" />
-
-            {/* Subtle Rubber Non-Slip Feet (Corners) */}
-            <div className="absolute left-4 bottom-0 w-6 h-[2px] bg-black/40 rounded-full" />
-            <div className="absolute right-4 bottom-0 w-6 h-[2px] bg-black/40 rounded-full" />
-          </div>
-
-          {/* Multi-Layered Photorealistic MacBook Ambient Ground Shadow */}
-          <div className="w-[94%] h-5 bg-slate-900/25 dark:bg-black/60 blur-xl rounded-full -mt-2.5 pointer-events-none" />
+          {/* Authentic 3D MacBook Hardware Clamshell & Display from AIRAAA.png */}
+          <img
+            src="/macbook_clean.png"
+            alt="AIRA Sovereign AI Workbench on Apple MacBook Pro"
+            className="w-full h-auto drop-shadow-2xl select-none pointer-events-none transition-transform duration-300 group-hover:scale-[1.01]"
+            loading="eager"
+          />
         </div>
 
         {/* ------------------------------------------------------------------ */}
@@ -774,48 +570,13 @@ export const LaptopShowcase: React.FC = () => {
       {/* ==================================================================== */}
       <div className="lg:hidden flex flex-col items-center space-y-6">
         {/* Mobile Central MacBook Pro View */}
-        <div className="w-full max-w-[500px]">
-          <div className="w-full bg-[#161820] dark:bg-[#11131a] rounded-t-[20px] p-2 border-[1.5px] border-[#383d4c] dark:border-[#282d3b] shadow-xl relative overflow-hidden">
-            {/* Gloss sheen */}
-            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent rounded-t-[18px] pointer-events-none" />
-
-            <div className="w-full bg-white dark:bg-[#0c0e15] rounded-t-[12px] rounded-b-[4px] border border-slate-200/60 dark:border-slate-800/80 p-2.5 text-left relative">
-              {/* Traffic lights + Notch */}
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-2 relative">
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full bg-[#ff5f56]" />
-                  <div className="w-2 h-2 rounded-full bg-[#ffbd2e]" />
-                  <div className="w-2 h-2 rounded-full bg-[#27c93f]" />
-                  <span className="font-bold text-[11px] ml-1.5">AIRA</span>
-                </div>
-                {/* Mobile Camera Notch */}
-                <div className="absolute left-1/2 -translate-x-1/2 top-0 w-16 h-3 bg-black rounded-b-md flex items-center justify-center gap-1.5">
-                  <div className="w-1 h-1 rounded-full bg-cyan-400" />
-                  <div className="w-0.5 h-0.5 rounded-full bg-emerald-400" />
-                </div>
-                <span className="text-[9px] font-mono text-emerald-500 font-medium">SOVEREIGN</span>
-              </div>
-              <div className="rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1 text-xs text-slate-400 mb-2.5 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">
-                <span className="truncate">Ask AIRA or give a task...</span>
-                <ArrowRight size={12} />
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {WORKBENCH_ACTIONS.map((action, i) => (
-                  <div
-                    key={i}
-                    className="p-1.5 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-[10px]"
-                  >
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{action.title}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          {/* Mobile MacBook Aluminum Base */}
-          <div className="w-[103%] -ml-[1.5%] h-3 bg-gradient-to-b from-[#e3e7ef] to-[#9aa3b4] dark:from-[#353b49] dark:to-[#161820] rounded-b-lg flex justify-center">
-            <div className="w-14 h-1 bg-[#848c9c] dark:bg-[#0c0e14] rounded-b-xs" />
-          </div>
-          <div className="w-[90%] h-3 bg-slate-900/20 dark:bg-black/50 blur-md rounded-full -mt-1 mx-auto" />
+        <div className="w-full max-w-[480px] px-2 flex justify-center">
+          <img
+            src="/macbook_clean.png"
+            alt="AIRA Sovereign AI Workbench on Apple MacBook Pro"
+            className="w-full h-auto drop-shadow-xl select-none pointer-events-none"
+            loading="eager"
+          />
         </div>
 
         {/* Mobile Input Data Sources Pills */}
