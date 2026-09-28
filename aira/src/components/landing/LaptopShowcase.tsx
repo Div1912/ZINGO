@@ -295,41 +295,54 @@ export const LaptopShowcase: React.FC = () => {
         }
       })
 
-      // Build Left Curves (Cards -> Left Badge)
+      // Build Left Curves (5 Data Sources -> Left Badge)
+      // Generates 5 distinct, separated curves that never merge
       const newLeftCurves = leftCardPoints
-        .filter((pt): pt is { x: number; y: number } => pt !== null)
-        .map((pt) => {
-          const midX = pt.x + (leftBadgeLeft.x - pt.x) * 0.55
-          return `M ${pt.x} ${pt.y} C ${midX} ${pt.y}, ${midX} ${leftBadgeLeft.y}, ${leftBadgeLeft.x} ${leftBadgeLeft.y}`
+        .map((pt, i) => {
+          if (!pt || !leftBadgeLeft.x) return ''
+          const dx = leftBadgeLeft.x - pt.x
+          if (dx <= 0) return ''
+          // Target distinct vertical attachment points on the badge
+          const targetY = leftBadgeLeft.y + (i - 2) * 5
+          // Individualized control points ensure each line maintains its own distinct trajectory
+          const cp1x = pt.x + dx * (0.35 + Math.abs(i - 2) * 0.04)
+          const cp1y = pt.y
+          const cp2x = leftBadgeLeft.x - dx * (0.30 - Math.abs(i - 2) * 0.03)
+          const cp2y = targetY
+          return `M ${pt.x} ${pt.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${leftBadgeLeft.x} ${targetY}`
         })
+        .filter(Boolean)
 
       // Left Badge -> Laptop Screen
       const newLeftToLaptop =
         leftBadgeRight.x > 0 && laptopLeft.x > 0
-          ? `M ${leftBadgeRight.x} ${leftBadgeRight.y} C ${
-              (leftBadgeRight.x + laptopLeft.x) / 2
-            } ${leftBadgeRight.y}, ${
-              (leftBadgeRight.x + laptopLeft.x) / 2
-            } ${laptopLeft.y}, ${laptopLeft.x} ${laptopLeft.y}`
+          ? `M ${leftBadgeRight.x} ${leftBadgeRight.y} L ${laptopLeft.x} ${leftBadgeRight.y}`
           : ''
 
       // Laptop Screen -> Right Badge
       const newLaptopToRight =
         laptopRight.x > 0 && rightBadgeLeft.x > 0
-          ? `M ${laptopRight.x} ${laptopRight.y} C ${
-              (laptopRight.x + rightBadgeLeft.x) / 2
-            } ${laptopRight.y}, ${
-              (laptopRight.x + rightBadgeLeft.x) / 2
-            } ${rightBadgeLeft.y}, ${rightBadgeLeft.x} ${rightBadgeLeft.y}`
+          ? `M ${laptopRight.x} ${rightBadgeLeft.y} L ${rightBadgeLeft.x} ${rightBadgeLeft.y}`
           : ''
 
-      // Build Right Curves (Right Badge -> Deliverable Cards)
+      // Build Right Curves (Right Badge -> 4 Deliverables)
+      // Immediately separates into 4 distinct fan-out arcs
       const newRightCurves = rightCardPoints
-        .filter((pt): pt is { x: number; y: number } => pt !== null)
-        .map((pt) => {
-          const midX = rightBadgeRight.x + (pt.x - rightBadgeRight.x) * 0.45
-          return `M ${rightBadgeRight.x} ${rightBadgeRight.y} C ${midX} ${rightBadgeRight.y}, ${midX} ${pt.y}, ${pt.x} ${pt.y}`
+        .map((pt, i) => {
+          if (!pt || !rightBadgeRight.x) return ''
+          const dx = pt.x - rightBadgeRight.x
+          if (dx <= 0) return ''
+          // Separate departure points along the right edge of the badge
+          const startY = rightBadgeRight.y + (i - 1.5) * 6
+          const dy = pt.y - startY
+          // Immediately diverge right upon leaving the badge
+          const cp1x = rightBadgeRight.x + dx * (0.28 + Math.abs(i - 1.5) * 0.05)
+          const cp1y = startY + dy * 0.22
+          const cp2x = pt.x - dx * (0.35 - Math.abs(i - 1.5) * 0.04)
+          const cp2y = pt.y
+          return `M ${rightBadgeRight.x} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${pt.x} ${pt.y}`
         })
+        .filter(Boolean)
 
       setPaths({
         leftCurves: newLeftCurves,
@@ -353,7 +366,7 @@ export const LaptopShowcase: React.FC = () => {
   }, [])
 
   return (
-    <div className="w-full max-w-[1360px] mx-auto mt-6 sm:mt-10 px-2 sm:px-4">
+    <div className="w-full max-w-[1440px] mx-auto mt-6 sm:mt-10 px-2 sm:px-4">
       {/* ==================================================================== */}
       {/* DESKTOP ARCHITECTURE FLOW DIAGRAM (MATCHES AIRAAA.PNG DOWN TO PIXEL) */}
       {/* ==================================================================== */}
@@ -369,35 +382,35 @@ export const LaptopShowcase: React.FC = () => {
           <defs>
             {/* Left Cyan/Blue Flow Gradient */}
             <linearGradient id="leftFlowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.55" />
-              <stop offset="60%" stopColor="#3b82f6" stopOpacity="0.8" />
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.75" />
+              <stop offset="60%" stopColor="#3b82f6" stopOpacity="0.85" />
               <stop offset="100%" stopColor="#2563eb" stopOpacity="0.95" />
             </linearGradient>
 
             {/* Right Emerald/Cyan Flow Gradient */}
             <linearGradient id="rightFlowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="#10b981" stopOpacity="0.95" />
-              <stop offset="50%" stopColor="#06b6d4" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.55" />
+              <stop offset="50%" stopColor="#06b6d4" stopOpacity="0.85" />
+              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.75" />
             </linearGradient>
 
             {/* Subtle glow filter */}
             <filter id="lineGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="1.5" result="blur" />
+              <feGaussianBlur stdDeviation="1.2" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
           </defs>
 
-          {/* Left Curves: 5 Input Cards -> Badge */}
+          {/* Left Curves: 5 Input Cards -> Badge (individually separated) */}
           {paths.leftCurves.map((d, i) => (
             <g key={`left-curve-${i}`}>
               <path
                 d={d}
                 fill="none"
                 stroke="url(#leftFlowGrad)"
-                strokeWidth="1.8"
+                strokeWidth="1.6"
                 filter="url(#lineGlow)"
-                className="opacity-75 dark:opacity-85"
+                className="opacity-80 dark:opacity-90"
               />
             </g>
           ))}
@@ -410,7 +423,7 @@ export const LaptopShowcase: React.FC = () => {
               stroke="url(#leftFlowGrad)"
               strokeWidth="2"
               filter="url(#lineGlow)"
-              className="opacity-80 dark:opacity-90"
+              className="opacity-85 dark:opacity-95"
             />
           )}
 
@@ -422,20 +435,20 @@ export const LaptopShowcase: React.FC = () => {
               stroke="url(#rightFlowGrad)"
               strokeWidth="2"
               filter="url(#lineGlow)"
-              className="opacity-80 dark:opacity-90"
+              className="opacity-85 dark:opacity-95"
             />
           )}
 
-          {/* Right Curves: Badge -> 4 Deliverable Cards */}
+          {/* Right Curves: Badge -> 4 Deliverable Cards (individually separated) */}
           {paths.rightCurves.map((d, i) => (
             <g key={`right-curve-${i}`}>
               <path
                 d={d}
                 fill="none"
                 stroke="url(#rightFlowGrad)"
-                strokeWidth="1.8"
+                strokeWidth="1.6"
                 filter="url(#lineGlow)"
-                className="opacity-75 dark:opacity-85"
+                className="opacity-80 dark:opacity-90"
               />
             </g>
           ))}
@@ -444,7 +457,7 @@ export const LaptopShowcase: React.FC = () => {
         {/* ------------------------------------------------------------------ */}
         {/* COLUMN 1: LEFT INPUT DATA CARDS (5 items)                         */}
         {/* ------------------------------------------------------------------ */}
-        <div className="w-[220px] xl:w-[240px] flex flex-col justify-between py-2 space-y-3 z-20 shrink-0">
+        <div className="w-[210px] xl:w-[230px] flex flex-col justify-between py-2 space-y-3 z-20 shrink-0">
           {INPUT_SOURCES.map((source, index) => {
             const Icon = source.icon
             return (
@@ -477,7 +490,7 @@ export const LaptopShowcase: React.FC = () => {
         {/* ------------------------------------------------------------------ */}
         {/* LEFT CONNECTOR BADGE: [ 🔒 Your Internal Data ]                    */}
         {/* ------------------------------------------------------------------ */}
-        <div className="flex items-center justify-center px-1.5 z-20 shrink-0">
+        <div className="flex items-center justify-center mx-4 xl:mx-8 z-20 shrink-0">
           <motion.div
             ref={leftBadgeRef}
             initial={{ opacity: 0, scale: 0.9 }}
@@ -495,18 +508,18 @@ export const LaptopShowcase: React.FC = () => {
         </div>
 
         {/* ------------------------------------------------------------------ */}
-        {/* COLUMN 2: CENTERPIECE AUTHENTIC 3D APPLE MACBOOK (FROM AIRAAA.PNG) */}
+        {/* COLUMN 2: CENTERPIECE MACBOOK PRO WITH DESK.PNG FITTED INSIDE     */}
         {/* ------------------------------------------------------------------ */}
         <div
           ref={laptopScreenRef}
-          className="flex-1 max-w-[620px] xl:max-w-[660px] mx-1 z-20 flex flex-col items-center justify-center relative group"
+          className="flex-1 max-w-[520px] xl:max-w-[560px] mx-2 z-20 flex flex-col items-center justify-center relative group"
         >
           {/* Subtle Ambient Depth Glow Behind MacBook */}
           <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 via-indigo-500/5 to-cyan-500/10 blur-2xl rounded-full pointer-events-none -z-10" />
 
-          {/* Authentic 3D MacBook Hardware Clamshell & Display from AIRAAA.png */}
+          {/* Authentic 3D MacBook Pro with desk.png perfectly fitted */}
           <img
-            src="/macbook_clean.png"
+            src="/macbook_with_desk.png"
             alt="AIRA Sovereign AI Workbench on Apple MacBook Pro"
             className="w-full h-auto drop-shadow-2xl select-none pointer-events-none transition-transform duration-300 group-hover:scale-[1.01]"
             loading="eager"
@@ -516,7 +529,7 @@ export const LaptopShowcase: React.FC = () => {
         {/* ------------------------------------------------------------------ */}
         {/* RIGHT CONNECTOR BADGE: [ ✔ Production Ready Output ]               */}
         {/* ------------------------------------------------------------------ */}
-        <div className="flex items-center justify-center px-1.5 z-20 shrink-0">
+        <div className="flex items-center justify-center mx-4 xl:mx-8 z-20 shrink-0">
           <motion.div
             ref={rightBadgeRef}
             initial={{ opacity: 0, scale: 0.9 }}
@@ -572,7 +585,7 @@ export const LaptopShowcase: React.FC = () => {
         {/* Mobile Central MacBook Pro View */}
         <div className="w-full max-w-[480px] px-2 flex justify-center">
           <img
-            src="/macbook_clean.png"
+            src="/macbook_with_desk.png"
             alt="AIRA Sovereign AI Workbench on Apple MacBook Pro"
             className="w-full h-auto drop-shadow-xl select-none pointer-events-none"
             loading="eager"
