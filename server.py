@@ -123,14 +123,27 @@ class ClusterLoadBalancer:
         if has_images or task_type == "vision" or "vl" in model_req or "vision" in model_req:
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
-        # 2. Fast / 4B constraint: MUST use Laptop 3 (qwen3:4b)
+        # 2. Fast / 4B constraint: MUST use Laptop 3 (qwen3:4b) if online, otherwise cascade to Laptop 2
         if "4b" in model_req:
+            try:
+                from subagent_engine import is_cluster_node_healthy
+                if not is_cluster_node_healthy(self.laptop3_url):
+                    return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+            except Exception:
+                pass
             return laptop3_endpoint, "qwen3:4b", "laptop3"
 
         # 3. Dynamic Auto Task Routing across 3 laptops:
         normalized_task = (task_type or "chat").lower()
         if is_auto and normalized_task in ("fast", "lightweight", "quick", "outline"):
-            return laptop3_endpoint, "qwen3:4b", "laptop3"
+            try:
+                from subagent_engine import is_cluster_node_healthy
+                if is_cluster_node_healthy(self.laptop3_url):
+                    return laptop3_endpoint, "qwen3:4b", "laptop3"
+                else:
+                    return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+            except Exception:
+                return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
         # 4. Master Node check: Is Laptop 1 (8B) actually available?
         laptop1_available = "qwen3:8b" in local_models
@@ -152,8 +165,8 @@ class ClusterLoadBalancer:
                     return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
             except Exception:
                 pass
-            # Default failover to Laptop 3 (or Laptop 2 if custom node)
-            return laptop3_endpoint, "qwen3:4b", "laptop3"
+            # Default failover: route to Laptop 2 (qwen2.5-vl:3b)
+            return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
         # 5. Master Node (Laptop 1): Qwen3:8b for Document Synthesis, Presentations, Code, Engineering & Standard Chat
         primary_model = "qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b")

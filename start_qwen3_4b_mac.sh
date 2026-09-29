@@ -18,6 +18,7 @@ export OLLAMA_HOST=0.0.0.0:11434
 export OLLAMA_FLASH_ATTENTION=1
 export OLLAMA_KV_CACHE_TYPE=q8_0
 export OLLAMA_NUM_PARALLEL=1
+export OLLAMA_ORIGINS="*"
 
 # 2. Check Ollama server
 if ! pgrep -x "ollama" >/dev/null; then

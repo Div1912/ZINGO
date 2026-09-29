@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ZINGO Sovereign Intelligence Architecture",
+    "output": "zingo-architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "full-flow",
+        "label": "End-to-end request flow",
+        "focus": ["client", "gateway", "subagents", "node1", "node2", "node3"],
+        "note": "Follow requests from the client SPA through the orchestration core to distributed model nodes."
+      },
+      {
+        "id": "deliberation-and-safety",
+        "label": "Deliberation & Verification",
+        "focus": ["gateway", "council", "tot", "memory"],
+        "note": "Examine multi-model consensus, Tree-of-Thought contracts, and continuous industrial memory."
+      },
+      {
+        "id": "cluster-mesh",
+        "label": "Distributed Cluster Nodes",
+        "focus": ["gateway", "node1", "node2", "node3"],
+        "note": "Inspect the multi-laptop hardware topology spanning local Ollama and permanent Ngrok tunnels."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "client",
+      "type": "frontend",
+      "label": "AIRA Frontend",
+      "sublabel": "React + Vite SPA",
+      "brand": "react",
+      "pos": [50, 220],
+      "size": [140, 56]
+    },
+    {
+      "id": "pyodide",
+      "type": "external",
+      "label": "Browser Sandbox",
+      "sublabel": "Pyodide WASM Runtime",
+      "brand": "python",
+      "pos": [50, 350],
+      "size": [140, 56]
+    },
+    {
+      "id": "gateway",
+      "type": "backend",
+      "label": "Cluster Gateway",
+      "sublabel": "FastAPI :8000 Balancer",
+      "brand": "fastapi",
+      "pos": [260, 220],
+      "size": [140, 56]
+    },
+    {
+      "id": "memory",
+      "type": "database",
+      "label": "Continuous Memory",
+      "sublabel": "Industrial RAG Index",
+      "pos": [260, 90],
+      "size": [140, 56]
+    },
+    {
+      "id": "sandbox_api",
+      "type": "backend",
+      "label": "Deliverable Engine",
+      "sublabel": "PPTX & Sandbox Router",
+      "pos": [260, 350],
+      "size": [140, 56]
+    },
+    {
+      "id": "subagents",
+      "type": "backend",
+      "label": "Subagent Swarm",
+      "sublabel": "Specialist Coordinator",
+      "pos": [480, 220],
+      "size": [140, 56]
+    },
+    {
+      "id": "council",
+      "type": "backend",
+      "label": "Model Council",
+      "sublabel": "Multi-Model Consensus",
+      "pos": [480, 90],
+      "size": [140, 56]
+    },
+    {
+      "id": "tot",
+      "type": "security",
+      "label": "ToT Verifier",
+      "sublabel": "Tree-of-Thought Engine",
+      "pos": [480, 350],
+      "size": [140, 56]
+    },
+    {
+      "id": "node1",
+      "type": "cloud",
+      "label": "Laptop 1 (Master)",
+      "sublabel": "qwen3:8b Core Node",
+      "tag": "Local :11434",
+      "pos": [750, 90],
+      "size": [150, 58]
+    },
+    {
+      "id": "node2",
+      "type": "cloud",
+      "label": "Laptop 2 (Vision)",
+      "sublabel": "qwen2.5-vl:3b Multimodal",
+      "tag": "Ngrok Tunnel",
+      "pos": [750, 220],
+      "size": [150, 58]
+    },
+    {
+      "id": "node3",
+      "type": "cloud",
+      "label": "Laptop 3 (Fast)",
+      "sublabel": "qwen3:4b Fast Synthesis",
+      "tag": "Ngrok Tunnel",
+      "pos": [750, 350],
+      "size": [150, 58]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Core Orchestration & Deliberation Layer",
+      "wraps": ["gateway", "memory", "sandbox_api", "subagents", "council", "tot"]
+    },
+    {
+      "kind": "region",
+      "label": "Distributed Multi-Laptop Cluster",
+      "wraps": ["node1", "node2", "node3"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "client-to-gateway",
+      "from": "client",
+      "to": "gateway",
+      "label": "SSE stream",
+      "variant": "emphasis"
+    },
+    {
+      "id": "client-to-pyodide",
+      "from": "client",
+      "to": "pyodide",
+      "label": "client eval",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 20
+    },
+    {
+      "id": "gateway-to-memory",
+      "from": "gateway",
+      "to": "memory",
+      "label": "RAG lookup",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelDy": -20
+    },
+    {
+      "id": "gateway-to-sandbox",
+      "from": "gateway",
+      "to": "sandbox_api",
+      "label": "export dispatch",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 20
+    },
+    {
+      "id": "gateway-to-subagents",
+      "from": "gateway",
+      "to": "subagents",
+      "label": "delegate task"
+    },
+    {
+      "id": "subagents-to-council",
+      "from": "subagents",
+      "to": "council",
+      "label": "deliberate",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelDy": -20
+    },
+    {
+      "id": "subagents-to-tot",
+      "from": "subagents",
+      "to": "tot",
+      "label": "verify spec",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 20
+    },
+    {
+      "id": "subagents-to-node1",
+      "from": "subagents",
+      "to": "node1",
+      "label": "deep reasoning"
+    },
+    {
+      "id": "subagents-to-node2",
+      "from": "subagents",
+      "to": "node2",
+      "label": "visual QA",
+      "labelDx": 32
+    },
+    {
+      "id": "subagents-to-node3",
+      "from": "subagents",
+      "to": "node3",
+      "label": "fast ideation"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Client & Edge Sandbox",
+      "items": [
+        "AIRA React SPA with streaming SSE and agent activity stepper",
+        "Client-side Pyodide sandbox executes code deliverables in WASM"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Orchestration & Deliberation",
+      "items": [
+        "FastAPI gateway with circuit breaker cluster load balancing",
+        "Subagent swarms, Model Council consensus, and ToT verifiers"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Distributed Cluster Topology",
+      "items": [
+        "Laptop 1: Master running qwen3:8b and PowerPoint compiler",
+        "Laptop 2 & 3: Vision (qwen2.5-vl) & Fast (qwen3:4b) via Ngrok"
+      ]
+    }
+  ]
+}

@@ -90,13 +90,41 @@ export function useChat(chatId?: string | null) {
       let detectedTask: TaskType = taskClassification.taskType
       let selectedModel: ModelId = isAuto ? taskClassification.recommendedModel : (forcedModel as ModelId)
 
-      // Dynamic Cluster Failover in Auto mode: If Master (8B) is offline, route to healthy worker node
+      // Dynamic Cluster Failover across nodes (Auto and Manual fallback):
+      const isPrimaryDown = server.primaryStatus === 'disconnected'
+      const isFast4bDown = server.fast4bStatus === 'disconnected' || !server.fast_4b_url
+      const isVisionAlive = server.visionStatus === 'connected' || Boolean(server.vision_url)
+
       if (isAuto) {
-        if (server.primaryStatus === 'disconnected' && (selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b')) {
-          if (server.fast4bStatus === 'connected') {
+        // If Vision (Laptop 2) is the only node alive, or if both 8B and 4B are down:
+        if ((isPrimaryDown && isFast4bDown) || (isVisionAlive && isPrimaryDown && !server.fast_4b_url)) {
+          selectedModel = 'qwen2.5vl:3b'
+        } else if (isPrimaryDown && (selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b')) {
+          if (!isFast4bDown) {
             selectedModel = 'qwen3:4b'
-          } else if (server.visionStatus === 'connected') {
+          } else if (isVisionAlive) {
             selectedModel = 'qwen2.5vl:3b'
+          }
+        } else if (isFast4bDown && (selectedModel === 'qwen3:4b' || selectedModel === 'qwen3-4b')) {
+          if (!isPrimaryDown) {
+            selectedModel = 'qwen3:8b'
+          } else if (isVisionAlive) {
+            selectedModel = 'qwen2.5vl:3b'
+          }
+        }
+      } else {
+        // User manually selected a model whose node is offline:
+        if ((selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b') && isPrimaryDown) {
+          if (!isFast4bDown) {
+            selectedModel = 'qwen3:4b'
+          } else if (isVisionAlive) {
+            selectedModel = 'qwen2.5vl:3b'
+          }
+        } else if ((selectedModel === 'qwen3:4b' || selectedModel === 'qwen3-4b') && isFast4bDown) {
+          if (isVisionAlive) {
+            selectedModel = 'qwen2.5vl:3b'
+          } else if (!isPrimaryDown) {
+            selectedModel = 'qwen3:8b'
           }
         }
       }
@@ -415,14 +443,50 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         }
 
 
-        let response: Response
-        const doDirectOllamaFetch = async (nodeUrl: string): Promise<Response> => {
-          const directNodeBase = nodeUrl.replace(/\/+$/, '')
-          const directEndpoint = `${directNodeBase}/api/chat`
-          const ollamaModel = (selectedModel === 'qwen2.5vl:3b' || selectedModel === 'qwen2.5-vl:3b' || selectedModel === 'qwen2.5-vl:7b' || detectedTask === 'vision')
-            ? 'qwen2.5-vl:3b'
-            : (selectedModel.includes('4b') ? 'qwen3:4b' : (server.fast4bStatus === 'connected' ? 'qwen3:4b' : 'qwen2.5-vl:3b'))
+        interface ClusterTargetCandidate {
+          url: string
+          model: string
+          label: string
+        }
 
+        const candidates: ClusterTargetCandidate[] = []
+
+        // If user specifically selected or query is Vision / Multimodal:
+        if (selectedModel.includes('vl') || selectedModel.includes('vision') || detectedTask === 'vision') {
+          if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+        } else if (selectedModel.includes('4b')) {
+          // If 4B was requested:
+          if (server.fast_4b_url && server.fast4bStatus === 'connected') candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+          if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          if (server.fast_4b_url && server.fast4bStatus !== 'connected') candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+        } else {
+          // General / Auto / 8B:
+          // If Laptop 2 is online, ensure it is prioritized if Laptop 3 is not connected
+          if (server.visionStatus === 'connected' && server.fast4bStatus !== 'connected' && server.vision_url) {
+            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+            if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+          } else if (server.fast4bStatus === 'connected' && server.fast_4b_url) {
+            candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+            if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          } else {
+            // Default when status uncertain: Laptop 2 has verified active tunnel
+            if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+            if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+          }
+        }
+
+        // Add any remaining nodes to candidate pool for absolute failover safety
+        if (server.vision_url && !candidates.some((c) => c.url === server.vision_url)) {
+          candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+        }
+        if (server.fast_4b_url && !candidates.some((c) => c.url === server.fast_4b_url)) {
+          candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+        }
+
+        const doDirectOllamaFetch = async (target: ClusterTargetCandidate): Promise<Response> => {
+          const directNodeBase = target.url.replace(/\/+$/, '')
+          const directEndpoint = `${directNodeBase}/api/chat`
           const directMessages: { role: string; content: string }[] = []
           if (systemPrompt) {
             directMessages.push({ role: 'system', content: systemPrompt })
@@ -437,7 +501,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
             'ngrok-skip-browser-warning': 'true',
           }
           const directBody = JSON.stringify({
-            model: ollamaModel,
+            model: target.model,
             messages: directMessages,
             stream: true,
             options: {
@@ -454,33 +518,76 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           })
         }
 
-        const isPrimaryOffline = server.primaryStatus === 'disconnected' || !cleanBaseUrl
-        if (isPrimaryOffline && targetNodeUrl) {
-          response = await doDirectOllamaFetch(targetNodeUrl)
-        } else {
+        let response: Response | null = null
+        let resolvedModelUsed: string = selectedModel
+
+        // Attempt 1: If primary gateway is marked connected and URL is present (only for Auto or explicit 8B)
+        const shouldTryPrimaryFirst =
+          (isAuto || selectedModel === 'qwen3:8b') &&
+          server.primaryStatus === 'connected' &&
+          Boolean(cleanBaseUrl)
+
+        if (shouldTryPrimaryFirst) {
           try {
-            response = await fetch(endpoint, {
+            const primaryPromise = fetch(endpoint, {
               method: 'POST',
               headers,
               body,
               signal: controller.signal,
             })
-            if (!response.ok && targetNodeUrl && targetNodeUrl !== cleanBaseUrl) {
-              throw new Error(`Primary gateway returned HTTP ${response.status}`)
+            const primaryRes = await Promise.race([
+              primaryPromise,
+              new Promise<Response>((_, reject) =>
+                setTimeout(() => reject(new Error('Primary gateway timeout after 3.5s')), 3500)
+              ),
+            ])
+            if (primaryRes.ok && primaryRes.body) {
+              response = primaryRes
             }
           } catch (err: any) {
             if (controller.signal.aborted) throw err
-            if (targetNodeUrl && targetNodeUrl !== cleanBaseUrl) {
-              console.warn(`[useChat] Primary gateway failed (${err.message}). Direct failover to ${targetNodeUrl}...`)
-              response = await doDirectOllamaFetch(targetNodeUrl)
-            } else {
-              throw err
-            }
+            console.warn(`[useChat] Primary gateway failed (${err.message}). Cascading to cluster worker nodes...`)
           }
         }
 
-        if (!response.ok || !response.body) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        // Attempt 2: Cascade through worker nodes until one connects and streams
+        if (!response) {
+          let lastErr: any = null
+          for (const cand of candidates) {
+            if (controller.signal.aborted) break
+            console.log(`[useChat] Connecting to cluster node: ${cand.label} (${cand.url})...`)
+            try {
+              const fetchPromise = doDirectOllamaFetch(cand)
+              const candRes = await Promise.race([
+                fetchPromise,
+                new Promise<Response>((_, reject) =>
+                  setTimeout(() => reject(new Error(`${cand.label} timeout after 3.5s`)), 3500)
+                ),
+              ])
+              if (candRes.ok && candRes.body) {
+                response = candRes
+                resolvedModelUsed = cand.model as ModelId
+                updateLastAssistantMessage(sendToChatId, {
+                  modelUsed: cand.model as ModelId,
+                })
+                break
+              } else {
+                console.warn(`[useChat] ${cand.label} returned HTTP ${candRes.status}`)
+              }
+            } catch (candErr: any) {
+              if (controller.signal.aborted) throw candErr
+              console.warn(`[useChat] ${cand.label} failed: ${candErr.message}. Trying next candidate...`)
+              lastErr = candErr
+            }
+          }
+
+          if (!response) {
+            throw lastErr || new Error('All cluster nodes are currently unreachable.')
+          }
+        }
+
+        if (!response || !response.body) {
+          throw new Error('No readable response stream received from cluster.')
         }
 
         // ── SSE parser ───────────────────────────────────────────────────────
@@ -496,7 +603,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         let thinkElapsedMs = 0
         let sources: any[] = []
         let evalCount = 0
-        let resolvedModelUsed: string = selectedModel
+        // resolvedModelUsed already declared above
         let councilMeta: CouncilMeta | undefined = isCouncilActive
           ? {
               council_active: true,

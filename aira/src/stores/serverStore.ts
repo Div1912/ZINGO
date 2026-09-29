@@ -11,7 +11,7 @@ interface ServerStore {
   isChecking: boolean
   lastChecked: string | null
   updateServer: (updates: Partial<ServerConfig>) => void
-  checkConnection: () => Promise<void>
+  checkConnection: (silent?: boolean) => Promise<void>
   checkIndividual: (node: ClusterNodeKey) => Promise<void>
 }
 
@@ -26,10 +26,10 @@ const DEFAULT_SERVER: ServerConfig = {
   fast_4b_url: DEFAULT_QWEN3_4B_TUNNEL_URL, // Fast Synthesis Node: Qwen3-4B (Permanent Ngrok Tunnel)
   reasoning_url: 'http://192.168.1.17:11434',
   connectionStatus: 'connected',
-  primaryStatus: 'connected',
+  primaryStatus: 'disconnected',
   coderStatus: 'connected',
   visionStatus: 'connected',
-  fast4bStatus: 'connected',
+  fast4bStatus: 'disconnected',
   reasoningStatus: 'disconnected',
 }
 
@@ -43,7 +43,7 @@ export const useServerStore = create<ServerStore>()(
         set((state) => ({
           server: { ...state.server, ...updates },
         })),
-      checkConnection: async () => {
+      checkConnection: async (silent: boolean = false) => {
         set({ isChecking: true })
         set((state) => ({
           server: {
@@ -89,13 +89,15 @@ export const useServerStore = create<ServerStore>()(
           },
         })
 
-        const addToast = useToastStore.getState().addToast
-        const activeCount = [primarySuccess, coderSuccess, visionSuccess, fast4bSuccess, reasoningSuccess].filter(Boolean).length
-        addToast({
-          type: activeCount > 0 ? 'success' : 'warning',
-          title: `Cluster Check Complete (${activeCount}/5 Online)`,
-          message: `Primary: ${primarySuccess ? 'OK' : 'Offline'} | Vision: ${visionSuccess ? 'OK' : 'Offline'} | Fast 4B: ${fast4bSuccess ? 'OK' : 'Offline'} | Coder: ${coderSuccess ? 'OK' : 'Offline'}`,
-        })
+        if (!silent) {
+          const addToast = useToastStore.getState().addToast
+          const activeCount = [primarySuccess, coderSuccess, visionSuccess, fast4bSuccess, reasoningSuccess].filter(Boolean).length
+          addToast({
+            type: activeCount > 0 ? 'success' : 'warning',
+            title: `Cluster Check Complete (${activeCount}/5 Online)`,
+            message: `Primary: ${primarySuccess ? 'OK' : 'Offline'} | Vision: ${visionSuccess ? 'OK' : 'Offline'} | Fast 4B: ${fast4bSuccess ? 'OK' : 'Offline'} | Coder: ${coderSuccess ? 'OK' : 'Offline'}`,
+          })
+        }
       },
       checkIndividual: async (node: ClusterNodeKey) => {
         const statusMap: Record<ClusterNodeKey, keyof ServerConfig> = {
@@ -151,7 +153,7 @@ export const useServerStore = create<ServerStore>()(
       },
     }),
     {
-      name: 'aira-server-config-v6',
+      name: 'aira-server-config-v7',
       onRehydrateStorage: () => (state) => {
         if (state && state.server) {
           if (!state.server.g15_1_url || state.server.g15_1_url.includes('trycloudflare.com')) {

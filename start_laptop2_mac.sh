@@ -12,9 +12,10 @@ echo "  Model: Qwen2.5-VL:3b (Multimodal & Vision)        "
 echo "==================================================="
 echo ""
 
-# 1. Ensure Ollama listens on all network interfaces (LAN accessible by Laptop 1)
+# 1. Ensure Ollama listens on all network interfaces (LAN accessible by Laptop 1) and permits Vercel CORS
 export OLLAMA_HOST="0.0.0.0:11434"
 export OLLAMA_FLASH_ATTENTION=1
+export OLLAMA_ORIGINS="*"
 
 # 2. Check if Ollama is running
 if pgrep -x "ollama" >/dev/null; then

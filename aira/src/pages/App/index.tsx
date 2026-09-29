@@ -17,6 +17,7 @@ import { GradientWave } from '../../components/ui/gradient-wave'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useArtifactStore } from '../../stores/artifactStore'
 import { useAuthStore } from '../../stores/authStore'
+import { useServerStore } from '../../stores/serverStore'
 import { NamePromptModal } from '../../components/auth/NamePromptModal'
 import { AuthModal } from '../../components/auth/AuthModal'
 
@@ -58,9 +59,10 @@ export const AppShell: React.FC = () => {
     setIsMobileSidebarOpen(false)
   }, [location.pathname])
 
-  // Initialize Supabase Auth & Session Listener
+  // Initialize Supabase Auth & Session Listener, and verify cluster health
   useEffect(() => {
     useAuthStore.getState().initialize()
+    useServerStore.getState().checkConnection(true)
   }, [])
 
   const handleOpenSettings = (tab: string = 'general') => {
