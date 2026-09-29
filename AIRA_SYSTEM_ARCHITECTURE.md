@@ -20,52 +20,52 @@ AIRA is engineered as an on-premise, air-gapped sovereign intelligence platform 
 
 ---
 
-## 2. Full Horizontal System Architecture Diagram (7 Columns: Left-to-Right)
+## 2. Complete Deep System Architecture Diagram (Unified Vertical Flow)
 
 ```mermaid
-flowchart LR
+flowchart TD
     %% =========================================================================
-    %% COLUMN 1: CLIENT ACCESS & CLAUDE-CLASS WORKBENCH
+    %% 1. SOVEREIGN CLIENT ACCESS & CLAUDE-CLASS INTERACTIVE WORKBENCH
     %% =========================================================================
-    subgraph COL1["1. Access & Client Workbench"]
-        direction TB
-        UI_Web["AIRA Web Workbench\n(React 18 + Vite)"]
-        UI_Canvas["Interactive Artifact Canvas\n(Monaco / HTML / SVG)"]
-        UI_Orbs["Cognitive Telemetry\n(ThinkingOrbs CoT Stream)"]
-        RBAC["Sovereign RBAC Auth\n(Zero-Trust Boundary)"]
-        
+    subgraph L1["1. Sovereign Client Access & Claude-Class Interactive Workbench"]
+        direction LR
+        UI_Web["AIRA Web Workbench<br/>(React 18 + Vite + Tailwind)"]
+        UI_Canvas["Interactive Artifact Canvas<br/>(Monaco Code / HTML / SVG Preview)"]
+        UI_Orbs["Cognitive Orbital Telemetry<br/>(ThinkingOrbs Live CoT Stream)"]
+        RBAC["Sovereign RBAC & Local Identity<br/>(Zero-Trust Boundary)"]
+
         UI_Web <--> UI_Canvas
         UI_Web --> UI_Orbs
         UI_Web --> RBAC
     end
 
     %% =========================================================================
-    %% COLUMN 2: DYNAMIC AUTONOMY CONTROLLER
+    %% 2. DYNAMIC AUTONOMY CONTROLLER & COGNITIVE GOVERNOR
     %% =========================================================================
-    subgraph COL2["2. Dynamic Autonomy Control"]
-        direction TB
-        Risk_Class["Risk Classifier\n(Level 1 / 2 / 3)"]
-        Budget_Engine["Thinking Token Budgeter\n(Adaptive CoT Depth)"]
-        ReAct_Plan["ReAct Agentic Planner\n(Task Decomposition)"]
-        Auto_Pipe["Autonomous Pipeline\n(10-Step Ingestion)"]
-        User_Mem["Episodic Memory\n(User Habits & Past Edits)"]
-        
+    subgraph L2["2. Dynamic Autonomy Controller & Cognitive Governor"]
+        direction LR
+        Risk_Class["Risk & Sensitivity Classifier<br/>(Level 1: Assist | Level 2: Calc | Level 3: Swarm)"]
+        Budget_Engine["Thinking Token Budgeter<br/>(Adaptive CoT 1k-8k Tokens)"]
+        ReAct_Plan["ReAct Agentic Planner<br/>(Task Decomposition & Tool Selection)"]
+        Auto_Pipe["Autonomous 10-Step Pipeline<br/>(Event-Driven Document Ingestion)"]
+        User_Mem["Episodic User Memory<br/>(Preferences & Past Work Orders)"]
+
         Risk_Class --> Budget_Engine --> ReAct_Plan
         Risk_Class --> Auto_Pipe
         User_Mem --> ReAct_Plan
     end
 
     %% =========================================================================
-    %% COLUMN 3: T-KOG & HYBRID KNOWLEDGE CORE
+    %% 3. T-KOG: TEMPORAL OFFICIAL KNOWLEDGE GRAPH & HYBRID RETRIEVAL
     %% =========================================================================
-    subgraph COL3["3. T-KOG & Knowledge Core"]
-        direction TB
-        Vec_Store[("Dense Vector Store\n(SOPs, Standards)")]
-        Plant_Graph[("Plant Knowledge Graph\n(NetworkX Topology)")]
-        Doc_Lineage[("Version Lineage\n(OISD / API Supersession)")]
-        Delta_T["Delta-t Degradation Engine\n(Corrosion / SLA Drift)"]
-        Easy_OCR["Multilingual EasyOCR\n(Hindi & English Text)"]
-        
+    subgraph L3["3. T-KOG: Temporal Official Knowledge Graph & Hybrid Retrieval"]
+        direction LR
+        Vec_Store[("Dense Vector Store<br/>(ChromaDB / SOPs, Manuals, Standards)")]
+        Plant_Graph[("Plant Topology Graph<br/>(NetworkX Equipment Connectivity)")]
+        Doc_Lineage[("Version Lineage Store<br/>(OISD / API Supersession & History)")]
+        Delta_T["Delta-t Degradation Engine<br/>(Corrosion Rate, Wall Thinning & SLA Drift)"]
+        Easy_OCR["Multilingual EasyOCR Engine<br/>(Physical Scans & Hindi/English Text)"]
+
         Easy_OCR --> Vec_Store
         Easy_OCR --> Plant_Graph
         Plant_Graph <--> Delta_T
@@ -73,16 +73,16 @@ flowchart LR
     end
 
     %% =========================================================================
-    %% COLUMN 4: SOVEREIGN AGENT FABRIC (MCP / A2A)
+    %% 4. SOVEREIGN AGENT FABRIC & DISTRIBUTED GPU SWARM (MCP / A2A)
     %% =========================================================================
-    subgraph COL4["4. Sovereign Agent Fabric"]
-        direction TB
-        MCP_Host["Native MCP Server\n(JSON-RPC 2.0 Router)"]
-        Cluster_LB["Cluster Load Balancer\n(Circuit Breakers)"]
-        Node1["Master Orchestrator\n(Laptop 1: Qwen3-8B)"]
-        Node2["Vision Specialist\n(Laptop 2: Qwen2.5-VL)"]
-        Node3["Coder / Fast QA\n(Laptop 3: Qwen3-4B)"]
-        
+    subgraph L4["4. Sovereign Agent Fabric & Distributed GPU Swarm (MCP / A2A)"]
+        direction LR
+        MCP_Host["Native MCP Server (JSON-RPC 2.0)<br/>(Dynamic Tool Discovery: tools/list & tools/call)"]
+        Cluster_LB["Cluster Load Balancer & Tunnel Router<br/>(VRAM Budgeting & Circuit Breakers)"]
+        Node1["Master Orchestrator (Laptop 1)<br/>Qwen3-8B (Reasoning & Synthesis)"]
+        Node2["Multimodal Vision Node (Laptop 2)<br/>Qwen2.5-VL (P&IDs & Blueprints)"]
+        Node3["Fast Coder & QA Node (Laptop 3)<br/>Qwen3-4B / Qwen2.5-Coder (Math & Scripts)"]
+
         MCP_Host <--> Cluster_LB
         Cluster_LB --> Node1
         Cluster_LB --> Node2
@@ -90,184 +90,70 @@ flowchart LR
     end
 
     %% =========================================================================
-    %% COLUMN 5: DUAL VERIFICATION & COUNCIL
+    %% 5. DUAL VERIFICATION & MULTI-MODEL COUNCIL LAYER
     %% =========================================================================
-    subgraph COL5["5. Verification & Council"]
-        direction TB
-        ToT["Tree-of-Thought (ToT)\n(Deterministic Constraints)"]
-        Council["Council Consensus Engine\n(Multi-Model Cross-Check)"]
-        Safety_OISD["OISD Refinery Guardrails\n(Statutory Policy Filter)"]
-        Contradict_Check["Contradiction Firewall\n(Cross-Doc Validation)"]
-        
+    subgraph L5["5. Dual Verification & Multi-Model Council Layer"]
+        direction LR
+        ToT["Tree-of-Thought (ToT) Verifier<br/>(Deterministic Falsification Criteria)"]
+        Council["Council Consensus Engine<br/>(Multi-Model Cross-Validation)"]
+        Safety_OISD["OISD Refinery Guardrails<br/>(Statutory Safety Boundary Filter)"]
+        Contradict_Check["Contradiction Firewall<br/>(Cross-Document & Baseline Check)"]
+
         ToT --> Council --> Safety_OISD
         Contradict_Check --> Safety_OISD
     end
 
     %% =========================================================================
-    %% COLUMN 6: POLICY BOUND SANDBOX RUNTIME
+    %% 6. POLICY BOUND AGENT & ZERO-TRUST SANDBOX RUNTIME
     %% =========================================================================
-    subgraph COL6["6. Policy Bound Sandbox"]
-        direction TB
-        Path_Shield["Path Traversal Shield\n(Workspace Perimeter)"]
-        SQL_Guard["Read-Only SQL Guard\n(SELECT Enforcer)"]
-        Sandbox_Run["Python Code Sandbox\n(/inputs/ -> /scratch/ -> /outputs/)"]
-        OOXML_QA["3-Layer OOXML QA\n(Content, File, Visual)"]
-        Audit_DB[("Immutable Audit Trail\n(zingo_audit.db)")]
-        
+    subgraph L6["6. Policy Bound Agent & Zero-Trust Sandbox Runtime"]
+        direction LR
+        Path_Shield["Path Traversal Defense<br/>(Strict Workspace Boundary Enforcer)"]
+        SQL_Guard["Read-Only SQL Enforcer<br/>(Destructive Query Blockage)"]
+        Sandbox_Run["Sandboxed Python/Bash Runtime<br/>(/inputs/ -> /scratch/ -> /outputs/)"]
+        OOXML_QA["3-Layer OOXML QA Pipeline<br/>(Content, File & Visual Validation)"]
+        Audit_DB[("Immutable Audit Trail<br/>(zingo_audit.db / Hashes)")]
+
         Path_Shield --> Sandbox_Run
         SQL_Guard --> Sandbox_Run
         Sandbox_Run --> OOXML_QA
     end
 
     %% =========================================================================
-    %% COLUMN 7: ARTIFACT DELIVERY & BEHAVIORAL LOOP
+    %% 7. CLAUDE-STYLE ARTIFACT DELIVERY & BEHAVIORAL LEARNING LOOP
     %% =========================================================================
-    subgraph COL7["7. Artifacts & Learning"]
-        direction TB
-        Stream_Out["KaTeX & Markdown Stream\n(Real-Time SSE)"]
-        Deck_Gen["pptxgenjs Deck Compiler\n(16:9 Presentation)"]
-        Doc_Exporter["Report Exporter\n(PDF, DOCX, XLSX)"]
-        Action_Alerts["Signed Action Notes\n(Engineer Dispatch)"]
-        Learn_Engine["Behavioral Learning Loop\n(Diff Promotion >= 3)"]
-        
+    subgraph L7["7. Claude-Style Artifact Delivery & Behavioral Learning Loop"]
+        direction LR
+        Stream_Out["Live KaTeX & Markdown Stream<br/>(Real-Time SSE Token Stream)"]
+        Deck_Gen["Presentation Engine<br/>(pptxgenjs 16:9 Deck Compiler)"]
+        Doc_Exporter["Executive Report Exporter<br/>(Production .docx, .xlsx, .pdf)"]
+        Action_Alerts["Role-Targeted Action Notes<br/>(Automated Engineer Dispatch & Signoff)"]
+        Learn_Engine["Behavioral Learning Engine<br/>(Diff Extraction & Rule Promotion >= 3)"]
+
         Action_Alerts --> Learn_Engine
     end
 
     %% =========================================================================
-    %% CROSS-COLUMN CONNECTIONS (FLOWING LEFT-TO-RIGHT)
+    %% UNIFIED TOP-TO-BOTTOM VERTICAL CONNECTIONS
     %% =========================================================================
-    RBAC -->|"User Prompt & Identity"| Risk_Class
-    ReAct_Plan <-->|"Hybrid Graph-RAG"| COL3
-    ReAct_Plan -->|"Dispatches Approved Calls"| MCP_Host
-    
-    Node1 & Node2 & Node3 --> ToT
-    Delta_T --> Contradict_Check
-    
-    Safety_OISD --> Sandbox_Run
-    Safety_OISD -.->|"Tamper-Proof Audit"| Audit_DB
-    
-    OOXML_QA --> Deck_Gen
-    OOXML_QA --> Doc_Exporter
-    Safety_OISD --> Stream_Out
-    Safety_OISD --> Action_Alerts
-    
-    Learn_Engine -.->|"Promoted Prompt Rules"| User_Mem
-    Stream_Out -.->|"Token Feed"| UI_Canvas
+    RBAC -->|"1. Governed Query & Role Clearance"| Risk_Class
+    ReAct_Plan <-->|"2. Hybrid Graph-RAG Retrieval"| Vec_Store & Plant_Graph
+    ReAct_Plan -->|"3. Approved MCP Tool Dispatch"| MCP_Host
+    Node1 & Node2 & Node3 -->|"4. Candidate Reasoning Outputs"| ToT
+    Delta_T -->|"Historical Degradation Drift"| Contradict_Check
+    Safety_OISD -->|"5. Enforce Statutory Boundaries"| Sandbox_Run
+    Safety_OISD -.->|"Tamper-Proof Audit Logging"| Audit_DB
+    OOXML_QA -->|"Validated Presentation Package"| Deck_Gen
+    OOXML_QA -->|"Validated Executive Document"| Doc_Exporter
+    Safety_OISD -->|"6. Emit Verified Content"| Stream_Out
+    Safety_OISD -->|"Anomalies Requiring Action"| Action_Alerts
+    Learn_Engine -.->|"Promoted Rules & Learned Preferences"| User_Mem
+    Stream_Out -.->|"7. Real-Time Token Feed"| UI_Canvas
 ```
 
 ---
 
-## 3. Tiered System Architecture Diagram (7 Horizontal Tiers: Top-to-Bottom)
-
-```mermaid
-flowchart TB
-    %% TIER 1
-    subgraph T1["Tier 1: Sovereign Client Access & Claude-Class Interactive Workbench"]
-        direction LR
-        W_UI["AIRA Web Workbench (React 18 + Vite)"]
-        W_Can["Interactive Artifact Canvas (Monaco / HTML / SVG)"]
-        W_Orb["Cognitive Orbital Telemetry (ThinkingOrbs)"]
-        W_Auth["Sovereign RBAC & Local Zero-Trust Identity"]
-        W_UI <--> W_Can
-        W_UI --> W_Orb
-        W_UI --> W_Auth
-    end
-
-    %% TIER 2
-    subgraph T2["Tier 2: Dynamic Autonomy Controller & Cognitive Governor"]
-        direction LR
-        D_Risk["Risk & Sensitivity Classifier (L1 Assist / L2 Calc / L3 Swarm)"]
-        D_Budg["Thinking Token Budgeter (Adaptive CoT)"]
-        D_Plan["ReAct Agentic Planner (Task Decomposition)"]
-        D_Pipe["Autonomous 10-Step Ingestion Coordinator"]
-        D_Mem["Episodic User Memory & Historical Preferences"]
-        D_Risk --> D_Budg --> D_Plan
-        D_Risk --> D_Pipe
-        D_Mem --> D_Plan
-    end
-
-    %% TIER 3
-    subgraph T3["Tier 3: T-KOG — Temporal Official Knowledge Graph & Hybrid Retrieval"]
-        direction LR
-        K_Vec[("Dense Vector Store (ChromaDB / SOPs & Standards)")]
-        K_Graph[("Plant Topology Graph (NetworkX Equipment Connectivity)")]
-        K_Ver[("Document Version Lineage (OISD / API Supersession)")]
-        K_Delta["Delta-t Degradation Engine (Corrosion & SLA Drift)"]
-        K_OCR["Multilingual EasyOCR Engine (Hindi / English Scans)"]
-        K_OCR --> K_Vec
-        K_OCR --> K_Graph
-        K_Graph <--> K_Delta
-        K_Ver <--> K_Vec
-    end
-
-    %% TIER 4
-    subgraph T4["Tier 4: Sovereign Agent Fabric & Distributed GPU Cluster (MCP / A2A)"]
-        direction LR
-        F_MCP["Native MCP JSON-RPC 2.0 Host (Tool Discovery & Execution)"]
-        F_LB["Cluster Load Balancer & Tunnel Router (Circuit Breakers)"]
-        F_N1["Master Node 1: Qwen3-8B (Reasoning & Orchestration)"]
-        F_N2["Vision Node 2: Qwen2.5-VL (P&IDs & Blueprints)"]
-        F_N3["Coder Node 3: Qwen3-4B / Qwen2.5-Coder (Math & Scripts)"]
-        F_MCP <--> F_LB
-        F_LB --> F_N1
-        F_LB --> F_N2
-        F_LB --> F_N3
-    end
-
-    %% TIER 5
-    subgraph T5["Tier 5: Dual Verification & Multi-Model Council Layer"]
-        direction LR
-        V_ToT["Tree-of-Thought (ToT) Verifier (Deterministic Constraints)"]
-        V_Coun["Council Consensus Engine (Multi-Model Cross-Check)"]
-        V_Safe["OISD Refinery Guardrails (Statutory Safety Filter)"]
-        V_Contra["Contradiction Firewall (Historical Cross-Doc Scan)"]
-        V_ToT --> V_Coun --> V_Safe
-        V_Contra --> V_Safe
-    end
-
-    %% TIER 6
-    subgraph T6["Tier 6: Policy Bound Agent & Zero-Trust Sandbox Runtime"]
-        direction LR
-        S_Path["Path Traversal Defense (Workspace Shield)"]
-        S_SQL["Read-Only SQL Guard (SELECT Enforcer)"]
-        S_Run["Sandboxed Python/Bash Runtime (/inputs/ -> /scratch/ -> /outputs/)"]
-        S_QA["3-Layer OOXML Deliverable QA (Content, File, Visual)"]
-        S_Aud[("Immutable Audit Trail (zingo_audit.db / Hashes)")]
-        S_Path --> S_Run
-        S_SQL --> S_Run
-        S_Run --> S_QA
-    end
-
-    %% TIER 7
-    subgraph T7["Tier 7: Claude-Style Artifact Delivery & Behavioral Learning Loop"]
-        direction LR
-        O_Stream["Live Streamed KaTeX & Markdown (SSE Telemetry)"]
-        O_Deck["Presentation Engine (pptxgenjs 16:9 Compiler)"]
-        O_Doc["Artifact Exporter (Production .docx, .xlsx, .pdf)"]
-        O_Note["Signed Action Notes (Role Dispatch & Work Orders)"]
-        O_Learn["Behavioral Learning Engine (Diff Promotion >= 3)"]
-        O_Note --> O_Learn
-    end
-
-    %% INTER-TIER FLOWS
-    W_Auth -->|"Governed Query"| D_Risk
-    D_Plan <-->|"Hybrid Graph-RAG Retrieval"| T3
-    D_Plan -->|"Approved Tool Invocations"| F_MCP
-    F_N1 & F_N2 & F_N3 --> V_ToT
-    K_Delta --> V_Contra
-    V_Safe --> S_Run
-    V_Safe -.->|"Tamper-Proof Audit Logging"| S_Aud
-    S_QA --> O_Deck
-    S_QA --> O_Doc
-    V_Safe --> O_Stream
-    V_Safe --> O_Note
-    O_Learn -.->|"Promoted Statutory Preferences"| D_Mem
-    O_Stream -.->|"Real-Time Token Stream"| W_Can
-```
-
----
-
-## 4. Deep Layer-by-Layer Technical Specification
+## 3. Deep Layer-by-Layer Technical Specification
 
 ### Layer 1: Sovereign Client Access & Claude-Class Interactive Workbench
 * **Workbench UI (`/aira`)**: Built on React 18, Vite 6, Tailwind CSS, and Framer Motion. Designed with an ultra-clean, Claude-inspired typographic hierarchy (Newsreader serif headers + Plus Jakarta Sans body) to minimize cognitive fatigue during complex engineering shifts.
