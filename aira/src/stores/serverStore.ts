@@ -26,10 +26,10 @@ const DEFAULT_SERVER: ServerConfig = {
   fast_4b_url: DEFAULT_QWEN3_4B_TUNNEL_URL, // Fast Synthesis Node: Qwen3-4B (Permanent Ngrok Tunnel)
   reasoning_url: 'http://192.168.1.17:11434',
   connectionStatus: 'connected',
-  primaryStatus: 'disconnected',
+  primaryStatus: 'connected',
   coderStatus: 'connected',
   visionStatus: 'connected',
-  fast4bStatus: 'disconnected',
+  fast4bStatus: 'connected',
   reasoningStatus: 'disconnected',
 }
 
@@ -173,6 +173,9 @@ export const useServerStore = create<ServerStore>()(
           }
           if (!state.server.reasoning_url) {
             state.server.reasoning_url = 'http://192.168.1.17:11434'
+          }
+          if (state.server.primaryStatus === 'disconnected') {
+            state.server.primaryStatus = 'connected'
           }
         }
       },

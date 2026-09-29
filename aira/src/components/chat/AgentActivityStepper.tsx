@@ -31,6 +31,15 @@ interface AgentActivityStepperProps {
 
 function getToolIcon(tool: string) {
   const t = (tool || '').toLowerCase()
+  if (t === 'master_strategist' || t.includes('strategist')) {
+    return <Sparkles size={13} className="text-amber-400" />
+  }
+  if (t === 'content_specialist' || t.includes('specialist')) {
+    return <Layers size={13} className="text-sky-400" />
+  }
+  if (t === 'visual_architect' || t.includes('visual')) {
+    return <Presentation size={13} className="text-violet-400" />
+  }
   if (t.includes('presentation') || t.includes('ppt') || t.includes('slide')) {
     return <Presentation size={13} className="text-amber-400" />
   }
@@ -54,7 +63,10 @@ function getToolIcon(tool: string) {
 
 function getToolLabel(tool: string) {
   const t = (tool || '').toLowerCase()
-  if (t.includes('presentation')) return 'Presentation Engine'
+  if (t === 'master_strategist' || t.includes('strategist')) return 'Laptop 1 (Master Strategist · Qwen3-8B)'
+  if (t === 'content_specialist' || t.includes('specialist')) return 'Laptop 3 (Content & Metrics · Qwen3-4B)'
+  if (t === 'visual_architect' || t.includes('visual')) return 'Laptop 2 (Visual Architect · Qwen2.5-VL)'
+  if (t.includes('presentation')) return 'Python PowerPoint Engine (.pptx)'
   if (t.includes('knowledge') || t.includes('rag')) return 'Industrial Knowledge Index'
   if (t.includes('document')) return 'Document Ingestion'
   if (t.includes('python') || t.includes('sandbox')) return 'Python Code Sandbox'

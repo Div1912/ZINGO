@@ -119,24 +119,25 @@ class ClusterLoadBalancer:
         model_req = (requested_model or "").strip().lower()
         is_auto = not model_req or model_req in ("auto", "auto (recommended)", "auto (cluster smart router)")
 
-        # 1. Vision constraint: MUST use Laptop 2 (qwen2.5-vl:3b)
-        if has_images or task_type == "vision" or "vl" in model_req or "vision" in model_req:
+        # 1. Explicit user selection: NEVER override explicit user choices!
+        if not is_auto:
+            if "vl" in model_req or "vision" in model_req or "2.5" in model_req:
+                return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+            if "4b" in model_req:
+                return laptop3_endpoint, "qwen3:4b", "laptop3"
+            if "8b" in model_req or model_req == "qwen3:8b":
+                return laptop1_endpoint, "qwen3:8b", "primary"
+            # Any other custom or specific model: route to primary master node
+            return laptop1_endpoint, requested_model, "primary"
+
+        # 2. Dynamic Auto Task Routing across 3 laptops:
+        # Vision constraint: MUST use Laptop 2 (qwen2.5-vl:3b)
+        if has_images or task_type == "vision":
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
-        # 2. Fast / 4B constraint: MUST use Laptop 3 (qwen3:4b) if online, otherwise cascade to Laptop 2
-        #    only if Laptop 2 is actually confirmed healthy (never blindly assume it).
-        if "4b" in model_req:
-            try:
-                from subagent_engine import is_cluster_node_healthy
-                if not is_cluster_node_healthy(self.laptop3_url) and is_cluster_node_healthy(self.laptop2_url):
-                    return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
-            except Exception:
-                pass
-            return laptop3_endpoint, "qwen3:4b", "laptop3"
-
-        # 3. Dynamic Auto Task Routing across 3 laptops:
+        # Fast constraint: use Laptop 3 (qwen3:4b) if online
         normalized_task = (task_type or "chat").lower()
-        if is_auto and normalized_task in ("fast", "lightweight", "quick", "outline"):
+        if normalized_task in ("fast", "lightweight", "quick", "outline"):
             try:
                 from subagent_engine import is_cluster_node_healthy
                 if is_cluster_node_healthy(self.laptop3_url):
@@ -145,19 +146,10 @@ class ClusterLoadBalancer:
                     return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
             except Exception:
                 pass
-            # Neither worker confirmed healthy: fall through to the general routing logic below
-            # instead of blindly assuming Laptop 2 is reachable.
 
-        # 4. Master Node check: Is Laptop 1 (8B) actually available?
-        laptop1_available = "qwen3:8b" in local_models
-        if not laptop1_available and local_models:
-            # Local Ollama is on a worker node (e.g. qwen2.5-vl:3b on Laptop 2) without 8B
-            laptop1_available = False
-
-        if not laptop1_available and (is_auto or "8b" in model_req or not model_req):
-            # Laptop 1 (8b) is offline: Failover automatically to online cluster worker nodes.
-            # Only route to a worker if it is actually confirmed healthy — never blindly assume
-            # Laptop 2 is up just because Laptop 3 wasn't reachable.
+        # 3. Master Node check: Laptop 1 (8B)
+        laptop1_available = "qwen3:8b" in local_models or not local_models
+        if not laptop1_available:
             try:
                 from subagent_engine import is_cluster_node_healthy
                 if is_cluster_node_healthy(self.laptop3_url):
@@ -166,11 +158,8 @@ class ClusterLoadBalancer:
                     return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
             except Exception:
                 pass
-            # No worker node is confirmed healthy either: fall through and attempt the primary
-            # endpoint anyway so the caller gets a real connection error instead of a silently
-            # mislabeled response from a node that was never actually verified reachable.
 
-        # 5. Master Node (Laptop 1): Qwen3:8b for Document Synthesis, Presentations, Code, Engineering & Standard Chat
+        # 4. Master Node (Laptop 1): Qwen3:8b for Document Synthesis, Presentations, Code, Engineering & Standard Chat
         primary_model = "qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b")
         return laptop1_endpoint, primary_model, "primary"
 
@@ -1105,6 +1094,7 @@ async def process_and_ask(
                         primary_url=target_endpoint,
                         primary_model=target_model,
                         fast_node_url=cluster_balancer.laptop3_url,
+                        vision_node_url=cluster_balancer.laptop2_url,
                         initial_tools=tools_executed,
                     ),
                     node_key,
@@ -1114,11 +1104,12 @@ async def process_and_ask(
 
         # Synchronous fallback:
         deck_id = f"deck_{int(time.time())}"
-        slides, researched_data, manifest_json, ppt_tools = generate_presentation_2model_synergy(
+        slides, researched_data, manifest_json, ppt_tools = generate_presentation_3node_synergy(
             query=user_query,
             primary_url=MODEL_ENDPOINT,
             primary_model=target_model,
             fast_node_url=cluster_balancer.laptop3_url,
+            vision_node_url=cluster_balancer.laptop2_url,
             deck_id=deck_id,
         )
         tools_executed.extend(ppt_tools)
@@ -1127,7 +1118,7 @@ async def process_and_ask(
         )
         instruction = f"{instruction}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        display_model = f"{target_model} (2-Model Synergy · Domain Researcher + Slide Architect)"
+        display_model = "AIRA 3-Node Cluster Synergy (Master Qwen3-8B + Fast Qwen3-4B + Vision Qwen2.5-VL)"
     else:
         ppt_manifest_prefix = ""
         if node_key == "primary" and not images_b64 and not is_fast and not is_code:
@@ -1572,13 +1563,9 @@ async def api_chat(payload_data: ChatPayload):
     is_ppt = is_presentation_intent(question)
 
     if is_ppt:
-        target_endpoint, model, node_key = cluster_balancer.route_request(
-            has_images=False,
-            requested_model=payload_data.model,
-            custom_node_url=payload_data.node_url,
-            task_type="analysis",
-            available_local_models=available_local_models,
-        )
+        target_endpoint = MODEL_ENDPOINT
+        model = "qwen3:8b"
+        node_key = "primary"
 
         if payload_data.stream:
             on_done = None
@@ -1609,6 +1596,7 @@ async def api_chat(payload_data: ChatPayload):
                         primary_url=target_endpoint,
                         primary_model=model,
                         fast_node_url=cluster_balancer.laptop3_url,
+                        vision_node_url=cluster_balancer.laptop2_url,
                         initial_tools=tools_executed,
                     ),
                     node_key,
@@ -1618,11 +1606,12 @@ async def api_chat(payload_data: ChatPayload):
 
         # Synchronous fallback:
         deck_id = f"deck_{int(time.time())}"
-        slides, researched_data, manifest_json, ppt_tools = generate_presentation_2model_synergy(
+        slides, researched_data, manifest_json, ppt_tools = generate_presentation_3node_synergy(
             query=question,
             primary_url=MODEL_ENDPOINT,
             primary_model=model,
             fast_node_url=cluster_balancer.laptop3_url,
+            vision_node_url=cluster_balancer.laptop2_url,
             deck_id=deck_id,
         )
         tools_executed.extend(ppt_tools)
@@ -1631,7 +1620,7 @@ async def api_chat(payload_data: ChatPayload):
         )
         system = f"{system}\n\n{get_presentation_briefing_instruction(manifest_json)}"
         cfg["options"]["num_predict"] = max(cfg["options"].get("num_predict", 1024), 4096)
-        display_model = f"{model} (2-Model Synergy · Domain Researcher + Slide Architect)"
+        display_model = "AIRA 3-Node Cluster Synergy (Master Qwen3-8B + Fast Qwen3-4B + Vision Qwen2.5-VL)"
     else:
         ppt_manifest_prefix = ""
         if node_key == "primary" and not payload_data.images and not is_fast_mode and not is_code_or_debug:

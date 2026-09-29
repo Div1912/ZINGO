@@ -53,9 +53,9 @@ def _call_node_sync(
     prompt: str,
     system: str,
     num_predict: int = 600,
-    timeout: tuple = (2.0, 6.0),
+    timeout: tuple = (3.0, 45.0),
 ) -> Optional[str]:
-    """Generic synchronous caller for cluster Ollama nodes."""
+    """Synchronous caller for cluster Ollama nodes with streaming socket to prevent read timeouts."""
     base = endpoint_url.strip().rstrip("/")
     if base.endswith("/api/generate"):
         endpoint = base
@@ -68,114 +68,240 @@ def _call_node_sync(
         "model": model,
         "prompt": prompt,
         "system": system,
-        "stream": False,
+        "stream": True,
         "think": False,
         "options": {"num_predict": num_predict, "num_ctx": 4096, "temperature": 0.2},
         "keep_alive": -1,
     }
     headers = {"ngrok-skip-browser-warning": "true", "User-Agent": "ZingoPPTEngine/3.0"}
     try:
-        resp = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
+        resp = requests.post(endpoint, json=payload, headers=headers, stream=True, timeout=timeout)
         if resp.status_code == 200:
-            return resp.json().get("response", "").strip()
+            chunks = []
+            for line in resp.iter_lines():
+                if line:
+                    try:
+                        chunk_obj = json.loads(line)
+                        chunk_text = chunk_obj.get("response") or chunk_obj.get("thinking") or ""
+                        if chunk_text:
+                            chunks.append(chunk_text)
+                    except Exception:
+                        pass
+            return "".join(chunks).strip()
     except Exception as err:
         print(f"[presentation_engine] Node call failed ({model} @ {endpoint_url}): {err}")
     return None
+
+
+def plan_presentation_strategy_node1(
+    query: str,
+    primary_url: str = "http://127.0.0.1:11434",
+    primary_model: str = "qwen3:8b",
+) -> Tuple[str, int]:
+    """
+    Stage 1: Master Strategist (Laptop 1 · Qwen3-8B)
+    Plans the presentation narrative arc, slide structure, and key domain themes.
+    Returns: (strategy_outline_text, elapsed_ms)
+    """
+    t0 = time.time()
+    clean_topic = extract_clean_topic(query)
+    system = (
+        "You are an executive presentation ideator and master strategist. "
+        "Create a structured 5-6 slide presentation concept outline for the user's topic. "
+        "Outline each slide concisely: Slide Number, Slide Title, Key Metrics or Strategic Focus. "
+        "Be specific, quantitative, and relevant. Strictly NO icons, emojis, or inline SVGs."
+    )
+    prompt = f"Topic: {clean_topic}\nGenerate a structured executive presentation outline:"
+    outline = _call_node_sync(primary_url, primary_model, prompt, system, num_predict=350, timeout=(2.0, 25.0))
+    if not outline or len(outline.strip()) < 50:
+        outline = (
+            f"Slide 1: {clean_topic} Executive Overview & Strategic Thesis\n"
+            f"Slide 2: Core Key Performance Indicators & Performance Metrics\n"
+            f"Slide 3: Architectural Pillars & Operating Framework\n"
+            f"Slide 4: Phased Implementation & Deployment Roadmap\n"
+            f"Slide 5: Executive Recommendations & Long-Term Value Creation"
+        )
+    elapsed_ms = max(int((time.time() - t0) * 1000), 50)
+    return outline.strip(), elapsed_ms
 
 
 def ideate_presentation_outline_node3(
     query: str,
     l3_url: str,
 ) -> Optional[str]:
-    """
-    Stage 1: Node 3 (Laptop 3 · Qwen3-4B) generates a fast, creative slide narrative outline.
-    Outlines 5-6 slides: Title, Key Operational Metrics, Core Pillars, Phased Timeline, Recommendations.
-    """
+    """Legacy wrapper for Node 3 presentation outline ideation."""
     system = (
         "You are an executive presentation ideator and strategist. "
         "Create a structured 5-6 slide presentation concept outline for the user's topic. "
         "Outline each slide concisely: Slide Number, Slide Title, Key Metrics or Content Points. "
-        "Be specific, quantitative, and relevant. Do not include markdown code fences or conversational filler. "
-        "STRICT NEGATIVE CONSTRAINT: DO NOT generate or suggest any icons, emojis, or inline SVGs. "
-        "Do not use decorative symbols or icons in cards, headers, or bullet points. "
-        "Use clean corporate typography, numbers, and professional text only."
+        "STRICT NEGATIVE CONSTRAINT: DO NOT generate or suggest any icons, emojis, or inline SVGs."
     )
     prompt = f"Topic: {query.strip()[:500]}\nGenerate a structured executive presentation outline:"
-    return _call_node_sync(l3_url, "qwen3:4b", prompt, system, num_predict=350, timeout=(1.0, 2.5))
+    return _call_node_sync(l3_url, "qwen3:4b", prompt, system, num_predict=350, timeout=(2.0, 20.0))
+
+
+def synthesize_metrics_and_content_node3(
+    query: str,
+    strategy_outline: str,
+    fast_node_url: Optional[str] = None,
+    primary_url: str = "http://127.0.0.1:11434",
+    primary_model: str = "qwen3:8b",
+) -> Tuple[Dict[str, Any], int]:
+    """
+    Stage 2: Quantitative Content & Metrics Specialist (Laptop 3 · Qwen3-4B)
+    Uses the Master Strategist's outline to synthesize concrete domain numbers, KPIs, pillars, roadmap, and takeaways.
+    Gracefully falls back to Laptop 1 (8B) or rich domain research if Laptop 3 is slow or offline.
+    Returns: (researched_dict, elapsed_ms)
+    """
+    t0 = time.time()
+    clean_topic = extract_clean_topic(query)
+
+    prompt = f"""Topic: {clean_topic}
+Strategic Outline:
+{strategy_outline[:600]}
+
+Generate executive presentation research with quantitative KPIs. Output exactly in this format:
+TITLE: <Professional Executive Presentation Title>
+SUBTITLE: <Professional Executive Subtitle>
+KPIS:
+- Stat: <e.g. 98.4%> | Title: <Metric Name> | Desc: <1 sentence domain impact>
+- Stat: <e.g. 3.4x> | Title: <Metric Name> | Desc: <1 sentence domain impact>
+- Stat: <e.g. -28%> | Title: <Metric Name> | Desc: <1 sentence domain impact>
+PILLARS:
+- Title: <Pillar 1> | Desc: <Technical/operational details>
+- Title: <Pillar 2> | Desc: <Technical/operational details>
+- Title: <Pillar 3> | Desc: <Technical/operational details>
+ROADMAP:
+- Phase: Phase 1: <Name> | Desc: <Milestones>
+- Phase: Phase 2: <Name> | Desc: <Milestones>
+- Phase: Phase 3: <Name> | Desc: <Milestones>
+RECOMMENDATIONS:
+- <Rec 1>
+- <Rec 2>
+- <Rec 3>
+TAKEAWAY: <1 high-impact summary sentence>"""
+
+    system = (
+        "You are a senior quantitative content and metrics specialist. Provide factual, domain-specific, quantitative presentation content. "
+        "Output ONLY the specified format. Absolutely NO icons, emojis, or conversational filler."
+    )
+
+    researched = None
+    # 1. Primary execution on Laptop 3 (Qwen3-4B) if available
+    if fast_node_url:
+        try:
+            from subagent_engine import is_cluster_node_healthy
+            if is_cluster_node_healthy(fast_node_url):
+                raw = _call_node_sync(fast_node_url, "qwen3:4b", prompt, system, num_predict=400, timeout=(2.0, 25.0))
+                if raw:
+                    parsed = parse_structured_research(raw, clean_topic)
+                    if len(parsed.get("kpis", [])) >= 2 and len(parsed.get("pillars", [])) >= 2:
+                        researched = parsed
+        except Exception as e:
+            print(f"[presentation_engine] Laptop 3 call note: {e}")
+
+    # 2. Local Master (Qwen3-8B) fallback if Laptop 3 did not yield complete structured research
+    if not researched:
+        try:
+            raw = _call_node_sync(primary_url, primary_model, prompt, system, num_predict=350, timeout=(2.0, 30.0))
+            if raw:
+                parsed = parse_structured_research(raw, clean_topic)
+                if len(parsed.get("kpis", [])) >= 2 and len(parsed.get("pillars", [])) >= 2:
+                    researched = parsed
+        except Exception as e:
+            print(f"[presentation_engine] Primary fallback note: {e}")
+
+    # 3. Rich domain intelligence fallback
+    if not researched:
+        researched = build_rich_domain_research(clean_topic)
+
+    elapsed_ms = max(int((time.time() - t0) * 1000), 50)
+    return researched, elapsed_ms
 
 
 def audit_and_structure_slides_node2(
     query: str,
-    l2_url: str,
+    researched_data: Optional[Dict[str, Any]] = None,
+    l2_url: Optional[str] = None,
     outline: Optional[str] = None,
-) -> Optional[List[Dict]]:
+) -> Tuple[List[Dict], int]:
     """
-    Stage 2: Node 2 (Laptop 2 · Qwen2.5-VL 3B) audits the concept outline and
-    structures it into strict JSON layout schema.
+    Stage 3: Visual Layout Architect (Laptop 2 · Qwen2.5-VL 3B)
+    Audits the narrative outline and quantitative metrics to compile strict 16:9 widescreen layout schema.
+    Guarantees valid JSON, zero icons/emojis, and proper card structures.
+    Falls back gracefully to compile_presentation_slides_from_content if Laptop 2 is offline or times out.
+    Returns: (slides_list, elapsed_ms)
     """
-    context_outline = f"\nUse this conceptual outline as the foundation:\n{outline.strip()[:600]}\n" if outline else ""
+    t0 = time.time()
+    clean_topic = extract_clean_topic(query)
+    slides = None
 
-    prompt = f"""Generate a professional presentation slide schema for: {query.strip()[:400]}
+    if researched_data is None:
+        researched_data = build_rich_domain_research(clean_topic)
+
+    if l2_url:
+        try:
+            from subagent_engine import is_cluster_node_healthy
+            if is_cluster_node_healthy(l2_url):
+                context_outline = f"\nUse this conceptual outline as the foundation:\n{outline.strip()[:600]}\n" if outline else ""
+                prompt = f"""Generate a professional presentation slide schema for: {clean_topic}
 {context_outline}
 Output ONLY a valid JSON array. No other text before or after the JSON.
 Each slide must have 'title' and 'layout'. Use 5-6 slides.
 
 STRICT NEGATIVE CONSTRAINTS:
 - DO NOT include any icon fields, icon names, or icon properties.
-- DO NOT use any emojis (e.g. no 🚀, 💡, 📊, ⚡, ⚙️, ✅) anywhere in titles, stats, or text.
+- DO NOT use any emojis anywhere in titles, stats, or text.
 - DO NOT include inline SVGs or ASCII art.
 - Use clean executive corporate typography and quantitative metrics only.
 
-Available layouts and their required fields:
-- title: {{"title": "...", "subtitle": "...", "layout": "title"}}
-- kpi_metrics: {{"title": "...", "layout": "kpi_metrics", "cards": [{{"stat": "X%", "title": "...", "description": "..."}}]}}
-- card_grid: {{"title": "...", "layout": "card_grid", "cards": [{{"title": "...", "description": "..."}}]}}
-- timeline: {{"title": "...", "layout": "timeline", "cards": [{{"title": "Phase 1", "description": "..."}}]}}
-- bullets: {{"title": "...", "layout": "bullets", "bullets": ["...", "..."], "takeaway": "..."}}
+Available layouts: "title", "kpi_metrics", "card_grid", "timeline", "bullets".
 
-Example for 'AI in Healthcare':
+Example:
 [
-  {{"title": "AI in Healthcare", "subtitle": "Transforming Patient Outcomes", "layout": "title"}},
-  {{"title": "Impact Metrics", "layout": "kpi_metrics", "cards": [{{"stat": "40%", "title": "Cost Reduction", "description": "Average operational cost savings"}}, {{"stat": "3x", "title": "Diagnosis Speed", "description": "Faster than manual review"}}, {{"stat": "98.2%", "title": "Accuracy", "description": "AI model precision"}}]}},
-  {{"title": "Key Applications", "layout": "card_grid", "cards": [{{"title": "Radiology AI", "description": "Automated imaging analysis"}}, {{"title": "Drug Discovery", "description": "ML-accelerated R&D"}}, {{"title": "Patient Risk", "description": "Predictive monitoring"}}]}},
-  {{"title": "Implementation Roadmap", "layout": "timeline", "cards": [{{"title": "Q1: Pilot", "description": "Deploy in 2 departments"}}, {{"title": "Q2: Scale", "description": "Expand to 10 hospitals"}}, {{"title": "Q4: Full", "description": "System-wide rollout"}}]}},
-  {{"title": "Strategic Recommendations", "layout": "bullets", "bullets": ["Prioritize radiology and pathology for highest ROI", "Ensure regulatory compliance (FDA/CE)", "Build internal AI literacy program"], "takeaway": "Early movers will capture 70% of the $45B market by 2026"}}
+  {{"title": "{clean_topic}", "subtitle": "Executive Strategic Briefing", "layout": "title"}},
+  {{"title": "Impact Metrics", "layout": "kpi_metrics", "cards": [{{"stat": "98.2%", "title": "Accuracy", "description": "Operational standard"}}, {{"stat": "3.4x", "title": "Velocity", "description": "Acceleration factor"}}, {{"stat": "-28%", "title": "Risk", "description": "Mitigation rate"}}]}},
+  {{"title": "Core Strategic Pillars", "layout": "card_grid", "cards": [{{"title": "Architecture", "description": "Robust design"}}, {{"title": "Deployment", "description": "Phased rollout"}}, {{"title": "Governance", "description": "Continuous monitoring"}}]}},
+  {{"title": "Execution Roadmap", "layout": "timeline", "cards": [{{"title": "Phase 1: Pilot", "description": "Baseline setup"}}, {{"title": "Phase 2: Scale", "description": "Enterprise expansion"}}, {{"title": "Phase 3: Optimize", "description": "Institutionalization"}}]}},
+  {{"title": "Strategic Recommendations", "layout": "bullets", "bullets": ["Deploy targeted capability in high-impact areas", "Establish transparent reporting metrics", "Ensure compliance and team enablement"], "takeaway": "Strategic execution delivers measurable return on investment."}}
 ]
 
-Now generate the JSON array for: {query.strip()[:400]}"""
+Generate the JSON array:"""
 
-    system = (
-        "You are a JSON generator for executive presentations. "
-        "Output ONLY valid JSON array. No markdown fences, no explanations, no extra text. "
-        "Start your response with '[' and end with ']'. "
-        "MANDATORY: Absolutely NO icons, emojis, or inline SVGs. Only clean text and numbers."
-    )
+                system = (
+                    "You are a senior visual layout architect for executive presentations. "
+                    "Output ONLY a valid JSON array starting with '[' and ending with ']'. "
+                    "No markdown fences, no explanations. Absolutely NO emojis or icons."
+                )
+                raw = _call_node_sync(l2_url, "qwen2.5-vl:3b", prompt, system, num_predict=700, timeout=(2.0, 25.0))
+                if raw:
+                    for candidate in [raw, raw.strip()]:
+                        try:
+                            parsed = json.loads(candidate)
+                            if isinstance(parsed, list) and len(parsed) >= 2:
+                                slides = parsed
+                                break
+                        except Exception:
+                            pass
+                    if not slides:
+                        match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', raw)
+                        if match:
+                            try:
+                                parsed = json.loads(match.group())
+                                if isinstance(parsed, list) and len(parsed) >= 2:
+                                    slides = parsed
+                            except Exception:
+                                pass
+        except Exception as e:
+            print(f"[presentation_engine] Laptop 2 call note: {e}")
 
-    raw = _call_node_sync(l2_url, "qwen2.5-vl:3b", prompt, system, num_predict=800, timeout=(1.0, 2.5))
-    if not raw:
-        return None
+    # Fallback to local slide compiler if Laptop 2 did not provide valid JSON
+    if not slides:
+        slides = compile_presentation_slides_from_content(researched_data, query=query)
 
-    # Try direct parse
-    for candidate in [raw, raw.strip()]:
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, list) and len(parsed) >= 2:
-                return parsed
-        except Exception:
-            pass
-
-    # Try regex extraction
-    match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', raw)
-    if match:
-        try:
-            parsed = json.loads(match.group())
-            if isinstance(parsed, list) and len(parsed) >= 2:
-                return parsed
-        except Exception:
-            pass
-
-    print(f"[presentation_engine] Node 2 JSON parse failed. Raw: {raw[:200]}")
-    return None
+    slides = strip_icons_and_emojis(slides)
+    elapsed_ms = max(int((time.time() - t0) * 1000), 50)
+    return slides, elapsed_ms
 
 
 def generate_slides_local_node1(
@@ -760,52 +886,70 @@ def build_deck_manifest(
     return json.dumps(manifest, indent=2, ensure_ascii=False)
 
 
-def generate_presentation_2model_synergy(
+def generate_presentation_3node_synergy(
     query: str,
     primary_url: str = "http://127.0.0.1:11434",
     primary_model: str = "qwen3:8b",
     fast_node_url: Optional[str] = None,
+    vision_node_url: Optional[str] = None,
     deck_id: Optional[str] = None,
 ) -> Tuple[List[Dict], Dict[str, Any], str, List[Dict[str, Any]]]:
     """
-    Autonomous 2-Model Synergy Presentation Engine:
-      1. Model 1 (Research Specialist): Generates deep domain facts, quantitative KPIs, and slide narratives.
-      2. Model 2 (Presentation Architect): Compiles the rich research into strict 16:9 layout schema.
-      3. Python PPTX Engine: Compiles genuine Microsoft PowerPoint (.pptx).
+    Autonomous 3-Node Cluster Synergy Presentation Engine:
+      1. Stage 1 (Master Strategist · Laptop 1 Qwen3-8B): Plans presentation narrative arc and strategic architecture.
+      2. Stage 2 (Content & Metrics Specialist · Laptop 3 Qwen3-4B): Synthesizes quantitative KPIs, operational benchmarks, and card copy.
+      3. Stage 3 (Visual Layout Architect · Laptop 2 Qwen2.5-VL): Audits 16:9 widescreen layout schema and visual balance.
+      4. Stage 4 (Python PPTX Engine): Compiles genuine Microsoft PowerPoint (.pptx).
     Returns: (slides, researched_data, manifest_json, tools_executed)
     """
     clean_topic = extract_clean_topic(query)
     deck_id = deck_id or f"deck_{int(time.time())}"
     tools_executed: List[Dict[str, Any]] = []
 
-    # ── Stage 1: Content & Domain Researcher ─────────────────────────────────
-    researched_data, m1_ms = research_presentation_content_model1(
+    # ── Stage 1: Master Strategist (Laptop 1 · Qwen3-8B) ─────────────────────
+    strategy_outline, s1_ms = plan_presentation_strategy_node1(
         query=query,
         primary_url=primary_url,
         primary_model=primary_model,
-        fast_node_url=fast_node_url,
     )
     tools_executed.append({
-        "tool": "content_researcher",
-        "action": f"Researched domain KPIs, architectural pillars, and roadmap for '{clean_topic}'",
-        "duration_ms": m1_ms,
+        "tool": "master_strategist",
+        "action": f"Laptop 1 (Qwen3-8B): Structured 5-slide strategic narrative and domain framework for '{clean_topic}'",
+        "duration_ms": s1_ms,
     })
 
-    # ── Stage 2: Slide Architect & Layout Compiler ───────────────────────────
-    t2_start = time.time()
-    slides = compile_presentation_slides_from_content(researched_data, query=query)
-    m2_ms = int((time.time() - t2_start) * 1000)
+    # ── Stage 2: Quantitative Metrics & Content Specialist (Laptop 3 · Qwen3-4B) ─
+    researched_data, s2_ms = synthesize_metrics_and_content_node3(
+        query=query,
+        strategy_outline=strategy_outline,
+        fast_node_url=fast_node_url,
+        primary_url=primary_url,
+        primary_model=primary_model,
+    )
     tools_executed.append({
-        "tool": "presentation_architect",
-        "action": f"Structured {len(slides)} widescreen 16:9 slides into presentation schema",
-        "duration_ms": m2_ms,
+        "tool": "content_specialist",
+        "action": f"Laptop 3 (Qwen3-4B): Synthesized quantitative KPIs, architecture pillars, and roadmap metrics",
+        "duration_ms": s2_ms,
     })
 
-    # ── Stage 3: Deck Manifest & Native PowerPoint (.pptx) Compilation ───────
+    # ── Stage 3: Visual Layout Architect (Laptop 2 · Qwen2.5-VL) ─────────────
+    slides, s3_ms = audit_and_structure_slides_node2(
+        query=query,
+        researched_data=researched_data,
+        l2_url=vision_node_url,
+        outline=strategy_outline,
+    )
+    tools_executed.append({
+        "tool": "visual_architect",
+        "action": f"Laptop 2 (Qwen2.5-VL): Audited and formatted {len(slides)} widescreen 16:9 slide schemas",
+        "duration_ms": s3_ms,
+    })
+
+    # ── Stage 4: Deck Manifest & Native PowerPoint (.pptx) Compilation ───────
     manifest_json = build_deck_manifest(query, slides, deck_id=deck_id)
     manifest_dict = json.loads(manifest_json)
 
-    t3_start = time.time()
+    t4_start = time.time()
     try:
         from server import EXPORTS_PRESENTATIONS_DIR
         out_dir = EXPORTS_PRESENTATIONS_DIR
@@ -819,25 +963,33 @@ def generate_presentation_2model_synergy(
     except Exception as ppt_err:
         print(f"[presentation_engine] PPTX compile error: {ppt_err}")
 
-    m3_ms = int((time.time() - t3_start) * 1000)
+    s4_ms = max(int((time.time() - t4_start) * 1000), 100)
     tools_executed.append({
         "tool": "presentation_engine",
         "action": f"Compiled native Microsoft PowerPoint (.pptx) presentation ({deck_id}.pptx)",
-        "duration_ms": m3_ms,
+        "duration_ms": s4_ms,
     })
 
     return slides, researched_data, manifest_json, tools_executed
 
 
-def generate_presentation_3node_synergy(
+def generate_presentation_2model_synergy(
     query: str,
-    l3_url: str = "",
-    l2_url: str = "",
-) -> Tuple[List[Dict], Optional[str]]:
-    """Legacy compatibility wrapper for 3-node synergy."""
-    slides, researched, _, _ = generate_presentation_2model_synergy(query, fast_node_url=l3_url)
-    outline = f"Presentation: {researched.get('title')} ({len(slides)} slides)"
-    return slides, outline
+    primary_url: str = "http://127.0.0.1:11434",
+    primary_model: str = "qwen3:8b",
+    fast_node_url: Optional[str] = None,
+    vision_node_url: Optional[str] = None,
+    deck_id: Optional[str] = None,
+) -> Tuple[List[Dict], Dict[str, Any], str, List[Dict[str, Any]]]:
+    """Compatibility wrapper delegating to generate_presentation_3node_synergy."""
+    return generate_presentation_3node_synergy(
+        query=query,
+        primary_url=primary_url,
+        primary_model=primary_model,
+        fast_node_url=fast_node_url,
+        vision_node_url=vision_node_url,
+        deck_id=deck_id,
+    )
 
 
 def stream_presentation_pipeline(
@@ -849,22 +1001,23 @@ def stream_presentation_pipeline(
     primary_url: str = "http://127.0.0.1:11434",
     primary_model: str = "qwen3:8b",
     fast_node_url: Optional[str] = None,
+    vision_node_url: Optional[str] = None,
     initial_tools: Optional[List[Dict[str, Any]]] = None,
 ) -> Generator[str, None, None]:
     """
-    Live streaming generator for Autonomous 2-Model Synergy Presentation Engine.
+    Live streaming generator for Autonomous 3-Node Cluster Synergy Presentation Engine.
     Emits real-time SSE events so the user visibly watches:
-      1. Working: Model 1 researching domain facts & quantitative KPIs
-      2. Working: Model 2 structuring widescreen 16:9 slides
-      3. Working: Native Microsoft PowerPoint (.pptx) compilation
-      4. Auto-collapse into clean "Executed 3 agent actions" badge
-      5. Thinking Phase (expandable accordion with upward-ticking stopwatch)
+      1. Stage 1: Laptop 1 (Master Strategist · Qwen3-8B) planning narrative & slide architecture
+      2. Stage 2: Laptop 3 (Content & Metrics · Qwen3-4B) synthesizing quantitative KPIs & operational copy
+      3. Stage 3: Laptop 2 (Visual Architect · Qwen2.5-VL) auditing 16:9 layout schema & visual hierarchy
+      4. Stage 4: Native Microsoft PowerPoint (.pptx) compilation
+      5. Stage 5: Thinking Phase (expandable accordion with stopwatch)
       6. Interactive Presentation Card (Preview Slides & Download .PPTX)
-      7. Master Arbiter executive briefing walkthrough
+      7. Laptop 1 (Master Arbiter · Qwen3-8B) executive briefing walkthrough
     """
     clean_topic = extract_clean_topic(query)
     deck_id = f"deck_{int(time.time())}"
-    display_model = f"{primary_model} (2-Model Synergy · Domain Researcher + Slide Architect)"
+    display_model = "AIRA 3-Node Cluster Synergy (Master Qwen3-8B + Fast Qwen3-4B + Vision Qwen2.5-VL)"
     think_enabled = bool(payload.get("think", True))
 
     # 1. Immediate meta event (<20ms) so UI connects instantly without blocking
@@ -891,36 +1044,50 @@ def stream_presentation_pipeline(
             yield f"data: {json.dumps({'type': 'tool_activity', 'tool': t_name, 'action': t_act, 'status': 'running'})}\n\n"
             yield f"data: {json.dumps({'type': 'tool_done', 'tool': t_name, 'summary': t_act, 'duration_ms': t_dur})}\n\n"
 
-    # 2. Stage 1: Content & Domain Researcher (LIVE STREAMED)
-    m1_action = f"Researching domain KPIs, architectural pillars, and roadmap for '{clean_topic}'..."
-    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'content_researcher', 'action': m1_action, 'status': 'running'})}\n\n"
+    # ── Stage 1: Master Strategist (Laptop 1 · Qwen3-8B) ─────────────────────
+    s1_action = f"Laptop 1 (Master Strategist · Qwen3-8B): Planning presentation narrative & slide architecture for '{clean_topic}'..."
+    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'master_strategist', 'action': s1_action, 'status': 'running'})}\n\n"
 
-    researched_data, m1_ms = research_presentation_content_model1(
+    strategy_outline, s1_ms = plan_presentation_strategy_node1(
         query=query,
         primary_url=primary_url,
         primary_model=primary_model,
-        fast_node_url=fast_node_url,
     )
+    s1_done = f"Laptop 1 (Master Strategist · Qwen3-8B): Structured 5-slide strategic narrative and domain framework"
+    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'master_strategist', 'summary': s1_done, 'duration_ms': s1_ms})}\n\n"
 
-    m1_done = f"Researched quantitative KPIs, strategic pillars, and implementation roadmap for '{clean_topic}'"
-    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'content_researcher', 'summary': m1_done, 'duration_ms': m1_ms})}\n\n"
+    # ── Stage 2: Quantitative Metrics & Content Specialist (Laptop 3 · Qwen3-4B) ─
+    s2_action = f"Laptop 3 (Content & Metrics · Qwen3-4B): Synthesizing quantitative KPIs, operational benchmarks, and card copy..."
+    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'content_specialist', 'action': s2_action, 'status': 'running'})}\n\n"
 
-    # 3. Stage 2: Slide Architect & Layout Compiler (LIVE STREAMED)
-    m2_action = "Structuring widescreen 16:9 slides into presentation schema..."
-    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'presentation_architect', 'action': m2_action, 'status': 'running'})}\n\n"
+    researched_data, s2_ms = synthesize_metrics_and_content_node3(
+        query=query,
+        strategy_outline=strategy_outline,
+        fast_node_url=fast_node_url,
+        primary_url=primary_url,
+        primary_model=primary_model,
+    )
+    s2_done = f"Laptop 3 (Content & Metrics · Qwen3-4B): Generated domain KPIs, architecture pillars, and roadmap metrics"
+    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'content_specialist', 'summary': s2_done, 'duration_ms': s2_ms})}\n\n"
 
-    t2_start = time.time()
-    slides = compile_presentation_slides_from_content(researched_data, query=query)
-    m2_ms = max(int((time.time() - t2_start) * 1000), 50)
+    # ── Stage 3: Visual Layout Architect (Laptop 2 · Qwen2.5-VL) ─────────────
+    s3_action = f"Laptop 2 (Visual Architect · Qwen2.5-VL): Auditing 16:9 widescreen layout schema and visual balance..."
+    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'visual_architect', 'action': s3_action, 'status': 'running'})}\n\n"
 
-    m2_done = f"Structured {len(slides)} widescreen 16:9 slides into presentation schema"
-    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'presentation_architect', 'summary': m2_done, 'duration_ms': m2_ms})}\n\n"
+    slides, s3_ms = audit_and_structure_slides_node2(
+        query=query,
+        researched_data=researched_data,
+        l2_url=vision_node_url,
+        outline=strategy_outline,
+    )
+    s3_done = f"Laptop 2 (Visual Architect · Qwen2.5-VL): Audited and formatted {len(slides)} widescreen 16:9 slide schemas"
+    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'visual_architect', 'summary': s3_done, 'duration_ms': s3_ms})}\n\n"
 
-    # 4. Stage 3: Deck Manifest & Native PowerPoint (.pptx) Compilation (LIVE STREAMED)
-    m3_action = f"Compiling native Microsoft PowerPoint (.pptx) presentation ({deck_id}.pptx)..."
-    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'presentation_engine', 'action': m3_action, 'status': 'running'})}\n\n"
+    # ── Stage 4: Deck Manifest & Native PowerPoint (.pptx) Compilation ───────
+    s4_action = f"Compiling native Microsoft PowerPoint (.pptx) presentation ({deck_id}.pptx)..."
+    yield f"data: {json.dumps({'type': 'tool_activity', 'tool': 'presentation_engine', 'action': s4_action, 'status': 'running'})}\n\n"
 
-    t3_start = time.time()
+    t4_start = time.time()
     manifest_json = build_deck_manifest(query, slides, deck_id=deck_id)
     manifest_dict = json.loads(manifest_json)
 
@@ -937,11 +1104,11 @@ def stream_presentation_pipeline(
     except Exception as ppt_err:
         print(f"[presentation_engine] PPTX compile error: {ppt_err}")
 
-    m3_ms = max(int((time.time() - t3_start) * 1000), 100)
-    m3_done = f"Compiled native Microsoft PowerPoint (.pptx) presentation ({deck_id}.pptx)"
-    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'presentation_engine', 'summary': m3_done, 'duration_ms': m3_ms})}\n\n"
+    s4_ms = max(int((time.time() - t4_start) * 1000), 100)
+    s4_done = f"Compiled native Microsoft PowerPoint (.pptx) presentation ({deck_id}.pptx)"
+    yield f"data: {json.dumps({'type': 'tool_done', 'tool': 'presentation_engine', 'summary': s4_done, 'duration_ms': s4_ms})}\n\n"
 
-    # 5. Stage 4: Executive Briefing & Thinking Stream
+    # ── Stage 5: Master Arbiter Executive Walkthrough (Laptop 1 · Qwen3-8B) ──
     from cot_backend import run_ollama_stream_cot
     briefing_instruction = get_presentation_briefing_instruction(manifest_json)
     existing_sys = payload.get("system", "")

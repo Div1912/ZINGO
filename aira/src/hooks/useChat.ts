@@ -27,7 +27,7 @@ import type {
   AgentToolActivity,
   CompletedTool,
 } from '../types'
-import { classifyTaskIntensity } from '../services/qwenApi'
+import { classifyTaskIntensity, isPresentationQuery } from '../services/qwenApi'
 import { useMemoryStore } from '../stores/memoryStore'
 import { detectPastChatIntent, searchPastChats, formatPastChatsForPrompt } from '../services/chatSearchService'
 import { detectFormatSkillIntent } from '../skills/documents/formatSkillResolver'
@@ -363,8 +363,15 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
             content: m.content,
           }))
 
+        const isPresentation = isPresentationQuery(content || '')
+
         let targetNodeUrl: string | undefined = undefined
-        if (
+        if (isPresentation) {
+          // Presentations MUST route through Primary Master Node (Laptop 1: Qwen3-8B)
+          // to orchestrate the 3-node cluster synergy on the server
+          targetNodeUrl = undefined
+          selectedModel = 'qwen3:8b'
+        } else if (
           selectedModel === 'qwen2.5vl:3b' ||
           selectedModel === 'qwen2.5-vl:3b' ||
           selectedModel === 'qwen2.5-vl:7b' ||
@@ -377,14 +384,16 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           targetNodeUrl = server.coderStatus === 'connected' ? server.g15_2_url : undefined
         } else if (selectedModel.includes('r1')) {
           targetNodeUrl = server.reasoning_url
+        } else if (selectedModel === 'qwen3:8b') {
+          // Explicit Laptop 1 Qwen3-8B selection: NEVER route to remote worker nodes
+          targetNodeUrl = undefined
         } else if (isAuto) {
           if (hasImageFile) {
             targetNodeUrl = server.vision_url || server.g15_2_url || undefined
-          } else if (detectedTask === 'fast' || server.fast4bStatus === 'connected') {
+          } else if (detectedTask === 'fast') {
             targetNodeUrl = server.fast_4b_url || undefined
-          } else if (server.visionStatus === 'connected') {
-            targetNodeUrl = server.vision_url || server.g15_2_url || undefined
           } else {
+            // General text, analysis, code, and document queries default to Master Node (Laptop 1: Qwen3-8B)
             targetNodeUrl = undefined
           }
         }
@@ -531,49 +540,46 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         let response: Response | null = null
         let resolvedModelUsed: string = selectedModel
 
-        // Attempt 1: If primary gateway is marked connected and URL is present (only for Auto or explicit 8B)
+        // Attempt 1: Route through Primary Gateway (server.py)
+        // Presentations, explicit 8B, Auto mode, or general queries always try primary first
         const shouldTryPrimaryFirst =
-          (isAuto || selectedModel === 'qwen3:8b') &&
-          server.primaryStatus === 'connected' &&
-          Boolean(cleanBaseUrl)
+          isPresentation ||
+          selectedModel === 'qwen3:8b' ||
+          isAuto ||
+          !targetNodeUrl ||
+          server.primaryStatus !== 'disconnected'
 
-        if (shouldTryPrimaryFirst) {
+        if (shouldTryPrimaryFirst && Boolean(cleanBaseUrl)) {
           try {
-            const primaryPromise = fetch(endpoint, {
+            console.log(`[useChat] Connecting to primary gateway (${endpoint})...`)
+            const primaryRes = await fetch(endpoint, {
               method: 'POST',
               headers,
               body,
               signal: controller.signal,
             })
-            const primaryRes = await Promise.race([
-              primaryPromise,
-              new Promise<Response>((_, reject) =>
-                setTimeout(() => reject(new Error('Primary gateway timeout after 3.5s')), 3500)
-              ),
-            ])
             if (primaryRes.ok && primaryRes.body) {
               response = primaryRes
+            } else {
+              console.warn(`[useChat] Primary gateway returned HTTP ${primaryRes.status}`)
             }
           } catch (err: any) {
             if (controller.signal.aborted) throw err
-            console.warn(`[useChat] Primary gateway failed (${err.message}). Cascading to cluster worker nodes...`)
+            console.warn(`[useChat] Primary gateway failed (${err.message})...`)
           }
         }
 
-        // Attempt 2: Cascade through worker nodes until one connects and streams
+        // Attempt 2: Cascade through worker nodes ONLY if not a presentation query
         if (!response) {
+          if (isPresentation) {
+            throw new Error('AIRA Primary Presentation Engine is unreachable. Please verify server.py is running.')
+          }
           let lastErr: any = null
           for (const cand of candidates) {
             if (controller.signal.aborted) break
             console.log(`[useChat] Connecting to cluster node: ${cand.label} (${cand.url})...`)
             try {
-              const fetchPromise = doDirectOllamaFetch(cand)
-              const candRes = await Promise.race([
-                fetchPromise,
-                new Promise<Response>((_, reject) =>
-                  setTimeout(() => reject(new Error(`${cand.label} timeout after 3.5s`)), 3500)
-                ),
-              ])
+              const candRes = await doDirectOllamaFetch(cand)
               if (candRes.ok && candRes.body) {
                 response = candRes
                 resolvedModelUsed = cand.model as ModelId
@@ -592,7 +598,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           }
 
           if (!response) {
-            throw lastErr || new Error('All cluster nodes are currently unreachable.')
+            throw lastErr || new Error('All cluster nodes are currently unreachable. Please check node connectivity.')
           }
         }
 
