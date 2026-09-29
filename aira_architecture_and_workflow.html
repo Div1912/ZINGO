@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIRA — System Architecture & Operational Workflow</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090b10;
+      --card-bg: #111520;
+      --border: #1e2433;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.15);
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, sans-serif;
+      padding: 40px 24px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: #34d399;
+      margin-bottom: 16px;
+      font-weight: 500;
+    }
+    h1 {
+      font-size: 38px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 16px;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    .section-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      margin-bottom: 40px;
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+    }
+    .section-header {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+    }
+    .section-header h2 {
+      font-size: 22px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-header p {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+    .diagram-container {
+      background: #0d1017;
+      border: 1px solid #1a202c;
+      border-radius: 14px;
+      padding: 24px;
+      overflow-x: auto;
+      display: flex;
+      justify-content: center;
+    }
+    .mermaid {
+      width: 100%;
+      text-align: center;
+    }
+    .stepper-bar {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .step-pill {
+      background: #161b26;
+      border: 1px solid #232b3e;
+      border-radius: 12px;
+      padding: 12px;
+      text-align: center;
+    }
+    .step-num {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    .step-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .step-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+    th {
+      background: #161b26;
+      color: #e2e8f0;
+      font-weight: 600;
+    }
+    td {
+      color: #cbd5e1;
+    }
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: #1e2433;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #38bdf8;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge">
+        <span>🛡️</span> Sovereign Air-Gapped AI — Mangalore Refinery (MRPL)
+      </div>
+      <h1>AIRA System Architecture & Operational Workflow</h1>
+      <p class="subtitle">Complete technical reference for the on-premise distributed multi-node AI workbench, hybrid knowledge retrieval, and agentic execution pipeline.</p>
+    </header>
+
+    <!-- SECTION 1: SYSTEM ARCHITECTURE -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>1. Sovereign System Architecture</h2>
+        <p>Dual-pipeline processing, 3-node GPU compute cluster, and multi-model council verification.</p>
+      </div>
+
+      <div class="diagram-container">
+        <div class="mermaid">
+flowchart LR
+    %% COLUMN 1: ACCESS & INGESTION
+    subgraph COL1["1. Access & Ingestion"]
+        direction TB
+        UI_Web["AIRA Web Workbench\n(React 18 + Vite)"]
+        UI_Mob["Mobile Responsive App"]
+        UI_API["Internal Refinery REST API"]
+        RBAC["Sovereign RBAC Auth\n(Zero-Trust Boundary)"]
+        
+        Doc_In["Plant Docs (PDF, DWG, XLSX)"]
+        OCR["EasyOCR Engine\n(English & Hindi)"]
+        Chunk["Semantic Chunker\n& Metadata Parser"]
+        
+        UI_Web & UI_Mob & UI_API --> RBAC
+        Doc_In --> OCR --> Chunk
+    end
+
+    %% COLUMN 2: HYBRID KNOWLEDGE CORE
+    subgraph COL2["2. Knowledge Core"]
+        direction TB
+        Vec_DB[("Dense Vector Store\n(SOPs, Standards)")]
+        Plant_Graph[("Plant Knowledge Graph\n(NetworkX Topology)")]
+        Audit_DB[("Immutable Audit Trail\n(zingo_audit.db)")]
+        
+        Chunk --> Vec_DB
+        Chunk --> Plant_Graph
+    end
+
+    %% COLUMN 3: DISTRIBUTED GPU CLUSTER
+    subgraph COL3["3. Distributed GPU Cluster"]
+        direction TB
+        LB["Cluster Load Balancer\n(VRAM & Telemetry)"]
+        Node1["Primary Node (Laptop 1)\nQwen3-8B (Reasoning)"]
+        Node2["Coder Node (Laptop 2)\nQwen2.5-Coder (Math)"]
+        Node3["Vision Node (Laptop 3)\nQwen2.5-VL (P&IDs)"]
+        
+        LB --> Node1
+        LB --> Node2
+        LB --> Node3
+    end
+
+    %% COLUMN 4: VERIFICATION & SAFETY LAYER
+    subgraph COL4["4. Verification & Council"]
+        direction TB
+        ToT["Tree-of-Thought (ToT)\n(Hallucination Guard)"]
+        Council["Council Consensus Engine\n(Multi-Model Cross-Check)"]
+        Safety["OISD Refinery Guardrails\n(Policy Boundary Filter)"]
+        
+        ToT --> Council --> Safety
+        Safety -.-> Audit_DB
+    end
+
+    %% COLUMN 5: TOOLS & DELIVERABLES GENERATION
+    subgraph COL5["5. Action Tools & Delivery"]
+        direction TB
+        Sand_Py["Python Math Sandbox\n(Fluid/Thermodynamic Calc)"]
+        Pres_Eng["Presentation Engine\n(2-Model pptxgenjs Compiler)"]
+        Doc_Gen["Artifact Exporter\n(PDF, DOCX, XLSX Sheets)"]
+        Chat_Resp["Real-Time Streamed Output\n(KaTeX + Source Grounding)"]
+    end
+
+    %% CROSS-COLUMN CONNECTIONS
+    RBAC -->|"User Query & Task"| LB
+    Vec_DB <-->|"Semantic Context"| LB
+    Plant_Graph <-->|"Equipment Topology"| LB
+    
+    Node1 & Node2 & Node3 --> ToT
+    
+    Safety --> Sand_Py
+    Safety --> Pres_Eng
+    Safety --> Doc_Gen
+    Safety --> Chat_Resp
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2: OPERATIONAL WORKFLOW -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>2. End-to-End Operational Workflow</h2>
+        <p>Live request execution lifecycle across the 5 pipeline stages.</p>
+      </div>
+
+      <div class="stepper-bar">
+        <div class="step-pill">
+          <div class="step-num">STAGE 01</div>
+          <div class="step-title">Understand</div>
+          <div class="step-desc">EasyOCR, Intent & CoT</div>
+        </div>
+        <div class="step-pill">
+          <div class="step-num">STAGE 02</div>
+          <div class="step-title">Use Right Tools</div>
+          <div class="step-desc">Node & VRAM allocation</div>
+        </div>
+        <div class="step-pill">
+          <div class="step-num">STAGE 03</div>
+          <div class="step-title">Process</div>
+          <div class="step-desc">Graph-RAG & Sandboxes</div>
+        </div>
+        <div class="step-pill">
+          <div class="step-num">STAGE 04</div>
+          <div class="step-title">Verify</div>
+          <div class="step-desc">ToT & Council Consensus</div>
+        </div>
+        <div class="step-pill">
+          <div class="step-num">STAGE 05</div>
+          <div class="step-title">Deliver</div>
+          <div class="step-desc">Slides, Files & Stream</div>
+        </div>
+      </div>
+
+      <div class="diagram-container">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as Engineer / Operator
+    participant UI as AIRA Workbench (React)
+    participant GW as Gateway & Load Balancer
+    participant Vault as Sovereign Knowledge Core
+    participant Cluster as Distributed GPU Cluster
+    participant Tools as Action Sandbox & Engines
+    participant Verifier as ToT & Council Verifier
+    participant Audit as Immutable Audit DB
+
+    %% Step 1: Input & Intent
+    User->>UI: Submit Query or Upload Document (PDF / P&ID / Prompt)
+    UI->>GW: POST /api/chat (Task payload + session tokens)
+    
+    %% Step 2: Route & Ingest
+    rect rgb(20, 28, 45)
+        Note over GW,Vault: Phase 1: Understand & Retrieve
+        alt Document Uploaded
+            GW->>Tools: Run EasyOCR (English/Hindi) & Chunking
+            Tools->>Vault: Store in Vector DB & Equipment Graph
+        end
+        GW->>Cluster: Classify Intent & Start CoT Reasoning
+        Cluster-->>UI: Stream live reasoning tokens to ThinkingBlock
+        GW->>Vault: Hybrid Query (Semantic Vector Search + Equipment Graph)
+        Vault-->>GW: Grounded SOPs, P&IDs & Historical Records
+    end
+
+    %% Step 3: Tool Dispatch
+    rect rgb(20, 38, 30)
+        Note over GW,Tools: Phase 2 & 3: Use Right Tools & Process
+        GW->>Cluster: Route to Target Compute Node
+        alt Code / Engineering Math
+            Cluster->>Tools: Execute Python Sandbox Formula
+            Tools-->>Cluster: Return Calculation Result
+        else Slide Presentation Task
+            Cluster->>Tools: Model 1 (Domain Research) -> Model 2 (pptxgenjs)
+            Tools-->>Cluster: Return Compiled 16:9 .pptx Deck
+        else P&ID Drawing Task
+            Cluster->>Tools: Qwen2.5-VL Blueprint & Tag Analysis
+            Tools-->>Cluster: Return Visual Extraction & Bounding Boxes
+        end
+    end
+
+    %% Step 4: Verification & Safety
+    rect rgb(38, 30, 20)
+        Note over Cluster,Verifier: Phase 4: Verify & Safety Check
+        Cluster->>Verifier: Run Tree-of-Thought (ToT) Verification
+        alt Safety-Critical Operation (Trip Limit / Chemical Ratio)
+            Verifier->>Verifier: Invoke Council Engine (Multi-Model Consensus)
+        end
+        Verifier->>Verifier: Check OISD Safety & Policy Boundaries
+        Verifier->>Audit: Record Query Hash, Sources, & Verification Log
+    end
+
+    %% Step 5: Deliver
+    rect rgb(32, 22, 45)
+        Note over GW,UI: Phase 5: Deliver
+        Verifier-->>GW: Output Approved & Verified
+        GW-->>UI: Stream Markdown Response + Render Artifact Cards
+        UI-->>User: Display Formatted Solution, Source Badges & Downloadable Files
+    end
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#0d1017',
+        primaryColor: '#1e293b',
+        primaryTextColor: '#f8fafc',
+        primaryBorderColor: '#38bdf8',
+        lineColor: '#38bdf8',
+        secondaryColor: '#0f172a',
+        tertiaryColor: '#1e1b4b'
+      }
+    });
+  </script>
+</body>
+</html>
