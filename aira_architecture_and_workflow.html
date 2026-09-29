@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AIRA — System Architecture & Operational Workflow</title>
+  <title>AIRA — Deep System Architecture & Operational Workflow</title>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,6 +17,8 @@
       --text-muted: #94a3b8;
       --accent: #38bdf8;
       --accent-glow: rgba(56, 189, 248, 0.15);
+      --pill-bg: #161b26;
+      --pill-border: #232b3e;
     }
     * {
       box-sizing: border-box;
@@ -31,12 +33,12 @@
       line-height: 1.6;
     }
     .container {
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
     }
     header {
       text-align: center;
-      margin-bottom: 48px;
+      margin-bottom: 40px;
     }
     .badge {
       display: inline-flex;
@@ -63,9 +65,83 @@
     p.subtitle {
       color: var(--text-muted);
       font-size: 16px;
-      max-width: 680px;
-      margin: 0 auto;
+      max-width: 820px;
+      margin: 0 auto 24px;
     }
+    .tagline-banner {
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), rgba(168, 85, 247, 0.1));
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 12px;
+      padding: 12px 20px;
+      display: inline-block;
+      font-size: 15px;
+      font-weight: 600;
+      color: #7dd3fc;
+      margin-bottom: 36px;
+    }
+    
+    /* 4 PILLARS GRID */
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    @media (max-width: 1024px) {
+      .pillars-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .pillars-grid { grid-template-columns: 1fr; }
+    }
+    .pillar-card {
+      background: #101522;
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .pillar-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent);
+    }
+    .pillar-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+    }
+    .pillar-card:nth-child(1)::before { background: linear-gradient(90deg, #38bdf8, #818cf8); }
+    .pillar-card:nth-child(2)::before { background: linear-gradient(90deg, #34d399, #059669); }
+    .pillar-card:nth-child(3)::before { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+    .pillar-card:nth-child(4)::before { background: linear-gradient(90deg, #a78bfa, #c084fc); }
+    
+    .pillar-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pillar-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .pillar-tag {
+      margin-top: 12px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+      display: inline-block;
+    }
+
+    /* SECTION CARD */
     .section-card {
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -78,9 +154,14 @@
       margin-bottom: 24px;
       border-bottom: 1px solid var(--border);
       padding-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 16px;
     }
     .section-header h2 {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 600;
       display: flex;
       align-items: center;
@@ -91,6 +172,33 @@
       font-size: 13px;
       margin-top: 4px;
     }
+
+    /* TAB BUTTONS */
+    .tab-bar {
+      display: inline-flex;
+      background: #0d111a;
+      padding: 4px;
+      border-radius: 10px;
+      border: 1px solid #1e293b;
+      gap: 4px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      background: #1e293b;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+
     .diagram-container {
       background: #0d1017;
       border: 1px solid #1a202c;
@@ -103,7 +211,10 @@
     .mermaid {
       width: 100%;
       text-align: center;
+      min-width: 950px;
     }
+
+    /* STEPPER */
     .stepper-bar {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
@@ -134,10 +245,12 @@
       color: var(--text-muted);
       margin-top: 2px;
     }
+
+    /* SPEC TABLE */
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 20px;
+      margin-top: 24px;
       font-size: 13px;
     }
     th, td {
@@ -169,91 +282,276 @@
       <div class="badge">
         <span>🛡️</span> Sovereign Air-Gapped AI — Mangalore Refinery (MRPL)
       </div>
-      <h1>AIRA System Architecture & Operational Workflow</h1>
+      <h1>AIRA Deep System Architecture & Operational Workflow</h1>
       <p class="subtitle">Complete technical reference for the on-premise distributed multi-node AI workbench, hybrid knowledge retrieval, and agentic execution pipeline.</p>
-    </header>
-
-    <!-- SECTION 1: SYSTEM ARCHITECTURE -->
-    <div class="section-card">
-      <div class="section-header">
-        <h2>1. Sovereign System Architecture</h2>
-        <p>Dual-pipeline processing, 3-node GPU compute cluster, and multi-model council verification.</p>
+      <div class="tagline-banner">
+        "AIRA doesn't just understand — it plans, executes, and verifies"
       </div>
 
-      <div class="diagram-container">
+      <!-- 4 PILLARS CARDS -->
+      <div class="pillars-grid">
+        <div class="pillar-card">
+          <div class="pillar-title"><span>⚡</span> Dynamic Autonomy Control</div>
+          <div class="pillar-desc">AIRA adjusts how much freedom an agent gets based on task sensitivity and risk (Level 1 Assist, Level 2 Calc, Level 3 Multi-Node Swarm).</div>
+          <div class="pillar-tag">subagent_engine.py</div>
+        </div>
+        <div class="pillar-card">
+          <div class="pillar-title"><span>⏳</span> T-KOG (Temporal Knowledge)</div>
+          <div class="pillar-desc">Uses a Temporal Official Knowledge Graph to identify the right official information while tracking its latest version, history, and &Delta;t degradation.</div>
+          <div class="pillar-tag">temporal_reasoning.py</div>
+        </div>
+        <div class="pillar-card">
+          <div class="pillar-title"><span>🔒</span> Policy Bound Agent</div>
+          <div class="pillar-desc">Every agent action is governed by what data it may access, which tool it may invoke, read-only SQL guards, and 3-layer OOXML QA validation.</div>
+          <div class="pillar-tag">mcp_host.py · sandbox.py</div>
+        </div>
+        <div class="pillar-card">
+          <div class="pillar-title"><span>🌐</span> Sovereign Agent Fabric</div>
+          <div class="pillar-desc">Models and agents discover and invoke approved capabilities through standard MCP (JSON-RPC 2.0) and A2A cluster routing across local GPUs.</div>
+          <div class="pillar-tag">server.py · cluster_balancer</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- SECTION 1: SYSTEM ARCHITECTURE (WITH TOGGLE) -->
+    <div class="section-card">
+      <div class="section-header">
+        <div>
+          <h2>1. Deep System Architecture</h2>
+          <p>Explore the complete 7-layer architecture across the 4 sovereign pillars and Claude-class workbench.</p>
+        </div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchView('horizontal')">Horizontal Flow (7 Columns)</button>
+          <button class="tab-btn" onclick="switchView('tiered')">Tiered Stack (7 Layers)</button>
+        </div>
+      </div>
+
+      <!-- VIEW A: HORIZONTAL (7 COLUMNS) -->
+      <div id="view-horizontal" class="diagram-container">
         <div class="mermaid">
 flowchart LR
-    %% COLUMN 1: ACCESS & INGESTION
-    subgraph COL1["1. Access & Ingestion"]
+    %% COLUMN 1: ACCESS & CLAUDE-CLASS WORKBENCH
+    subgraph COL1["1. Access & Client Workbench"]
         direction TB
         UI_Web["AIRA Web Workbench\n(React 18 + Vite)"]
-        UI_Mob["Mobile Responsive App"]
-        UI_API["Internal Refinery REST API"]
+        UI_Canvas["Interactive Artifact Canvas\n(Monaco / HTML / SVG)"]
+        UI_Orbs["Cognitive Telemetry\n(ThinkingOrbs CoT Stream)"]
         RBAC["Sovereign RBAC Auth\n(Zero-Trust Boundary)"]
         
-        Doc_In["Plant Docs (PDF, DWG, XLSX)"]
-        OCR["EasyOCR Engine\n(English & Hindi)"]
-        Chunk["Semantic Chunker\n& Metadata Parser"]
-        
-        UI_Web & UI_Mob & UI_API --> RBAC
-        Doc_In --> OCR --> Chunk
+        UI_Web <--> UI_Canvas
+        UI_Web --> UI_Orbs
+        UI_Web --> RBAC
     end
 
-    %% COLUMN 2: HYBRID KNOWLEDGE CORE
-    subgraph COL2["2. Knowledge Core"]
+    %% COLUMN 2: DYNAMIC AUTONOMY CONTROLLER
+    subgraph COL2["2. Dynamic Autonomy Control"]
         direction TB
-        Vec_DB[("Dense Vector Store\n(SOPs, Standards)")]
+        Risk_Class["Risk Classifier\n(Level 1 / 2 / 3)"]
+        Budget_Engine["Thinking Token Budgeter\n(Adaptive CoT Depth)"]
+        ReAct_Plan["ReAct Agentic Planner\n(Task Decomposition)"]
+        Auto_Pipe["Autonomous Pipeline\n(10-Step Ingestion)"]
+        User_Mem["Episodic Memory\n(User Habits & Past Edits)"]
+        
+        Risk_Class --> Budget_Engine --> ReAct_Plan
+        Risk_Class --> Auto_Pipe
+        User_Mem --> ReAct_Plan
+    end
+
+    %% COLUMN 3: T-KOG & HYBRID KNOWLEDGE CORE
+    subgraph COL3["3. T-KOG & Knowledge Core"]
+        direction TB
+        Vec_Store[("Dense Vector Store\n(SOPs, Standards)")]
         Plant_Graph[("Plant Knowledge Graph\n(NetworkX Topology)")]
+        Doc_Lineage[("Version Lineage\n(OISD / API Supersession)")]
+        Delta_T["Delta-t Degradation Engine\n(Corrosion / SLA Drift)"]
+        Easy_OCR["Multilingual EasyOCR\n(Hindi & English Text)"]
+        
+        Easy_OCR --> Vec_Store
+        Easy_OCR --> Plant_Graph
+        Plant_Graph <--> Delta_T
+        Doc_Lineage <--> Vec_Store
+    end
+
+    %% COLUMN 4: SOVEREIGN AGENT FABRIC (MCP / A2A)
+    subgraph COL4["4. Sovereign Agent Fabric"]
+        direction TB
+        MCP_Host["Native MCP Server\n(JSON-RPC 2.0 Router)"]
+        Cluster_LB["Cluster Load Balancer\n(Circuit Breakers)"]
+        Node1["Master Orchestrator\n(Laptop 1: Qwen3-8B)"]
+        Node2["Vision Specialist\n(Laptop 2: Qwen2.5-VL)"]
+        Node3["Coder / Fast QA\n(Laptop 3: Qwen3-4B)"]
+        
+        MCP_Host <--> Cluster_LB
+        Cluster_LB --> Node1
+        Cluster_LB --> Node2
+        Cluster_LB --> Node3
+    end
+
+    %% COLUMN 5: DUAL VERIFICATION & COUNCIL
+    subgraph COL5["5. Verification & Council"]
+        direction TB
+        ToT["Tree-of-Thought (ToT)\n(Deterministic Constraints)"]
+        Council["Council Consensus Engine\n(Multi-Model Cross-Check)"]
+        Safety_OISD["OISD Refinery Guardrails\n(Statutory Policy Filter)"]
+        Contradict_Check["Contradiction Firewall\n(Cross-Doc Validation)"]
+        
+        ToT --> Council --> Safety_OISD
+        Contradict_Check --> Safety_OISD
+    end
+
+    %% COLUMN 6: POLICY BOUND SANDBOX RUNTIME
+    subgraph COL6["6. Policy Bound Sandbox"]
+        direction TB
+        Path_Shield["Path Traversal Shield\n(Workspace Perimeter)"]
+        SQL_Guard["Read-Only SQL Guard\n(SELECT Enforcer)"]
+        Sandbox_Run["Python Code Sandbox\n(/inputs/ -> /scratch/ -> /outputs/)"]
+        OOXML_QA["3-Layer OOXML QA\n(Content, File, Visual)"]
         Audit_DB[("Immutable Audit Trail\n(zingo_audit.db)")]
         
-        Chunk --> Vec_DB
-        Chunk --> Plant_Graph
+        Path_Shield --> Sandbox_Run
+        SQL_Guard --> Sandbox_Run
+        Sandbox_Run --> OOXML_QA
     end
 
-    %% COLUMN 3: DISTRIBUTED GPU CLUSTER
-    subgraph COL3["3. Distributed GPU Cluster"]
+    %% COLUMN 7: ARTIFACT DELIVERY & BEHAVIORAL LOOP
+    subgraph COL7["7. Artifacts & Learning"]
         direction TB
-        LB["Cluster Load Balancer\n(VRAM & Telemetry)"]
-        Node1["Primary Node (Laptop 1)\nQwen3-8B (Reasoning)"]
-        Node2["Coder Node (Laptop 2)\nQwen2.5-Coder (Math)"]
-        Node3["Vision Node (Laptop 3)\nQwen2.5-VL (P&IDs)"]
+        Stream_Out["KaTeX & Markdown Stream\n(Real-Time SSE)"]
+        Deck_Gen["pptxgenjs Deck Compiler\n(16:9 Presentation)"]
+        Doc_Exporter["Report Exporter\n(PDF, DOCX, XLSX)"]
+        Action_Alerts["Signed Action Notes\n(Engineer Dispatch)"]
+        Learn_Engine["Behavioral Learning Loop\n(Diff Promotion >= 3)"]
         
-        LB --> Node1
-        LB --> Node2
-        LB --> Node3
-    end
-
-    %% COLUMN 4: VERIFICATION & SAFETY LAYER
-    subgraph COL4["4. Verification & Council"]
-        direction TB
-        ToT["Tree-of-Thought (ToT)\n(Hallucination Guard)"]
-        Council["Council Consensus Engine\n(Multi-Model Cross-Check)"]
-        Safety["OISD Refinery Guardrails\n(Policy Boundary Filter)"]
-        
-        ToT --> Council --> Safety
-        Safety -.-> Audit_DB
-    end
-
-    %% COLUMN 5: TOOLS & DELIVERABLES GENERATION
-    subgraph COL5["5. Action Tools & Delivery"]
-        direction TB
-        Sand_Py["Python Math Sandbox\n(Fluid/Thermodynamic Calc)"]
-        Pres_Eng["Presentation Engine\n(2-Model pptxgenjs Compiler)"]
-        Doc_Gen["Artifact Exporter\n(PDF, DOCX, XLSX Sheets)"]
-        Chat_Resp["Real-Time Streamed Output\n(KaTeX + Source Grounding)"]
+        Action_Alerts --> Learn_Engine
     end
 
     %% CROSS-COLUMN CONNECTIONS
-    RBAC -->|"User Query & Task"| LB
-    Vec_DB <-->|"Semantic Context"| LB
-    Plant_Graph <-->|"Equipment Topology"| LB
+    RBAC -->|"User Prompt & Identity"| Risk_Class
+    ReAct_Plan <-->|"Hybrid Graph-RAG"| COL3
+    ReAct_Plan -->|"Dispatches Approved Calls"| MCP_Host
     
     Node1 & Node2 & Node3 --> ToT
+    Delta_T --> Contradict_Check
     
-    Safety --> Sand_Py
-    Safety --> Pres_Eng
-    Safety --> Doc_Gen
-    Safety --> Chat_Resp
+    Safety_OISD --> Sandbox_Run
+    Safety_OISD -.->|"Tamper-Proof Audit"| Audit_DB
+    
+    OOXML_QA --> Deck_Gen
+    OOXML_QA --> Doc_Exporter
+    Safety_OISD --> Stream_Out
+    Safety_OISD --> Action_Alerts
+    
+    Learn_Engine -.->|"Promoted Prompt Rules"| User_Mem
+    Stream_Out -.->|"Token Feed"| UI_Canvas
+        </div>
+      </div>
+
+      <!-- VIEW B: TIERED (7 LAYERS) -->
+      <div id="view-tiered" class="diagram-container" style="display: none;">
+        <div class="mermaid">
+flowchart TB
+    %% TIER 1
+    subgraph T1["Tier 1: Sovereign Client Access & Claude-Class Interactive Workbench"]
+        direction LR
+        W_UI["AIRA Web Workbench (React 18 + Vite)"]
+        W_Can["Interactive Artifact Canvas (Monaco / HTML / SVG)"]
+        W_Orb["Cognitive Orbital Telemetry (ThinkingOrbs)"]
+        W_Auth["Sovereign RBAC & Local Zero-Trust Identity"]
+        W_UI <--> W_Can
+        W_UI --> W_Orb
+        W_UI --> W_Auth
+    end
+
+    %% TIER 2
+    subgraph T2["Tier 2: Dynamic Autonomy Controller & Cognitive Governor"]
+        direction LR
+        D_Risk["Risk & Sensitivity Classifier (L1 Assist / L2 Calc / L3 Swarm)"]
+        D_Budg["Thinking Token Budgeter (Adaptive CoT)"]
+        D_Plan["ReAct Agentic Planner (Task Decomposition)"]
+        D_Pipe["Autonomous 10-Step Ingestion Coordinator"]
+        D_Mem["Episodic User Memory & Historical Preferences"]
+        D_Risk --> D_Budg --> D_Plan
+        D_Risk --> D_Pipe
+        D_Mem --> D_Plan
+    end
+
+    %% TIER 3
+    subgraph T3["Tier 3: T-KOG — Temporal Official Knowledge Graph & Hybrid Retrieval"]
+        direction LR
+        K_Vec[("Dense Vector Store (ChromaDB / SOPs & Standards)")]
+        K_Graph[("Plant Topology Graph (NetworkX Equipment Connectivity)")]
+        K_Ver[("Document Version Lineage (OISD / API Supersession)")]
+        K_Delta["Delta-t Degradation Engine (Corrosion & SLA Drift)"]
+        K_OCR["Multilingual EasyOCR Engine (Hindi / English Scans)"]
+        K_OCR --> K_Vec
+        K_OCR --> K_Graph
+        K_Graph <--> K_Delta
+        K_Ver <--> K_Vec
+    end
+
+    %% TIER 4
+    subgraph T4["Tier 4: Sovereign Agent Fabric & Distributed GPU Cluster (MCP / A2A)"]
+        direction LR
+        F_MCP["Native MCP JSON-RPC 2.0 Host (Tool Discovery & Execution)"]
+        F_LB["Cluster Load Balancer & Tunnel Router (Circuit Breakers)"]
+        F_N1["Master Node 1: Qwen3-8B (Reasoning & Orchestration)"]
+        F_N2["Vision Node 2: Qwen2.5-VL (P&IDs & Blueprints)"]
+        F_N3["Coder Node 3: Qwen3-4B / Qwen2.5-Coder (Math & Scripts)"]
+        F_MCP <--> F_LB
+        F_LB --> F_N1
+        F_LB --> F_N2
+        F_LB --> F_N3
+    end
+
+    %% TIER 5
+    subgraph T5["Tier 5: Dual Verification & Multi-Model Council Layer"]
+        direction LR
+        V_ToT["Tree-of-Thought (ToT) Verifier (Deterministic Constraints)"]
+        V_Coun["Council Consensus Engine (Multi-Model Cross-Check)"]
+        V_Safe["OISD Refinery Guardrails (Statutory Safety Filter)"]
+        V_Contra["Contradiction Firewall (Historical Cross-Doc Scan)"]
+        V_ToT --> V_Coun --> V_Safe
+        V_Contra --> V_Safe
+    end
+
+    %% TIER 6
+    subgraph T6["Tier 6: Policy Bound Agent & Zero-Trust Sandbox Runtime"]
+        direction LR
+        S_Path["Path Traversal Defense (Workspace Shield)"]
+        S_SQL["Read-Only SQL Guard (SELECT Enforcer)"]
+        S_Run["Sandboxed Python/Bash Runtime (/inputs/ -> /scratch/ -> /outputs/)"]
+        S_QA["3-Layer OOXML Deliverable QA (Content, File, Visual)"]
+        S_Aud[("Immutable Audit Trail (zingo_audit.db / Hashes)")]
+        S_Path --> S_Run
+        S_SQL --> S_Run
+        S_Run --> S_QA
+    end
+
+    %% TIER 7
+    subgraph T7["Tier 7: Claude-Style Artifact Delivery & Behavioral Learning Loop"]
+        direction LR
+        O_Stream["Live Streamed KaTeX & Markdown (SSE Telemetry)"]
+        O_Deck["Presentation Engine (pptxgenjs 16:9 Compiler)"]
+        O_Doc["Artifact Exporter (Production .docx, .xlsx, .pdf)"]
+        O_Note["Signed Action Notes (Role Dispatch & Work Orders)"]
+        O_Learn["Behavioral Learning Engine (Diff Promotion >= 3)"]
+        O_Note --> O_Learn
+    end
+
+    %% INTER-TIER FLOWS
+    W_Auth -->|"Governed Query"| D_Risk
+    D_Plan <-->|"Hybrid Graph-RAG Retrieval"| T3
+    D_Plan -->|"Approved Tool Invocations"| F_MCP
+    F_N1 & F_N2 & F_N3 --> V_ToT
+    K_Delta --> V_Contra
+    V_Safe --> S_Run
+    V_Safe -.->|"Tamper-Proof Audit Logging"| S_Aud
+    S_QA --> O_Deck
+    S_QA --> O_Doc
+    V_Safe --> O_Stream
+    V_Safe --> O_Note
+    O_Learn -.->|"Promoted Statutory Preferences"| D_Mem
+    O_Stream -.->|"Real-Time Token Stream"| W_Can
         </div>
       </div>
     </div>
@@ -261,8 +559,10 @@ flowchart LR
     <!-- SECTION 2: OPERATIONAL WORKFLOW -->
     <div class="section-card">
       <div class="section-header">
-        <h2>2. End-to-End Operational Workflow</h2>
-        <p>Live request execution lifecycle across the 5 pipeline stages.</p>
+        <div>
+          <h2>2. End-to-End Operational Workflow</h2>
+          <p>Live request execution lifecycle across the 5 pipeline stages.</p>
+        </div>
       </div>
 
       <div class="stepper-bar">
@@ -318,24 +618,21 @@ sequenceDiagram
             Tools->>Vault: Store in Vector DB & Equipment Graph
         end
         GW->>Cluster: Classify Intent & Start CoT Reasoning
-        Cluster-->>UI: Stream live reasoning tokens to ThinkingBlock
-        GW->>Vault: Hybrid Query (Semantic Vector Search + Equipment Graph)
-        Vault-->>GW: Grounded SOPs, P&IDs & Historical Records
+        Cluster-->>UI: Stream Thinking Telemetry (ThinkingOrbs)
     end
 
-    %% Step 3: Tool Dispatch
-    rect rgb(20, 38, 30)
-        Note over GW,Tools: Phase 2 & 3: Use Right Tools & Process
-        GW->>Cluster: Route to Target Compute Node
-        alt Code / Engineering Math
-            Cluster->>Tools: Execute Python Sandbox Formula
-            Tools-->>Cluster: Return Calculation Result
-        else Slide Presentation Task
-            Cluster->>Tools: Model 1 (Domain Research) -> Model 2 (pptxgenjs)
-            Tools-->>Cluster: Return Compiled 16:9 .pptx Deck
-        else P&ID Drawing Task
-            Cluster->>Tools: Qwen2.5-VL Blueprint & Tag Analysis
-            Tools-->>Cluster: Return Visual Extraction & Bounding Boxes
+    %% Step 3: Tool Execution & Multi-Model Inference
+    rect rgb(20, 40, 35)
+        Note over GW,Cluster: Phase 2: Compute & Tool Sandbox
+        GW->>Cluster: Evaluate Task Modality
+        alt Coding or Mathematical Formula
+            Cluster->>Tools: Execute in Sandboxed Python Runtime
+            Tools-->>Cluster: Return Validated Computation Result
+        else Visual Inspection / P&ID Diagram
+            Cluster->>Cluster: Route to Laptop 2 (Qwen2.5-VL Vision Node)
+        else Slide Deck Generation
+            Cluster->>Tools: Researcher Model -> pptxgenjs Compiler
+            Tools-->>Cluster: Generated Presentation Artifact
         end
     end
 
@@ -377,6 +674,24 @@ sequenceDiagram
         tertiaryColor: '#1e1b4b'
       }
     });
+
+    function switchView(viewName) {
+      const horizontalDiv = document.getElementById('view-horizontal');
+      const tieredDiv = document.getElementById('view-tiered');
+      const buttons = document.querySelectorAll('.tab-btn');
+
+      if (viewName === 'horizontal') {
+        horizontalDiv.style.display = 'flex';
+        tieredDiv.style.display = 'none';
+        buttons[0].classList.add('active');
+        buttons[1].classList.remove('active');
+      } else {
+        horizontalDiv.style.display = 'none';
+        tieredDiv.style.display = 'flex';
+        buttons[0].classList.remove('active');
+        buttons[1].classList.add('active');
+      }
+    }
   </script>
 </body>
 </html>
