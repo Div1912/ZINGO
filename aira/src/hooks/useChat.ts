@@ -15,13 +15,30 @@ import { useProjectStore } from '../stores/projectStore'
 import { useArtifactStore } from '../stores/artifactStore'
 import { extractProjectFromMessage, createVirtualProjectFromParsed } from '../utils/multiFileParser'
 import { getActiveUserInfo } from '../stores/authStore'
-import type { Message, ModelId, TaskType, UploadedFile, CouncilMeta, ThinkStep, PastChatSearchMeta } from '../types'
+import type {
+  Message,
+  ModelId,
+  TaskType,
+  UploadedFile,
+  CouncilMeta,
+  ThinkStep,
+  PastChatSearchMeta,
+  SubagentExecution,
+  AgentToolActivity,
+  CompletedTool,
+} from '../types'
 import { classifyTaskIntensity } from '../services/qwenApi'
 import { useMemoryStore } from '../stores/memoryStore'
 import { detectPastChatIntent, searchPastChats, formatPastChatsForPrompt } from '../services/chatSearchService'
 import { detectFormatSkillIntent } from '../skills/documents/formatSkillResolver'
 import { extractDeliverablesFromMessage, buildSandboxDeliverable } from '../services/sandboxDeliverableService'
 import type { DeliverableFile } from '../types/deliverable'
+
+interface ClusterTargetCandidate {
+  url: string
+  model: string
+  label: string
+}
 
 export function useChat(chatId?: string | null) {
   const {
@@ -442,13 +459,6 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           endpoint = `${cleanBaseUrl}/api/chat`
         }
 
-
-        interface ClusterTargetCandidate {
-          url: string
-          model: string
-          label: string
-        }
-
         const candidates: ClusterTargetCandidate[] = []
 
         // If user specifically selected or query is Vision / Multimodal:
@@ -612,9 +622,9 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
               elapsed_seconds: 0,
             }
           : undefined
-        let subagentsMeta: import('../types').SubagentExecution[] | undefined = undefined
-        let activeTool: import('../types').AgentToolActivity | undefined = undefined
-        let completedTools: import('../types').CompletedTool[] = []
+        let subagentsMeta: SubagentExecution[] | undefined = undefined
+        let activeTool: AgentToolActivity | undefined = undefined
+        let completedTools: CompletedTool[] = []
 
         const flush = (isStillStreaming: boolean = true) => {
           updateLastAssistantMessage(sendToChatId, {

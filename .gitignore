@@ -64,5 +64,7 @@ context/
 scratch/
 exports/
 sandbox_runs/
+zingo-architecture*
+.agents/
 
 
