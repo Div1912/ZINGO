@@ -12,6 +12,7 @@ set OLLAMA_HOST=0.0.0.0:11434
 set OLLAMA_FLASH_ATTENTION=1
 set OLLAMA_KV_CACHE_TYPE=q8_0
 set OLLAMA_NUM_PARALLEL=1
+set OLLAMA_ORIGINS=*
 set PERMANENT_DOMAIN=unfailing-idealism-caretaker.ngrok-free.dev
 set NGROK_AUTHTOKEN=3JXTsx7citycIzYfpuMMzFLKbec_GtXenkpnJfCHgJsXqEW5
 
