@@ -368,7 +368,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           selectedModel === 'qwen2.5vl:3b' ||
           selectedModel === 'qwen2.5-vl:3b' ||
           selectedModel === 'qwen2.5-vl:7b' ||
-          detectedTask === 'vision'
+          (detectedTask === 'vision' && (isAuto || hasImageFile))
         ) {
           targetNodeUrl = server.vision_url || server.g15_2_url || 'http://127.0.0.1:11434'
         } else if (selectedModel.includes('4b')) {
@@ -462,27 +462,28 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         const candidates: ClusterTargetCandidate[] = []
 
         // If user specifically selected or query is Vision / Multimodal:
-        if (selectedModel.includes('vl') || selectedModel.includes('vision') || detectedTask === 'vision') {
+        if (selectedModel.includes('vl') || selectedModel.includes('vision') || (detectedTask === 'vision' && (isAuto || hasImageFile))) {
           if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
           if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
         } else if (selectedModel.includes('4b')) {
-          // If 4B was requested:
-          if (server.fast_4b_url && server.fast4bStatus === 'connected') candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+          // 4B was explicitly requested (or picked by auto-routing): always try its own node first,
+          // regardless of possibly-stale connection status — a dead node simply fails fast and cascades.
+          if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
           if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
-          if (server.fast_4b_url && server.fast4bStatus !== 'connected') candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
         } else {
-          // General / Auto / 8B:
-          // If Laptop 2 is online, ensure it is prioritized if Laptop 3 is not connected
-          if (server.visionStatus === 'connected' && server.fast4bStatus !== 'connected' && server.vision_url) {
-            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
-            if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
-          } else if (server.fast4bStatus === 'connected' && server.fast_4b_url) {
+          // General / Auto / 8B fallback pool (used only when the primary 8B gateway wasn't tried or failed):
+          // Prefer whichever worker node has a confirmed 'connected' status; default to Fast 4B
+          // (a general text model) rather than the Vision-only node when status is unconfirmed.
+          if (server.fast4bStatus === 'connected' && server.fast_4b_url) {
             candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
             if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
-          } else {
-            // Default when status uncertain: Laptop 2 has verified active tunnel
-            if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          } else if (server.visionStatus === 'connected' && server.vision_url) {
+            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
             if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+          } else {
+            // Default when status uncertain: try Fast 4B (general-purpose) before the Vision-only node
+            if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+            if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
           }
         }
 

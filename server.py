@@ -124,10 +124,11 @@ class ClusterLoadBalancer:
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
         # 2. Fast / 4B constraint: MUST use Laptop 3 (qwen3:4b) if online, otherwise cascade to Laptop 2
+        #    only if Laptop 2 is actually confirmed healthy (never blindly assume it).
         if "4b" in model_req:
             try:
                 from subagent_engine import is_cluster_node_healthy
-                if not is_cluster_node_healthy(self.laptop3_url):
+                if not is_cluster_node_healthy(self.laptop3_url) and is_cluster_node_healthy(self.laptop2_url):
                     return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
             except Exception:
                 pass
@@ -140,10 +141,12 @@ class ClusterLoadBalancer:
                 from subagent_engine import is_cluster_node_healthy
                 if is_cluster_node_healthy(self.laptop3_url):
                     return laptop3_endpoint, "qwen3:4b", "laptop3"
-                else:
+                if is_cluster_node_healthy(self.laptop2_url):
                     return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
             except Exception:
-                return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+                pass
+            # Neither worker confirmed healthy: fall through to the general routing logic below
+            # instead of blindly assuming Laptop 2 is reachable.
 
         # 4. Master Node check: Is Laptop 1 (8B) actually available?
         laptop1_available = "qwen3:8b" in local_models
@@ -152,21 +155,20 @@ class ClusterLoadBalancer:
             laptop1_available = False
 
         if not laptop1_available and (is_auto or "8b" in model_req or not model_req):
-            # Laptop 1 (8b) is offline: Failover automatically to online cluster worker nodes
+            # Laptop 1 (8b) is offline: Failover automatically to online cluster worker nodes.
+            # Only route to a worker if it is actually confirmed healthy — never blindly assume
+            # Laptop 2 is up just because Laptop 3 wasn't reachable.
             try:
                 from subagent_engine import is_cluster_node_healthy
                 if is_cluster_node_healthy(self.laptop3_url):
                     return laptop3_endpoint, "qwen3:4b", "laptop3"
-            except Exception:
-                pass
-            try:
-                from subagent_engine import is_cluster_node_healthy
                 if is_cluster_node_healthy(self.laptop2_url):
                     return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
             except Exception:
                 pass
-            # Default failover: route to Laptop 2 (qwen2.5-vl:3b)
-            return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+            # No worker node is confirmed healthy either: fall through and attempt the primary
+            # endpoint anyway so the caller gets a real connection error instead of a silently
+            # mislabeled response from a node that was never actually verified reachable.
 
         # 5. Master Node (Laptop 1): Qwen3:8b for Document Synthesis, Presentations, Code, Engineering & Standard Chat
         primary_model = "qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b")
