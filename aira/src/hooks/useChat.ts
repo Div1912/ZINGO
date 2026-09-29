@@ -107,14 +107,15 @@ export function useChat(chatId?: string | null) {
       let detectedTask: TaskType = taskClassification.taskType
       let selectedModel: ModelId = isAuto ? taskClassification.recommendedModel : (forcedModel as ModelId)
 
-      // Dynamic Cluster Failover across nodes (Auto and Manual fallback):
+      // Dynamic Cluster Failover across nodes (Auto ONLY):
+      // When the user explicitly selects a model, NEVER mutate or override their choice!
       const isPrimaryDown = server.primaryStatus === 'disconnected'
       const isFast4bDown = server.fast4bStatus === 'disconnected' || !server.fast_4b_url
-      const isVisionAlive = server.visionStatus === 'connected' || Boolean(server.vision_url)
+      const isVisionAlive = server.visionStatus === 'connected'
 
       if (isAuto) {
-        // If Vision (Laptop 2) is the only node alive, or if both 8B and 4B are down:
-        if ((isPrimaryDown && isFast4bDown) || (isVisionAlive && isPrimaryDown && !server.fast_4b_url)) {
+        // If Vision (Laptop 2) is the only node confirmed alive, or if both 8B and 4B are down:
+        if ((isPrimaryDown && isFast4bDown && isVisionAlive) || (isVisionAlive && isPrimaryDown && !server.fast_4b_url)) {
           selectedModel = 'qwen2.5vl:3b'
         } else if (isPrimaryDown && (selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b')) {
           if (!isFast4bDown) {
@@ -127,21 +128,6 @@ export function useChat(chatId?: string | null) {
             selectedModel = 'qwen3:8b'
           } else if (isVisionAlive) {
             selectedModel = 'qwen2.5vl:3b'
-          }
-        }
-      } else {
-        // User manually selected a model whose node is offline:
-        if ((selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b') && isPrimaryDown) {
-          if (!isFast4bDown) {
-            selectedModel = 'qwen3:4b'
-          } else if (isVisionAlive) {
-            selectedModel = 'qwen2.5vl:3b'
-          }
-        } else if ((selectedModel === 'qwen3:4b' || selectedModel === 'qwen3-4b') && isFast4bDown) {
-          if (isVisionAlive) {
-            selectedModel = 'qwen2.5vl:3b'
-          } else if (!isPrimaryDown) {
-            selectedModel = 'qwen3:8b'
           }
         }
       }
@@ -441,7 +427,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           if (isCouncilActive) qp.set('enable_council', 'true')
           qp.set('enable_subagents', String(settings.subagentsEnabled !== false))
           qp.set('chat_id', sendToChatId)
-          endpoint = `${cleanBaseUrl}/process-and-ask/?${qp.toString()}`
+          endpoint = `/process-and-ask/?${qp.toString()}`
         } else {
           headers['Content-Type'] = 'application/json'
           body = JSON.stringify({
@@ -465,34 +451,39 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
             enable_council: isCouncilActive,
             enable_subagents: settings.subagentsEnabled !== false,
           })
-          endpoint = `${cleanBaseUrl}/api/chat`
+          endpoint = `/api/chat`
         }
 
         const candidates: ClusterTargetCandidate[] = []
 
         // If user specifically selected or query is Vision / Multimodal:
         if (selectedModel.includes('vl') || selectedModel.includes('vision') || (detectedTask === 'vision' && (isAuto || hasImageFile))) {
-          if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          if (server.vision_url && server.visionStatus === 'connected') {
+            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          } else if (server.vision_url) {
+            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          }
+          candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen3:8b', label: 'Laptop 1 (Local Ollama)' })
           if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
         } else if (selectedModel.includes('4b')) {
-          // 4B was explicitly requested (or picked by auto-routing): always try its own node first,
-          // regardless of possibly-stale connection status — a dead node simply fails fast and cascades.
           if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
-          if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen3:8b', label: 'Laptop 1 (Local Ollama)' })
+          if (server.vision_url && server.visionStatus === 'connected') candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+        } else if (selectedModel.includes('coder')) {
+          candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen2.5-coder:7b', label: 'Laptop 1 (Local Ollama - Coder)' })
+          candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen3:8b', label: 'Laptop 1 (Local Ollama - Master)' })
         } else {
-          // General / Auto / 8B fallback pool (used only when the primary 8B gateway wasn't tried or failed):
-          // Prefer whichever worker node has a confirmed 'connected' status; default to Fast 4B
-          // (a general text model) rather than the Vision-only node when status is unconfirmed.
+          // General / Auto / 8B / Master / Default:
+          // Laptop 1 (Local Ollama) is the primary resident node!
+          candidates.push({ url: 'http://127.0.0.1:11434', model: selectedModel === 'auto' ? 'qwen3:8b' : selectedModel, label: 'Laptop 1 (Local Ollama)' })
           if (server.fast4bStatus === 'connected' && server.fast_4b_url) {
             candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
-            if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
-          } else if (server.visionStatus === 'connected' && server.vision_url) {
+          }
+          if (server.visionStatus === 'connected' && server.vision_url) {
             candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
-            if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
-          } else {
-            // Default when status uncertain: try Fast 4B (general-purpose) before the Vision-only node
-            if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
-            if (server.vision_url) candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+          }
+          if (server.fast_4b_url && !candidates.some((c) => c.url === server.fast_4b_url)) {
+            candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
           }
         }
 
@@ -545,27 +536,36 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         const shouldTryPrimaryFirst =
           isPresentation ||
           selectedModel === 'qwen3:8b' ||
+          selectedModel === 'qwen3-8b' ||
           isAuto ||
           !targetNodeUrl ||
           server.primaryStatus !== 'disconnected'
 
-        if (shouldTryPrimaryFirst && Boolean(cleanBaseUrl)) {
-          try {
-            console.log(`[useChat] Connecting to primary gateway (${endpoint})...`)
-            const primaryRes = await fetch(endpoint, {
-              method: 'POST',
-              headers,
-              body,
-              signal: controller.signal,
-            })
-            if (primaryRes.ok && primaryRes.body) {
-              response = primaryRes
-            } else {
-              console.warn(`[useChat] Primary gateway returned HTTP ${primaryRes.status}`)
+        const primaryGateways = [cleanBaseUrl, 'http://127.0.0.1:8000'].filter(
+          (u, idx, arr) => Boolean(u) && arr.indexOf(u) === idx
+        )
+
+        if (shouldTryPrimaryFirst) {
+          for (const gwUrl of primaryGateways) {
+            try {
+              const gwEndpoint = `${gwUrl.replace(/\/+$/, '')}${endpoint}`
+              console.log(`[useChat] Connecting to primary gateway (${gwEndpoint})...`)
+              const primaryRes = await fetch(gwEndpoint, {
+                method: 'POST',
+                headers,
+                body,
+                signal: controller.signal,
+              })
+              if (primaryRes.ok && primaryRes.body) {
+                response = primaryRes
+                break
+              } else {
+                console.warn(`[useChat] Primary gateway (${gwUrl}) returned HTTP ${primaryRes.status}`)
+              }
+            } catch (err: any) {
+              if (controller.signal.aborted) throw err
+              console.warn(`[useChat] Primary gateway (${gwUrl}) failed (${err.message})...`)
             }
-          } catch (err: any) {
-            if (controller.signal.aborted) throw err
-            console.warn(`[useChat] Primary gateway failed (${err.message})...`)
           }
         }
 

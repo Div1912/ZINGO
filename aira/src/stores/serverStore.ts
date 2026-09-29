@@ -21,7 +21,7 @@ export const DEFAULT_QWEN3_4B_TUNNEL_URL = 'https://yoyo-evolve-untimed.ngrok-fr
 
 const DEFAULT_SERVER: ServerConfig = {
   g15_1_url: DEFAULT_TUNNEL_URL,
-  g15_2_url: DEFAULT_LAPTOP2_VISION_TUNNEL_URL, // Laptop 2: Multimodal & Vision Node (Permanent Ngrok Tunnel)
+  g15_2_url: 'http://127.0.0.1:11434', // Local Ollama Node (Qwen3-8B)
   vision_url: DEFAULT_LAPTOP2_VISION_TUNNEL_URL,
   fast_4b_url: DEFAULT_QWEN3_4B_TUNNEL_URL, // Fast Synthesis Node: Qwen3-4B (Permanent Ngrok Tunnel)
   reasoning_url: 'http://192.168.1.17:11434',
@@ -62,7 +62,7 @@ export const useServerStore = create<ServerStore>()(
         const proxyHost = cur.g15_1_url
 
         const [primaryRes, coderRes, visionRes, fast4bRes, reasoningRes] = await Promise.all([
-          checkServerHealth(cur.g15_1_url, proxyHost),
+          checkServerHealth(cur.g15_1_url, proxyHost, true),
           checkServerHealth(cur.g15_2_url, proxyHost),
           cur.vision_url ? checkServerHealth(cur.vision_url, proxyHost) : Promise.resolve({ connected: false }),
           cur.fast_4b_url ? checkServerHealth(cur.fast_4b_url, proxyHost) : Promise.resolve({ connected: false }),
@@ -128,7 +128,7 @@ export const useServerStore = create<ServerStore>()(
         else if (node === 'coder') url = cur.g15_2_url
         else if (node === 'reasoning') url = cur.reasoning_url || ''
 
-        const res = await checkServerHealth(url, cur.g15_1_url)
+        const res = await checkServerHealth(url, cur.g15_1_url, node === 'primary')
         const status = res.connected ? 'connected' : 'disconnected'
 
         set((state) => ({

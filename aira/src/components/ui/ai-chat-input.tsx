@@ -377,6 +377,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
         "Qwen3-8B (Laptop 1 - Master Node)",
         "Qwen3-4B (Laptop 3 - Fast Synthesis Node)",
         "Qwen2.5-VL Multimodal (Laptop 2 - Vision Node)",
+        "Qwen2.5-Coder-7B (Code Specialist)",
       ],
       efforts = ["Fast", "Deep Research", "Max Effort"],
       defaultValue = "",

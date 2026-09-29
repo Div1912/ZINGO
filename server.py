@@ -121,11 +121,25 @@ class ClusterLoadBalancer:
 
         # 1. Explicit user selection: NEVER override explicit user choices!
         if not is_auto:
-            if "vl" in model_req or "vision" in model_req or "2.5" in model_req:
-                return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+            if "vl" in model_req or "vision" in model_req or "2.5-vl" in model_req or "2.5vl" in model_req:
+                try:
+                    from subagent_engine import is_cluster_node_healthy
+                    if is_cluster_node_healthy(self.laptop2_url):
+                        return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+                except Exception:
+                    pass
+                return laptop1_endpoint, "qwen2.5-vl:3b" if "qwen2.5-vl:3b" in local_models else ("qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b")), "primary"
             if "4b" in model_req:
-                return laptop3_endpoint, "qwen3:4b", "laptop3"
-            if "8b" in model_req or model_req == "qwen3:8b":
+                try:
+                    from subagent_engine import is_cluster_node_healthy
+                    if is_cluster_node_healthy(self.laptop3_url):
+                        return laptop3_endpoint, "qwen3:4b", "laptop3"
+                except Exception:
+                    pass
+                if "qwen3:4b" in local_models:
+                    return laptop1_endpoint, "qwen3:4b", "primary"
+                return laptop1_endpoint, "qwen3:8b", "primary"
+            if "8b" in model_req or "master" in model_req or model_req in ("qwen3:8b", "qwen3-8b"):
                 return laptop1_endpoint, "qwen3:8b", "primary"
             # Any other custom or specific model: route to primary master node
             return laptop1_endpoint, requested_model, "primary"

@@ -243,7 +243,8 @@ export function classifyTaskIntensity(
  */
 export async function checkServerHealth(
   baseUrl: string,
-  proxyHost?: string
+  proxyHost?: string,
+  allowLocalFallback: boolean = false
 ): Promise<{ connected: boolean; model?: string; error?: string }> {
   const cleanUrl = (baseUrl || '').trim().replace(/\/+$/, '')
   if (!cleanUrl) {
@@ -303,6 +304,30 @@ export async function checkServerHealth(
     }
   } catch {
     // Both failed
+  }
+
+  // 3. Fallback for Master Node: Check local loopback endpoints (Ollama on 11434, FastAPI on 8000)
+  if (allowLocalFallback) {
+    try {
+      const localOllama = await fetch('http://127.0.0.1:11434/api/tags')
+      if (localOllama.ok) {
+        const data = await localOllama.json()
+        const models = (data.models || []).map((m: any) => m.name)
+        return { connected: true, model: models[0] || 'qwen3:8b (Local Ollama)' }
+      }
+    } catch {
+      // Local Ollama probe failed
+    }
+
+    try {
+      const localFastApi = await fetch('http://127.0.0.1:8000/api/health')
+      if (localFastApi.ok) {
+        const data = await localFastApi.json()
+        return { connected: true, model: data.model || 'qwen3:8b (Local Server)' }
+      }
+    } catch {
+      // Local FastAPI probe failed
+    }
   }
 
   return {

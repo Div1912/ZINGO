@@ -47,16 +47,23 @@ export const InputBar: React.FC<InputBarProps> = ({
     }
   ) => {
     let modelId: ModelId = 'auto'
-    if (meta.model.toLowerCase().includes('auto')) {
+    const lowerModel = (meta.model || '').toLowerCase()
+    if (lowerModel.includes('auto')) {
       modelId = 'auto'
-    } else if (meta.model.includes('Vision') || meta.model.includes('VL') || meta.model.includes('Multimodal')) {
+    } else if (lowerModel.includes('vision') || lowerModel.includes('vl') || lowerModel.includes('multimodal')) {
       modelId = 'qwen2.5vl:3b'
-    } else if (meta.model.includes('4B') || meta.model.includes('4b')) {
+    } else if (lowerModel.includes('4b')) {
       modelId = 'qwen3:4b'
-    } else if (meta.model.includes('8B') || meta.model.includes('8b') || meta.model.includes('Master')) {
+    } else if (lowerModel.includes('8b') || lowerModel.includes('master')) {
       modelId = 'qwen3:8b'
+    } else if (lowerModel.includes('coder')) {
+      modelId = 'qwen2.5-coder:7b'
+    } else if (lowerModel.includes('7b')) {
+      modelId = 'qwen2.5-7b'
+    } else if (lowerModel.includes('deepseek') || lowerModel.includes('r1')) {
+      modelId = 'deepseek-r1:8b'
     } else {
-      modelId = 'auto'
+      modelId = (meta.model.trim() as ModelId) || 'auto'
     }
 
     const uploadedFiles: UploadedFile[] = (meta.attachments || []).map((file) => {
