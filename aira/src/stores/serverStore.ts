@@ -90,7 +90,7 @@ export const useServerStore = create<ServerStore>()(
           },
         })
 
-        if (!silent) {
+        if (!isSilent) {
           const addToast = useToastStore.getState().addToast
           const activeCount = [primarySuccess, coderSuccess, visionSuccess, fast4bSuccess, reasoningSuccess].filter(Boolean).length
           addToast({
