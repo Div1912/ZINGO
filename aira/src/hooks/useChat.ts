@@ -90,6 +90,17 @@ export function useChat(chatId?: string | null) {
       let detectedTask: TaskType = taskClassification.taskType
       let selectedModel: ModelId = isAuto ? taskClassification.recommendedModel : (forcedModel as ModelId)
 
+      // Dynamic Cluster Failover in Auto mode: If Master (8B) is offline, route to healthy worker node
+      if (isAuto) {
+        if (server.primaryStatus === 'disconnected' && (selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b')) {
+          if (server.fast4bStatus === 'connected') {
+            selectedModel = 'qwen3:4b'
+          } else if (server.visionStatus === 'connected') {
+            selectedModel = 'qwen2.5vl:3b'
+          }
+        }
+      }
+
       // 1. Add User Message
       const userMsgId = 'usr-' + Date.now()
       const userMsg: Message = {
@@ -171,7 +182,7 @@ export function useChat(chatId?: string | null) {
         isThinkingPhase: isThinking,
         thinkingEnabled: isThinking,
         isStreaming: true,
-        modelUsed: isGreeting ? 'qwen3:8b' : selectedModel,
+        modelUsed: selectedModel,
         taskType: isGreeting ? 'fast' : detectedTask,
         effort: isGreeting ? 'Fast' : (effort || 'Fast'),
         pastChatSearch: pastChatSearchMeta,
@@ -324,8 +335,10 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         } else if (isAuto) {
           if (hasImageFile) {
             targetNodeUrl = server.vision_url || server.g15_2_url || undefined
-          } else if (detectedTask === 'fast') {
+          } else if (detectedTask === 'fast' || server.fast4bStatus === 'connected') {
             targetNodeUrl = server.fast_4b_url || undefined
+          } else if (server.visionStatus === 'connected') {
+            targetNodeUrl = server.vision_url || server.g15_2_url || undefined
           } else {
             targetNodeUrl = undefined
           }
@@ -402,12 +415,69 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         }
 
 
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body,
-          signal: controller.signal,
-        })
+        let response: Response
+        const doDirectOllamaFetch = async (nodeUrl: string): Promise<Response> => {
+          const directNodeBase = nodeUrl.replace(/\/+$/, '')
+          const directEndpoint = `${directNodeBase}/api/chat`
+          const ollamaModel = (selectedModel === 'qwen2.5vl:3b' || selectedModel === 'qwen2.5-vl:3b' || selectedModel === 'qwen2.5-vl:7b' || detectedTask === 'vision')
+            ? 'qwen2.5-vl:3b'
+            : (selectedModel.includes('4b') ? 'qwen3:4b' : (server.fast4bStatus === 'connected' ? 'qwen3:4b' : 'qwen2.5-vl:3b'))
+
+          const directMessages: { role: string; content: string }[] = []
+          if (systemPrompt) {
+            directMessages.push({ role: 'system', content: systemPrompt })
+          }
+          messagesForContext.forEach((m) => {
+            directMessages.push({ role: m.role, content: m.content })
+          })
+          directMessages.push({ role: 'user', content: content || 'Hello' })
+
+          const directHeaders: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
+          }
+          const directBody = JSON.stringify({
+            model: ollamaModel,
+            messages: directMessages,
+            stream: true,
+            options: {
+              temperature: 0.3,
+              num_predict: 3072,
+            },
+          })
+
+          return fetch(directEndpoint, {
+            method: 'POST',
+            headers: directHeaders,
+            body: directBody,
+            signal: controller.signal,
+          })
+        }
+
+        const isPrimaryOffline = server.primaryStatus === 'disconnected' || !cleanBaseUrl
+        if (isPrimaryOffline && targetNodeUrl) {
+          response = await doDirectOllamaFetch(targetNodeUrl)
+        } else {
+          try {
+            response = await fetch(endpoint, {
+              method: 'POST',
+              headers,
+              body,
+              signal: controller.signal,
+            })
+            if (!response.ok && targetNodeUrl && targetNodeUrl !== cleanBaseUrl) {
+              throw new Error(`Primary gateway returned HTTP ${response.status}`)
+            }
+          } catch (err: any) {
+            if (controller.signal.aborted) throw err
+            if (targetNodeUrl && targetNodeUrl !== cleanBaseUrl) {
+              console.warn(`[useChat] Primary gateway failed (${err.message}). Direct failover to ${targetNodeUrl}...`)
+              response = await doDirectOllamaFetch(targetNodeUrl)
+            } else {
+              throw err
+            }
+          }
+        }
 
         if (!response.ok || !response.body) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -461,6 +531,8 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           })
         }
 
+        let inOllamaThink = false
+
         while (true) {
           if (controller.signal.aborted) {
             await reader.cancel()
@@ -476,15 +548,70 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
 
           for (const line of lines) {
             const trimmed = line.trim()
-            if (!trimmed || !trimmed.startsWith('data:')) continue
+            if (!trimmed) continue
 
-            const raw = trimmed.replace(/^data:\s*/, '')
+            const isSse = trimmed.startsWith('data:')
+            const raw = isSse ? trimmed.replace(/^data:\s*/, '') : trimmed
             if (!raw) continue
 
             let evt: any
             try {
               evt = JSON.parse(raw)
             } catch {
+              continue
+            }
+
+            // Direct Ollama NDJSON chunk support:
+            if (!isSse && (evt.message !== undefined || evt.response !== undefined || evt.done !== undefined)) {
+              if (evt.model) {
+                resolvedModelUsed = evt.model
+              }
+              const chunkText = evt.message?.content ?? evt.response ?? ''
+              if (chunkText) {
+                let textToProcess = chunkText
+                while (textToProcess) {
+                  if (inOllamaThink) {
+                    const closeIdx = textToProcess.indexOf('</think>')
+                    if (closeIdx !== -1) {
+                      rawThinking += textToProcess.slice(0, closeIdx)
+                      textToProcess = textToProcess.slice(closeIdx + 8)
+                      inOllamaThink = false
+                      isThinkingPhase = false
+                      if (rawThinking.trim()) {
+                        thinkSteps = [
+                          ...thinkSteps,
+                          { step_number: thinkSteps.length + 1, content: rawThinking.trim() },
+                        ]
+                        rawThinking = ''
+                      }
+                      flush()
+                    } else {
+                      rawThinking += textToProcess
+                      textToProcess = ''
+                      flush()
+                    }
+                  } else {
+                    const openIdx = textToProcess.indexOf('<think>')
+                    if (openIdx !== -1) {
+                      answerContent += textToProcess.slice(0, openIdx)
+                      textToProcess = textToProcess.slice(openIdx + 7)
+                      inOllamaThink = true
+                      isThinkingPhase = true
+                      if (!thinkStartTime) thinkStartTime = Date.now()
+                      flush()
+                    } else {
+                      answerContent += textToProcess
+                      textToProcess = ''
+                      flush()
+                    }
+                  }
+                }
+              }
+              if (evt.done) {
+                evalCount = evt.eval_count ?? evalCount
+                isThinkingPhase = false
+                flush(false)
+              }
               continue
             }
 

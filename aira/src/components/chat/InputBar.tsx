@@ -47,11 +47,13 @@ export const InputBar: React.FC<InputBarProps> = ({
     }
   ) => {
     let modelId: ModelId = 'auto'
-    if (meta.model.includes('Vision') || meta.model.includes('VL') || meta.model.includes('Multimodal')) {
+    if (meta.model.toLowerCase().includes('auto')) {
+      modelId = 'auto'
+    } else if (meta.model.includes('Vision') || meta.model.includes('VL') || meta.model.includes('Multimodal')) {
       modelId = 'qwen2.5vl:3b'
     } else if (meta.model.includes('4B') || meta.model.includes('4b')) {
       modelId = 'qwen3:4b'
-    } else if (meta.model.includes('Qwen3') || meta.model.includes('Master') || meta.model.includes('8B') || meta.model.includes('8b')) {
+    } else if (meta.model.includes('8B') || meta.model.includes('8b') || meta.model.includes('Master')) {
       modelId = 'qwen3:8b'
     } else {
       modelId = 'auto'

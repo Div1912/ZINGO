@@ -211,29 +211,47 @@ def run_ollama_stream_cot(
                     )
             req.raise_for_status()
         except Exception as remote_err:
-            fallback = DEFAULT_MODEL
+            print(f"[cluster/model fallback] Error with model {clean_payload.get('model')} at {endpoint}: {remote_err}. Attempting cluster failover...")
+            fallback_candidates = []
             try:
-                import llm
-                fallback = llm.resolve_model("chat") or DEFAULT_MODEL
+                from server import cluster_balancer
+                l3 = f"{cluster_balancer.laptop3_url.rstrip('/')}/api/generate"
+                l2 = f"{cluster_balancer.laptop2_url.rstrip('/')}/api/generate"
+                fallback_candidates.append((l3, "qwen3:4b"))
+                fallback_candidates.append((l2, "qwen2.5-vl:3b"))
             except Exception:
-                pass
-            if clean_payload.get("model") != fallback or endpoint != DEFAULT_ENDPOINT:
-                print(f"[cluster/model fallback] Error with model {clean_payload.get('model')} at {endpoint}: {remote_err}. Falling back to {fallback}.")
-                clean_payload["model"] = fallback
-                model_name = fallback
-                endpoint = DEFAULT_ENDPOINT
-                # fallback model is text-only. Remove 'images' so prompt with OCR text still answers cleanly.
-                clean_payload.pop("images", None)
-                req = requests.post(
-                    endpoint,
-                    json=clean_payload,
-                    headers=req_headers,
-                    stream=True,
-                    timeout=(15, 600),
-                )
-                req.raise_for_status()
-            else:
-                raise remote_err
+                fallback_candidates.append(("https://yoyo-evolve-untimed.ngrok-free.dev/api/generate", "qwen3:4b"))
+                fallback_candidates.append(("https://unfailing-idealism-caretaker.ngrok-free.dev/api/generate", "qwen2.5-vl:3b"))
+            fallback_candidates.append((DEFAULT_ENDPOINT, DEFAULT_MODEL))
+
+            succeeded = False
+            last_err = remote_err
+            for fb_ep, fb_model in fallback_candidates:
+                if fb_ep == endpoint and fb_model == clean_payload.get("model"):
+                    continue
+                try:
+                    clean_payload["model"] = fb_model
+                    model_name = fb_model
+                    endpoint = fb_ep
+                    if "vl" not in fb_model:
+                        clean_payload.pop("images", None)
+                    req = requests.post(
+                        endpoint,
+                        json=clean_payload,
+                        headers=req_headers,
+                        stream=True,
+                        timeout=(10, 300),
+                    )
+                    if req.status_code == 200:
+                        succeeded = True
+                        break
+                except Exception as fb_err:
+                    print(f"[cluster/model fallback] Fallback candidate {fb_model} at {fb_ep} failed: {fb_err}")
+                    last_err = fb_err
+                    continue
+
+            if not succeeded:
+                raise last_err
     except Exception as e:
         elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
         if log_ollama_call:

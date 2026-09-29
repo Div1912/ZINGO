@@ -218,10 +218,10 @@ export function classifyTaskIntensity(
 
   const isGreeting = simpleGreetings.includes(text)
 
-  if (isGreeting) {
+  if (isGreeting || eff === 'fast') {
     return {
       intensity: 'light',
-      recommendedModel: 'qwen3:8b',
+      recommendedModel: 'qwen3:4b',
       taskType: 'fast',
       reason: 'Fast local synthesis, low-latency response & conversational agility',
       isComplex: false,

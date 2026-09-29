@@ -132,7 +132,30 @@ class ClusterLoadBalancer:
         if is_auto and normalized_task in ("fast", "lightweight", "quick", "outline"):
             return laptop3_endpoint, "qwen3:4b", "laptop3"
 
-        # 4. Master Node (Laptop 1): Qwen3:8b for Document Synthesis, Presentations, Code, Engineering & Standard Chat
+        # 4. Master Node check: Is Laptop 1 (8B) actually available?
+        laptop1_available = "qwen3:8b" in local_models
+        if not laptop1_available and local_models:
+            # Local Ollama is on a worker node (e.g. qwen2.5-vl:3b on Laptop 2) without 8B
+            laptop1_available = False
+
+        if not laptop1_available and (is_auto or "8b" in model_req or not model_req):
+            # Laptop 1 (8b) is offline: Failover automatically to online cluster worker nodes
+            try:
+                from subagent_engine import is_cluster_node_healthy
+                if is_cluster_node_healthy(self.laptop3_url):
+                    return laptop3_endpoint, "qwen3:4b", "laptop3"
+            except Exception:
+                pass
+            try:
+                from subagent_engine import is_cluster_node_healthy
+                if is_cluster_node_healthy(self.laptop2_url):
+                    return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
+            except Exception:
+                pass
+            # Default failover to Laptop 3 (or Laptop 2 if custom node)
+            return laptop3_endpoint, "qwen3:4b", "laptop3"
+
+        # 5. Master Node (Laptop 1): Qwen3:8b for Document Synthesis, Presentations, Code, Engineering & Standard Chat
         primary_model = "qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b")
         return laptop1_endpoint, primary_model, "primary"
 
@@ -1314,7 +1337,13 @@ async def api_chat(payload_data: ChatPayload):
     # Fast path for trivial greetings: Zero RAG, zero thinking overhead, instant 1.2s response
     if is_trivial_greeting(question):
         available_local_models = llm.list_models()
-        target_model = "qwen3:8b" if "qwen3:8b" in available_local_models else (available_local_models[0] if available_local_models else "qwen3:8b")
+        target_endpoint, target_model, node_key = cluster_balancer.route_request(
+            has_images=bool(payload_data.images or payload_data.task_type == "vision"),
+            requested_model=payload_data.model,
+            custom_node_url=payload_data.node_url,
+            task_type="fast",
+            available_local_models=available_local_models,
+        )
         greeting_system = "You are AIRA, a helpful and polite AI assistant. Respond warmly and concisely in 1-2 short sentences. Do not introduce yourself unless asked."
         ollama_payload = {
             "model": target_model,
@@ -1325,13 +1354,13 @@ async def api_chat(payload_data: ChatPayload):
             "options": {"temperature": 0.3, "num_predict": 128, "num_ctx": 1024, "top_p": 0.8},
             "keep_alive": -1,
             "_effort": "Fast",
-            "_endpoint": MODEL_ENDPOINT,
+            "_endpoint": target_endpoint,
             "_display_model": target_model,
             "_council": None,
             "_subagents": None,
         }
         if payload_data.stream:
-            cluster_balancer.acquire_slot("primary")
+            cluster_balancer.acquire_slot(node_key)
             return StreamingResponse(
                 stream_with_slot_cleanup(
                     run_ollama_stream(
@@ -1341,15 +1370,16 @@ async def api_chat(payload_data: ChatPayload):
                         feature="chat",
                         content_prefix="",
                     ),
-                    "primary",
+                    node_key,
                 ),
                 media_type="text/event-stream"
             )
         else:
             try:
                 resp = requests.post(
-                    MODEL_ENDPOINT,
+                    target_endpoint,
                     json={k: v for k, v in ollama_payload.items() if not k.startswith("_")},
+                    headers={"ngrok-skip-browser-warning": "true"},
                     timeout=30,
                 )
                 data = resp.json()
@@ -1527,9 +1557,13 @@ async def api_chat(payload_data: ChatPayload):
     is_ppt = is_presentation_intent(question)
 
     if is_ppt:
-        target_endpoint = MODEL_ENDPOINT
-        model = "qwen3:8b"
-        node_key = "primary"
+        target_endpoint, model, node_key = cluster_balancer.route_request(
+            has_images=False,
+            requested_model=payload_data.model,
+            custom_node_url=payload_data.node_url,
+            task_type="analysis",
+            available_local_models=available_local_models,
+        )
 
         if payload_data.stream:
             on_done = None

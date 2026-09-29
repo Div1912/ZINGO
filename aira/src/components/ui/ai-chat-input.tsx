@@ -375,7 +375,7 @@ export const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       models = [
         "Auto (Cluster Smart Router)",
         "Qwen3-8B (Laptop 1 - Master Node)",
-        "Qwen3-4B (Laptop 1 - Fast Synthesis Node)",
+        "Qwen3-4B (Laptop 3 - Fast Synthesis Node)",
         "Qwen2.5-VL Multimodal (Laptop 2 - Vision Node)",
       ],
       efforts = ["Fast", "Deep Research", "Max Effort"],
