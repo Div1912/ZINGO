@@ -257,9 +257,8 @@ export async function checkServerHealth(
 
     // Probe 1: Ollama tags
     try {
-      const tagRes = await fetch(`${cleanUrl}/api/tags`, {
+      const tagRes = await fetch(`${cleanUrl}/api/tags?ngrok-skip-browser-warning=true`, {
         method: 'GET',
-        headers: { 'ngrok-skip-browser-warning': 'true' },
         signal: controller.signal,
       })
       if (tagRes.ok) {
@@ -273,9 +272,8 @@ export async function checkServerHealth(
     }
 
     // Probe 2: FastAPI health
-    const res = await fetch(`${cleanUrl}/api/health`, {
+    const res = await fetch(`${cleanUrl}/api/health?ngrok-skip-browser-warning=true`, {
       method: 'GET',
-      headers: { 'ngrok-skip-browser-warning': 'true' },
       signal: controller.signal,
     })
     clearTimeout(timeoutId)
@@ -294,9 +292,8 @@ export async function checkServerHealth(
   // 2. Fallback: Query master node proxy to ping the target node without browser CORS
   const master = (proxyHost || 'http://127.0.0.1:8000').replace(/\/+$/, '')
   try {
-    const proxyRes = await fetch(`${master}/api/cluster/ping?node_url=${encodeURIComponent(cleanUrl)}`, {
+    const proxyRes = await fetch(`${master}/api/cluster/ping?node_url=${encodeURIComponent(cleanUrl)}&ngrok-skip-browser-warning=true`, {
       method: 'GET',
-      headers: { 'ngrok-skip-browser-warning': 'true' },
     })
     if (proxyRes.ok) {
       const data = await proxyRes.json()
@@ -357,12 +354,11 @@ export async function streamChatResponse(
   const effortParam = encodeURIComponent(effort || 'Fast')
   const modelParam = targetModel && targetModel !== 'auto' ? `&model=${encodeURIComponent(targetModel)}` : ''
   const nodeParam = targetNodeUrl ? `&node_url=${encodeURIComponent(targetNodeUrl)}` : ''
-  const endpointUrl = `${cleanUrl}/process-and-ask/?user_query=${encodeURIComponent(lastUserMsg)}&stream=true&effort=${effortParam}${modelParam}${nodeParam}`
+  const endpointUrl = `${cleanUrl}/process-and-ask/?user_query=${encodeURIComponent(lastUserMsg)}&stream=true&effort=${effortParam}${modelParam}${nodeParam}&ngrok-skip-browser-warning=true`
 
   try {
     const response = await fetch(endpointUrl, {
       method: 'POST',
-      headers: { 'ngrok-skip-browser-warning': 'true' },
       body: formData,
       signal,
     })

@@ -496,7 +496,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
 
         const doDirectOllamaFetch = async (target: ClusterTargetCandidate): Promise<Response> => {
           const directNodeBase = target.url.replace(/\/+$/, '')
-          const directEndpoint = `${directNodeBase}/api/chat`
+          const directEndpoint = `${directNodeBase}/api/chat?ngrok-skip-browser-warning=true`
           const directMessages: { role: string; content: string }[] = []
           if (systemPrompt) {
             directMessages.push({ role: 'system', content: systemPrompt })
@@ -508,7 +508,6 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
 
           const directHeaders: Record<string, string> = {
             'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true',
           }
           const directBody = JSON.stringify({
             model: target.model,
