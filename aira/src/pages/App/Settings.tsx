@@ -2201,7 +2201,7 @@ export const SettingsPage: React.FC<SettingsModalProps> = ({
 
                     <div className="flex items-center justify-between pt-2">
                       <button
-                        onClick={checkConnection}
+                        onClick={() => checkConnection()}
                         disabled={isChecking}
                         className="btn-glass !py-1.5 !px-3 !text-xs flex items-center gap-1.5"
                       >

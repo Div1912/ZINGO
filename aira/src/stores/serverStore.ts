@@ -11,7 +11,7 @@ interface ServerStore {
   isChecking: boolean
   lastChecked: string | null
   updateServer: (updates: Partial<ServerConfig>) => void
-  checkConnection: (silent?: boolean) => Promise<void>
+  checkConnection: (silent?: boolean | unknown) => Promise<void>
   checkIndividual: (node: ClusterNodeKey) => Promise<void>
 }
 
@@ -43,7 +43,8 @@ export const useServerStore = create<ServerStore>()(
         set((state) => ({
           server: { ...state.server, ...updates },
         })),
-      checkConnection: async (silent: boolean = false) => {
+      checkConnection: async (silent?: boolean | unknown) => {
+        const isSilent = silent === true
         set({ isChecking: true })
         set((state) => ({
           server: {
