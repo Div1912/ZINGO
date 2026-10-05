@@ -17,13 +17,18 @@ export OLLAMA_HOST="0.0.0.0:11434"
 export OLLAMA_FLASH_ATTENTION=1
 export OLLAMA_ORIGINS="*"
 
-# 2. Check if Ollama is running
-if pgrep -x "ollama" >/dev/null; then
-    echo "[OK] Ollama is already running."
-else
-    echo "[..] Launching Ollama in background (listening on 0.0.0.0:11434)..."
+# 2. Verify and ensure Ollama is running with CORS enabled (OLLAMA_ORIGINS="*")
+CORS_CHECK=$(curl -s -o /dev/null -w "%{http_code}" -X OPTIONS http://127.0.0.1:11434/api/chat -H "Origin: https://aira-sable.vercel.app" -H "Access-Control-Request-Method: POST" 2>/dev/null)
+
+if [ "$CORS_CHECK" != "204" ] && [ "$CORS_CHECK" != "200" ]; then
+    echo "[..] Restarting Ollama with OLLAMA_ORIGINS='*' for web browser CORS..."
+    pkill -f "Ollama.app" 2>/dev/null
+    killall ollama llama-server 2>/dev/null
+    sleep 2
     ollama serve >/dev/null 2>&1 &
     sleep 3
+else
+    echo "[OK] Ollama is already running with CORS enabled."
 fi
 
 # 3. Verify qwen2.5vl:3b model availability

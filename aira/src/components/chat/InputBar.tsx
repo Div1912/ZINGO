@@ -68,19 +68,20 @@ export const InputBar: React.FC<InputBarProps> = ({
 
     const uploadedFiles: UploadedFile[] = (meta.attachments || []).map((file) => {
       let ext: UploadedFile['type'] = 'txt'
-      if (file.name.endsWith('.pdf')) ext = 'pdf'
-      else if (file.name.endsWith('.docx')) ext = 'docx'
-      else if (file.name.endsWith('.xlsx')) ext = 'xlsx'
-      else if (file.type.startsWith('image/')) ext = 'image'
+      const lowerName = (file.name || '').toLowerCase()
+      const isImg = file.type.startsWith('image/') || /\.(png|jpe?g|webp|bmp|gif|svg)$/i.test(lowerName)
+
+      if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') ext = 'pdf'
+      else if (lowerName.endsWith('.docx')) ext = 'docx'
+      else if (lowerName.endsWith('.xlsx')) ext = 'xlsx'
+      else if (isImg) ext = 'image'
 
       return {
         id: Math.random().toString(36).substring(2, 9),
         name: file.name,
         type: ext,
         size: file.size,
-        previewUrl: file.type.startsWith('image/')
-          ? URL.createObjectURL(file)
-          : undefined,
+        previewUrl: isImg ? URL.createObjectURL(file) : undefined,
         rawFile: file,
       }
     })

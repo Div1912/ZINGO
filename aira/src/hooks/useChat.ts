@@ -33,6 +33,7 @@ import { detectPastChatIntent, searchPastChats, formatPastChatsForPrompt } from 
 import { detectFormatSkillIntent } from '../skills/documents/formatSkillResolver'
 import { extractDeliverablesFromMessage, buildSandboxDeliverable } from '../services/sandboxDeliverableService'
 import type { DeliverableFile } from '../types/deliverable'
+import { processUserUploadedFile, type ProcessedUploadedFile } from '../services/fileProcessingService'
 
 interface ClusterTargetCandidate {
   url: string
@@ -90,9 +91,9 @@ export function useChat(chatId?: string | null) {
       const hasImageFile = Boolean(
         files &&
           (files as any[]).some((f: any) => {
-            const type = f.type || (f.rawFile && f.rawFile.type) || ''
-            const name = f.name || (f.rawFile && f.rawFile.name) || ''
-            return type.startsWith('image/') || /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(name)
+            const type = (f.type || (f.rawFile && f.rawFile.type) || '').toLowerCase()
+            const name = (f.name || (f.rawFile && f.rawFile.name) || '').toLowerCase()
+            return type === 'image' || type.startsWith('image/') || /\.(png|jpe?g|webp|bmp|gif|svg)$/i.test(name)
           })
       )
 
@@ -336,9 +337,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
 
         let endpoint: string
         let body: BodyInit
-        let headers: Record<string, string> = {
-          'ngrok-skip-browser-warning': 'true',
-        }
+        let headers: Record<string, string> = {}
 
         const targetChat = getChat(sendToChatId)
         // Filter out empty placeholder assistant messages so they do not contaminate the context
@@ -387,9 +386,37 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         const userInfo = getActiveUserInfo()
         const effectiveModel = isAuto && !hasImageFile ? 'auto' : selectedModel
 
+        // Universally process any attached files (images to base64, PDFs to extracted text, etc.)
+        let base64Images: string[] = []
+        let documentContext = ''
+
+        if (hasFiles) {
+          const processedResults = await Promise.all(
+            (files || []).map(async (f: any) => {
+              const fileObj = f.rawFile || f
+              if (fileObj instanceof File) {
+                return processUserUploadedFile(fileObj)
+              }
+              return null
+            })
+          )
+          const valid = processedResults.filter(Boolean) as ProcessedUploadedFile[]
+          base64Images = valid.filter((p) => p.isImage && p.base64Image).map((p) => p.base64Image!)
+          const docSections = valid
+            .filter((p) => !p.isImage && p.extractedText)
+            .map((p) => `=== Attached Document: ${p.name} ===\n${p.extractedText}`.trim())
+          if (docSections.length > 0) {
+            documentContext = docSections.join('\n\n')
+          }
+        }
+
+        const effectivePrompt = documentContext
+          ? `${documentContext}\n\nUser Question/Request: ${(content || '').trim() || 'Please analyze the attached document and provide a comprehensive summary and key takeaways.'}`
+          : (content || (base64Images.length > 0 ? 'Please inspect and analyze this image in detail.' : ''))
+
         if (hasFiles) {
           const fd = new FormData()
-          const queryText = (content || '').trim() || 'Please analyze the attached document and provide a comprehensive summary and key takeaways.'
+          const queryText = effectivePrompt
           fd.append('user_query', queryText)
           files?.forEach((f: any) => {
             const fileObj = f.rawFile || f
@@ -432,7 +459,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           headers['Content-Type'] = 'application/json'
           body = JSON.stringify({
             messages: messagesForContext,
-            prompt: content,
+            prompt: effectivePrompt,
             user: userInfo.userId,
             user_name: userInfo.userName,
             preferred_name: userInfo.preferredName,
@@ -459,11 +486,12 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         // If user specifically selected or query is Vision / Multimodal:
         if (selectedModel.includes('vl') || selectedModel.includes('vision') || (detectedTask === 'vision' && (isAuto || hasImageFile))) {
           if (server.vision_url && server.visionStatus === 'connected') {
-            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision Tunnel)' })
           } else if (server.vision_url) {
-            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
+            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision Tunnel)' })
           }
-          candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen3:8b', label: 'Laptop 1 (Local Ollama)' })
+          // Resident local Ollama instance (on Laptop 2 with Qwen2.5-VL)
+          candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen2.5-vl:3b', label: 'Local Ollama (Vision Node)' })
           if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
         } else if (selectedModel.includes('4b')) {
           if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
@@ -474,7 +502,6 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen3:8b', label: 'Laptop 1 (Local Ollama - Master)' })
         } else {
           // General / Auto / 8B / Master / Default:
-          // Laptop 1 (Local Ollama) is the primary resident node!
           candidates.push({ url: 'http://127.0.0.1:11434', model: selectedModel === 'auto' ? 'qwen3:8b' : selectedModel, label: 'Laptop 1 (Local Ollama)' })
           if (server.fast4bStatus === 'connected' && server.fast_4b_url) {
             candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
@@ -498,14 +525,22 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         const doDirectOllamaFetch = async (target: ClusterTargetCandidate): Promise<Response> => {
           const directNodeBase = target.url.replace(/\/+$/, '')
           const directEndpoint = `${directNodeBase}/api/chat?ngrok-skip-browser-warning=true`
-          const directMessages: { role: string; content: string }[] = []
+          const directMessages: { role: string; content: string; images?: string[] }[] = []
           if (systemPrompt) {
             directMessages.push({ role: 'system', content: systemPrompt })
           }
           messagesForContext.forEach((m) => {
             directMessages.push({ role: m.role, content: m.content })
           })
-          directMessages.push({ role: 'user', content: content || 'Hello' })
+
+          const userMsgObj: { role: string; content: string; images?: string[] } = {
+            role: 'user',
+            content: effectivePrompt || (base64Images.length > 0 ? 'Please inspect and analyze this image in detail.' : 'Hello'),
+          }
+          if (base64Images.length > 0) {
+            userMsgObj.images = base64Images
+          }
+          directMessages.push(userMsgObj)
 
           const directHeaders: Record<string, string> = {
             'Content-Type': 'application/json',
@@ -532,14 +567,20 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         let resolvedModelUsed: string = selectedModel
 
         // Attempt 1: Route through Primary Gateway (server.py)
-        // Presentations, explicit 8B, Auto mode, or general queries always try primary first
+        // Presentations, explicit 8B, Auto mode without dedicated image nodes, or general queries try primary first.
+        // Explicit worker targets (e.g. Vision or 4B) prioritize direct worker cascading.
+        const isExplicitWorker =
+          Boolean(targetNodeUrl) &&
+          (selectedModel.includes('vl') || selectedModel.includes('vision') || selectedModel.includes('4b'))
+
         const shouldTryPrimaryFirst =
-          isPresentation ||
-          selectedModel === 'qwen3:8b' ||
-          selectedModel === 'qwen3-8b' ||
-          isAuto ||
-          !targetNodeUrl ||
-          server.primaryStatus !== 'disconnected'
+          !isExplicitWorker &&
+          (isPresentation ||
+            selectedModel === 'qwen3:8b' ||
+            selectedModel === 'qwen3-8b' ||
+            (isAuto && !hasImageFile) ||
+            !targetNodeUrl ||
+            server.primaryStatus !== 'disconnected')
 
         const primaryGateways = [cleanBaseUrl, 'http://127.0.0.1:8000'].filter(
           (u, idx, arr) => Boolean(u) && arr.indexOf(u) === idx
@@ -548,7 +589,8 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         if (shouldTryPrimaryFirst) {
           for (const gwUrl of primaryGateways) {
             try {
-              const gwEndpoint = `${gwUrl.replace(/\/+$/, '')}${endpoint}`
+              const sep = endpoint.includes('?') ? '&' : '?'
+              const gwEndpoint = `${gwUrl.replace(/\/+$/, '')}${endpoint}${sep}ngrok-skip-browser-warning=true`
               console.log(`[useChat] Connecting to primary gateway (${gwEndpoint})...`)
               const primaryRes = await fetch(gwEndpoint, {
                 method: 'POST',
