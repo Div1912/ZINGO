@@ -485,9 +485,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
 
         // If user specifically selected or query is Vision / Multimodal:
         if (selectedModel.includes('vl') || selectedModel.includes('vision') || (detectedTask === 'vision' && (isAuto || hasImageFile))) {
-          if (server.vision_url && server.visionStatus === 'connected') {
-            candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision Tunnel)' })
-          } else if (server.vision_url) {
+          if (server.vision_url) {
             candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision Tunnel)' })
           }
           // Resident local Ollama instance (on Laptop 2 with Qwen2.5-VL)
@@ -529,7 +527,16 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           if (systemPrompt) {
             directMessages.push({ role: 'system', content: systemPrompt })
           }
-          messagesForContext.forEach((m) => {
+
+          // Exclude the current user message if already in messagesForContext to prevent duplicate turns
+          const priorMessages =
+            messagesForContext.length > 0 &&
+            messagesForContext[messagesForContext.length - 1].role === 'user' &&
+            messagesForContext[messagesForContext.length - 1].content === content
+              ? messagesForContext.slice(0, -1)
+              : messagesForContext
+
+          priorMessages.forEach((m) => {
             directMessages.push({ role: m.role, content: m.content })
           })
 
@@ -552,6 +559,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
             options: {
               temperature: 0.3,
               num_predict: 3072,
+              num_ctx: 16384,
             },
           })
 
@@ -571,7 +579,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         // Explicit worker targets (e.g. Vision or 4B) prioritize direct worker cascading.
         const isExplicitWorker =
           Boolean(targetNodeUrl) &&
-          (selectedModel.includes('vl') || selectedModel.includes('vision') || selectedModel.includes('4b'))
+          (selectedModel.includes('vl') || selectedModel.includes('vision') || selectedModel.includes('4b') || hasImageFile)
 
         const shouldTryPrimaryFirst =
           !isExplicitWorker &&
@@ -630,7 +638,17 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
                 })
                 break
               } else {
-                console.warn(`[useChat] ${cand.label} returned HTTP ${candRes.status}`)
+                const errText = await candRes.text().catch(() => '')
+                let parsedErr = ''
+                try {
+                  const jsonErr = JSON.parse(errText)
+                  parsedErr = jsonErr.error || jsonErr.message || ''
+                } catch {
+                  parsedErr = errText
+                }
+                const msg = `${cand.label} returned HTTP ${candRes.status}${parsedErr ? `: ${parsedErr}` : ''}`
+                console.warn(`[useChat] ${msg}`)
+                lastErr = new Error(msg)
               }
             } catch (candErr: any) {
               if (controller.signal.aborted) throw candErr
