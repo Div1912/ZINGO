@@ -867,6 +867,21 @@ async def process_and_ask(
     # Resolve parameters: prefer Form data, fallback to Query params, then defaults
     q = request.query_params
     resolved_query = (user_query or q.get("user_query") or "").strip()
+
+    # 1. Sanitize binary null bytes and non-printable control characters
+    if resolved_query:
+        resolved_query = "".join(
+            ch for ch in resolved_query
+            if ch in ('\n', '\r', '\t') or (ch.isprintable() and ch != '\x00')
+        ).strip()
+
+    # 2. If client passed document context inside user_query, strip out the document block
+    if "=== Attached Document:" in resolved_query:
+        if "User Question/Request:" in resolved_query:
+            resolved_query = resolved_query.split("User Question/Request:", 1)[1].strip()
+        else:
+            resolved_query = re.sub(r'=== Attached Document:.*?===\s*.*?(?=\n\n|$)', '', resolved_query, flags=re.DOTALL).strip()
+
     if not resolved_query:
         resolved_query = "Please analyze the attached document and provide a comprehensive summary and key takeaways."
     user_query = resolved_query
@@ -900,10 +915,18 @@ async def process_and_ask(
         try:
             parsed = json.loads(raw_history)
             if isinstance(parsed, list):
-                chat_history = [
-                    {"role": str(m.get("role", "user")), "content": str(m.get("content", ""))}
-                    for m in parsed if isinstance(m, dict) and m.get("content")
-                ]
+                for m in parsed:
+                    if isinstance(m, dict) and m.get("content"):
+                        role = str(m.get("role", "user"))
+                        raw_c = str(m.get("content", ""))
+                        clean_c = "".join(
+                            ch for ch in raw_c
+                            if ch in ('\n', '\r', '\t') or (ch.isprintable() and ch != '\x00')
+                        )
+                        if "=== Attached Document:" in clean_c and "User Question/Request:" in clean_c:
+                            clean_c = clean_c.split("User Question/Request:", 1)[1].strip()
+                        if clean_c.strip():
+                            chat_history.append({"role": role, "content": clean_c.strip()})
         except Exception as parse_err:
             print(f"--- Chat history parse warning: {parse_err} ---")
 
@@ -1054,8 +1077,11 @@ async def process_and_ask(
     instruction = cfg["instruction"]
     if context:
         instruction += (
-            " Answer using the provided document context where relevant. "
-            "If the document is provided, thoroughly analyze its text, data, and details to fulfill the user's request."
+            "\n\nCRITICAL DOCUMENT ANALYSIS MANDATE:\n"
+            "An attached document has been provided in the prompt context. "
+            "You MUST base your response directly on the content, text, data, names, dates, credentials, and facts present in the attached document. "
+            "Examine the document thoroughly and provide an accurate, clear, and comprehensive breakdown matching the user's request. "
+            "Do not hallucinate, make up facts, or answer with unrelated generic safety manuals."
         )
 
     # Always inject ZINGO User Identity, Profile & Memories into system instruction

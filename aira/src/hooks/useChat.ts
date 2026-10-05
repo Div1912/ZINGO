@@ -414,14 +414,17 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           }
         }
 
+        const cleanUserQuery = (content || '').trim() || (base64Images.length > 0 ? 'Please inspect and analyze this image in detail.' : 'Please analyze the attached document and provide a comprehensive summary and key takeaways.')
+
         const effectivePrompt = documentContext
-          ? `${documentContext}\n\nUser Question/Request: ${(content || '').trim() || 'Please analyze the attached document and provide a comprehensive summary and key takeaways.'}`
+          ? `${documentContext}\n\nUser Question/Request: ${cleanUserQuery}`
           : (content || (base64Images.length > 0 ? 'Please inspect and analyze this image in detail.' : ''))
 
         if (hasFiles) {
           const fd = new FormData()
-          const queryText = effectivePrompt
-          fd.append('user_query', queryText)
+          // For backend /process-and-ask/, send the clean user question.
+          // The backend extracts high-fidelity document text directly from the uploaded file via pdfplumber/rapidocr.
+          fd.append('user_query', cleanUserQuery)
           files?.forEach((f: any) => {
             const fileObj = f.rawFile || f
             if (fileObj instanceof File) {

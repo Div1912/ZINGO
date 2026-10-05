@@ -4,6 +4,27 @@
  * and browser-native PDF/document text extraction without external server dependencies.
  */
 
+// Helper: Check if an extracted string contains valid human-readable text
+export function isReadableText(str: string): boolean {
+  if (!str || str.trim().length === 0) return false
+  // Reject null characters immediately
+  if (str.includes('\0') || str.includes('\u0000')) return false
+  let printableCount = 0
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i)
+    if (
+      (code >= 32 && code <= 126) ||
+      code === 10 ||
+      code === 13 ||
+      code === 9 ||
+      (code >= 160 && code <= 0x10ffff)
+    ) {
+      printableCount++
+    }
+  }
+  return printableCount / str.length >= 0.85
+}
+
 // Helper: Decode PDF string escape sequences (e.g. \n, \r, \t, \(, \), \\, \040)
 function decodePdfString(raw: string): string {
   return raw
@@ -35,50 +56,69 @@ function decodeHexPdfString(hex: string): string {
 
 // Helper: Parse PDF text operators inside a decompressed content stream
 function parsePdfContentStream(content: string): string {
+  // Only extract from BT (Begin Text) ... ET (End Text) blocks
+  const btEtRegex = /BT\s*(.*?)\s*ET/gs
+  const blocks: string[] = []
+  let bMatch: RegExpExecArray | null
+  while ((bMatch = btEtRegex.exec(content)) !== null) {
+    blocks.push(bMatch[1])
+  }
+
+  if (blocks.length === 0) return ''
+
   const lines: string[] = []
-  let currentLine: string[] = []
 
-  // Operator 1: Array of strings [(str1) -10 (str2)] TJ
-  const tjArrayRegex = /\[(.*?)\]\s*TJ/gs
-  let m: RegExpExecArray | null
-  while ((m = tjArrayRegex.exec(content)) !== null) {
-    const inner = m[1]
-    const stringParts: string[] = []
-    
-    // Extract parenthesized literals
-    const parenRegex = /\((.*?)(?<!\\)\)/gs
-    let pm: RegExpExecArray | null
-    while ((pm = parenRegex.exec(inner)) !== null) {
-      stringParts.push(decodePdfString(pm[1]))
+  for (const block of blocks) {
+    const currentParts: string[] = []
+
+    // Operator 1: Array of strings [(str1) -10 (str2)] TJ
+    const tjArrayRegex = /\[(.*?)\]\s*TJ/gs
+    let m: RegExpExecArray | null
+    while ((m = tjArrayRegex.exec(block)) !== null) {
+      const inner = m[1]
+      const stringParts: string[] = []
+
+      // Extract parenthesized literals
+      const parenRegex = /\((.*?)(?<!\\)\)/gs
+      let pm: RegExpExecArray | null
+      while ((pm = parenRegex.exec(inner)) !== null) {
+        const decoded = decodePdfString(pm[1])
+        if (isReadableText(decoded)) stringParts.push(decoded)
+      }
+
+      // Extract hex literals <...>
+      const hexRegex = /<([0-9A-Fa-f\s]+)>/g
+      let hm: RegExpExecArray | null
+      while ((hm = hexRegex.exec(inner)) !== null) {
+        const dec = decodeHexPdfString(hm[1])
+        if (isReadableText(dec)) stringParts.push(dec)
+      }
+
+      if (stringParts.length > 0) {
+        currentParts.push(stringParts.join(''))
+      }
     }
 
-    // Extract hex literals <...>
-    const hexRegex = /<([0-9A-Fa-f\s]+)>/g
-    let hm: RegExpExecArray | null
-    while ((hm = hexRegex.exec(inner)) !== null) {
-      stringParts.push(decodeHexPdfString(hm[1]))
+    // Operator 2: Single string literal (str) Tj or ' or "
+    const tjRegex = /\((.*?)(?<!\\)\)\s*(?:Tj|'|")/gs
+    while ((m = tjRegex.exec(block)) !== null) {
+      const decoded = decodePdfString(m[1])
+      if (isReadableText(decoded)) currentParts.push(decoded)
     }
 
-    if (stringParts.length > 0) {
-      currentLine.push(stringParts.join(''))
+    // Operator 3: Single hex string <hex> Tj
+    const tjHexRegex = /<([0-9A-Fa-f\s]+)>\s*(?:Tj|'|")/g
+    while ((m = tjHexRegex.exec(block)) !== null) {
+      const dec = decodeHexPdfString(m[1])
+      if (isReadableText(dec)) currentParts.push(dec)
     }
-  }
 
-  // Operator 2: Single string literal (str) Tj or ' or "
-  const tjRegex = /\((.*?)(?<!\\)\)\s*(?:Tj|'|")/gs
-  while ((m = tjRegex.exec(content)) !== null) {
-    currentLine.push(decodePdfString(m[1]))
-  }
-
-  // Operator 3: Single hex string <hex> Tj
-  const tjHexRegex = /<([0-9A-Fa-f\s]+)>\s*(?:Tj|'|")/g
-  while ((m = tjHexRegex.exec(content)) !== null) {
-    const dec = decodeHexPdfString(m[1])
-    if (dec.trim()) currentLine.push(dec)
-  }
-
-  if (currentLine.length > 0) {
-    lines.push(currentLine.join(' '))
+    if (currentParts.length > 0) {
+      const lineText = currentParts.join(' ').trim()
+      if (lineText && isReadableText(lineText)) {
+        lines.push(lineText)
+      }
+    }
   }
 
   return lines.join('\n')
@@ -134,23 +174,25 @@ export async function extractTextFromPdfBuffer(buffer: ArrayBuffer): Promise<str
       decompressedStr = latin1Decoder.decode(streamBytes)
     }
 
-    if (decompressedStr) {
+    // Only inspect streams that contain PDF text blocks (BT ... ET)
+    if (decompressedStr && decompressedStr.includes('BT') && decompressedStr.includes('ET')) {
       const parsed = parsePdfContentStream(decompressedStr)
-      if (parsed.trim()) {
+      if (parsed.trim() && isReadableText(parsed)) {
         extractedSections.push(parsed.trim())
       }
     }
   }
 
   // Fallback: If stream-based extraction found nothing, check for uncompressed literal text in whole file
-  if (extractedSections.length === 0) {
+  if (extractedSections.length === 0 && fullStr.includes('BT') && fullStr.includes('ET')) {
     const rawParsed = parsePdfContentStream(fullStr)
-    if (rawParsed.trim()) {
+    if (rawParsed.trim() && isReadableText(rawParsed)) {
       extractedSections.push(rawParsed.trim())
     }
   }
 
-  return extractedSections.join('\n\n').trim()
+  const combined = extractedSections.join('\n\n').trim()
+  return isReadableText(combined) ? combined : ''
 }
 
 function readRawBase64(file: File | Blob): Promise<string> {
@@ -276,9 +318,16 @@ export async function processUserUploadedFile(file: File): Promise<ProcessedUplo
     } else if (isPdf) {
       const buffer = await file.arrayBuffer()
       const text = await extractTextFromPdfBuffer(buffer)
-      result.extractedText = text || `[Attached PDF: ${name} (Binary/scanned document, ${file.size} bytes)]`
+      if (text && text.trim().length > 15 && isReadableText(text)) {
+        result.extractedText = text.trim()
+      } else {
+        result.extractedText = undefined
+      }
     } else if (isText) {
-      result.extractedText = await readTextFile(file)
+      const txt = await readTextFile(file)
+      if (txt && isReadableText(txt)) {
+        result.extractedText = txt
+      }
     } else {
       // General fallback: try reading as text
       try {
