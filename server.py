@@ -145,12 +145,18 @@ class ClusterLoadBalancer:
             return laptop1_endpoint, requested_model, "primary"
 
         # 2. Dynamic Auto Task Routing across 3 laptops:
-        # Vision constraint: MUST use Laptop 2 (qwen2.5-vl:3b)
-        if has_images or task_type == "vision":
+        normalized_task = (task_type or "chat").lower()
+        is_document = normalized_task in ("document", "doc", "pdf", "file")
+
+        # Document constraint: PDFs, document files & extracted contexts ALWAYS route to Laptop 1 (Master Node: Qwen3:8b)
+        if is_document and not has_images:
+            return laptop1_endpoint, "qwen3:8b" if "qwen3:8b" in local_models else (local_models[0] if local_models else "qwen3:8b"), "primary"
+
+        # Vision constraint: MUST use Laptop 2 (qwen2.5-vl:3b) ONLY if actual images are attached, OR vision task without document
+        if has_images or (normalized_task == "vision" and not is_document):
             return laptop2_endpoint, "qwen2.5-vl:3b", "laptop2"
 
         # Fast constraint: use Laptop 3 (qwen3:4b) if online
-        normalized_task = (task_type or "chat").lower()
         if normalized_task in ("fast", "lightweight", "quick", "outline"):
             try:
                 from subagent_engine import is_cluster_node_healthy
@@ -930,7 +936,13 @@ async def process_and_ask(
                 print(f"--- OCR extracted {len(raw_ocr)} chars ---")
             except Exception as ocr_err:
                 print(f"--- OCR fallback warning: {ocr_err} ---")
-    else:
+    eff_lower = (effort or "Fast").lower()
+    is_fast = "fast" in eff_lower
+    q_low = user_query.lower().strip()
+    is_plant = any(k in q_low for k in PLANT_KEYWORDS)
+    is_code = any(k in q_low for k in ["error", "bug", "fix", "debug", "traceback", "exception", "compile", "syntax", "python", "script", "code"])
+
+    if not file:
         # Fast path for trivial greetings: Zero RAG, zero thinking overhead, instant 1.2s response
         if is_trivial_greeting(user_query):
             available_local_models = llm.list_models()
@@ -980,12 +992,6 @@ async def process_and_ask(
                     model=target_model,
                     effort="Fast",
                 )
-
-        eff_lower = (effort or "Fast").lower()
-        is_fast = "fast" in eff_lower
-        q_low = user_query.lower().strip()
-        is_plant = any(k in q_low for k in PLANT_KEYWORDS)
-        is_code = any(k in q_low for k in ["error", "bug", "fix", "debug", "traceback", "exception", "compile", "syntax", "python", "script", "code"])
 
         # Never run RAG on code or debugging follow-ups; only run if explicitly plant/SOP-related
         if not is_code and (is_plant or any(k in q_low for k in ["sop", "manual", "document", "oisd", "permit", "standard"])):
@@ -1041,7 +1047,7 @@ async def process_and_ask(
         has_images=bool(images_b64),
         requested_model=model,
         custom_node_url=node_url,
-        task_type="vision" if images_b64 else task_type,
+        task_type="vision" if images_b64 else ("document" if (file and not images_b64) else task_type),
         available_local_models=available_local_models,
     )
 
@@ -1550,13 +1556,12 @@ async def api_chat(payload_data: ChatPayload):
         full_prompt = current_user_text
 
 
-    task = payload_data.task_type or "chat"
-    if payload_data.images:
-        task = "vision"
+    has_images = bool(payload_data.images)
+    task = payload_data.task_type or ("vision" if has_images else "chat")
 
     available_local_models = llm.list_models()
     target_endpoint, model, node_key = cluster_balancer.route_request(
-        has_images=bool(payload_data.images or task == "vision"),
+        has_images=has_images,
         requested_model=payload_data.model,
         custom_node_url=payload_data.node_url,
         task_type=task,

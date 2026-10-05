@@ -139,7 +139,18 @@ export function classifyTaskIntensity(
     }
   }
 
-  // 1. Multimodal / Vision
+  // 1. Document / PDF / File attachments without images -> Always Master Node (Qwen3-8B)
+  if (filesCount > 0 && !hasImages) {
+    return {
+      intensity: 'high',
+      recommendedModel: 'qwen3:8b',
+      taskType: 'document',
+      reason: 'Document grounding, structural extraction & cross-referencing',
+      isComplex: true,
+    }
+  }
+
+  // 2. Multimodal / Vision (Only when actual images are attached, or vision query without documents)
   if (hasImages || detectedTask === 'vision') {
     return {
       intensity: 'vision',
@@ -172,16 +183,6 @@ export function classifyTaskIntensity(
     }
   }
 
-  // 4. File attachments -> Requires Master reasoning & document extraction
-  if (filesCount > 0) {
-    return {
-      intensity: 'high',
-      recommendedModel: 'qwen3:8b',
-      taskType: 'document',
-      reason: 'Document grounding, structural extraction & cross-referencing',
-      isComplex: true,
-    }
-  }
 
   // 5. Engineering, Industrial, Regulatory, Mathematical, or System Troubleshooting keywords
   const heavyKeywords = [

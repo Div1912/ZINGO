@@ -114,7 +114,7 @@ export function useChat(chatId?: string | null) {
       const isFast4bDown = server.fast4bStatus === 'disconnected' || !server.fast_4b_url
       const isVisionAlive = server.visionStatus === 'connected'
 
-      if (isAuto) {
+      if (isAuto && !hasFiles) {
         // If Vision (Laptop 2) is the only node confirmed alive, or if both 8B and 4B are down:
         if ((isPrimaryDown && isFast4bDown && isVisionAlive) || (isVisionAlive && isPrimaryDown && !server.fast_4b_url)) {
           selectedModel = 'qwen2.5vl:3b'
@@ -356,11 +356,15 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           // to orchestrate the 3-node cluster synergy on the server
           targetNodeUrl = undefined
           selectedModel = 'qwen3:8b'
+        } else if (hasFiles && !hasImageFile) {
+          // Document / PDF attachments without images: ALWAYS route to Master Node (Laptop 1: Qwen3-8B)
+          targetNodeUrl = undefined
+          if (isAuto) selectedModel = 'qwen3:8b'
         } else if (
           selectedModel === 'qwen2.5vl:3b' ||
           selectedModel === 'qwen2.5-vl:3b' ||
           selectedModel === 'qwen2.5-vl:7b' ||
-          (detectedTask === 'vision' && (isAuto || hasImageFile))
+          (detectedTask === 'vision' && hasImageFile)
         ) {
           targetNodeUrl = server.vision_url || server.g15_2_url || 'http://127.0.0.1:11434'
         } else if (selectedModel.includes('4b')) {
@@ -369,7 +373,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           targetNodeUrl = server.coderStatus === 'connected' ? server.g15_2_url : undefined
         } else if (selectedModel.includes('r1')) {
           targetNodeUrl = server.reasoning_url
-        } else if (selectedModel === 'qwen3:8b') {
+        } else if (selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b') {
           // Explicit Laptop 1 Qwen3-8B selection: NEVER route to remote worker nodes
           targetNodeUrl = undefined
         } else if (isAuto) {
@@ -384,7 +388,7 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         }
 
         const userInfo = getActiveUserInfo()
-        const effectiveModel = isAuto && !hasImageFile ? 'auto' : selectedModel
+        const effectiveModel = (hasFiles && !hasImageFile) ? 'qwen3:8b' : (isAuto && !hasImageFile ? 'auto' : selectedModel)
 
         // Universally process any attached files (images to base64, PDFs to extracted text, etc.)
         let base64Images: string[] = []
@@ -484,36 +488,39 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
         const candidates: ClusterTargetCandidate[] = []
 
         // If user specifically selected or query is Vision / Multimodal:
-        if (selectedModel.includes('vl') || selectedModel.includes('vision') || (detectedTask === 'vision' && (isAuto || hasImageFile))) {
+        if (selectedModel.includes('vl') || selectedModel.includes('vision') || (detectedTask === 'vision' && hasImageFile)) {
           if (server.vision_url) {
             candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision Tunnel)' })
           }
           // Resident local Ollama instance (on Laptop 2 with Qwen2.5-VL)
           candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen2.5-vl:3b', label: 'Local Ollama (Vision Node)' })
           if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
+        } else if (selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b' || (hasFiles && !hasImageFile)) {
+          // Explicit Master Node / PDF Document Task: ONLY use Laptop 1 (Local Ollama: Qwen3-8B)
+          candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen3:8b', label: 'Laptop 1 (Local Ollama - Master)' })
+          if (server.fast4bStatus === 'connected' && server.fast_4b_url) {
+            candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast Synthesis Fallback)' })
+          }
         } else if (selectedModel.includes('4b')) {
           if (server.fast_4b_url) candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
           candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen3:8b', label: 'Laptop 1 (Local Ollama)' })
-          if (server.vision_url && server.visionStatus === 'connected') candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
         } else if (selectedModel.includes('coder')) {
           candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen2.5-coder:7b', label: 'Laptop 1 (Local Ollama - Coder)' })
           candidates.push({ url: 'http://127.0.0.1:11434', model: 'qwen3:8b', label: 'Laptop 1 (Local Ollama - Master)' })
         } else {
-          // General / Auto / 8B / Master / Default:
+          // General / Auto / Master / Default:
           candidates.push({ url: 'http://127.0.0.1:11434', model: selectedModel === 'auto' ? 'qwen3:8b' : selectedModel, label: 'Laptop 1 (Local Ollama)' })
           if (server.fast4bStatus === 'connected' && server.fast_4b_url) {
             candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
           }
-          if (server.visionStatus === 'connected' && server.vision_url) {
+          if (hasImageFile && server.visionStatus === 'connected' && server.vision_url) {
             candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
-          }
-          if (server.fast_4b_url && !candidates.some((c) => c.url === server.fast_4b_url)) {
-            candidates.push({ url: server.fast_4b_url, model: 'qwen3:4b', label: 'Laptop 3 (Fast)' })
           }
         }
 
-        // Add any remaining nodes to candidate pool for absolute failover safety
-        if (server.vision_url && !candidates.some((c) => c.url === server.vision_url)) {
+        // Add remaining fast nodes to candidate pool for failover safety (do not push vision node for documents or 8B)
+        const isDocumentOr8b = selectedModel === 'qwen3:8b' || selectedModel === 'qwen3-8b' || (hasFiles && !hasImageFile)
+        if (!isDocumentOr8b && server.vision_url && !candidates.some((c) => c.url === server.vision_url)) {
           candidates.push({ url: server.vision_url, model: 'qwen2.5-vl:3b', label: 'Laptop 2 (Vision)' })
         }
         if (server.fast_4b_url && !candidates.some((c) => c.url === server.fast_4b_url)) {
@@ -586,11 +593,20 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           (isPresentation ||
             selectedModel === 'qwen3:8b' ||
             selectedModel === 'qwen3-8b' ||
+            (hasFiles && !hasImageFile) ||
             (isAuto && !hasImageFile) ||
             !targetNodeUrl ||
             server.primaryStatus !== 'disconnected')
 
-        const primaryGateways = [cleanBaseUrl, 'http://127.0.0.1:8000'].filter(
+        const isLocalHost = typeof window !== 'undefined' && (
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.hostname === ''
+        )
+        const primaryGateways = (isLocalHost
+          ? ['http://127.0.0.1:8000', cleanBaseUrl]
+          : [cleanBaseUrl, 'http://127.0.0.1:8000']
+        ).filter(
           (u, idx, arr) => Boolean(u) && arr.indexOf(u) === idx
         )
 
