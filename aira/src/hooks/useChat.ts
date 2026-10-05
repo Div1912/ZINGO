@@ -444,20 +444,12 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           body = fd
           const qp = new URLSearchParams({
             stream: 'true',
-            user_query: queryText,
-            user: userInfo.userId,
-            user_name: userInfo.userName,
-            preferred_name: userInfo.preferredName,
-            work_role: userInfo.workRole,
-            model: effectiveModel,
-            task_type: detectedTask,
+            chat_id: sendToChatId,
           })
-          if (effort) qp.set('effort', effort)
-          qp.set('enable_thinking', String(isThinking))
+          if (isThinking !== undefined) qp.set('enable_thinking', String(isThinking))
           if (targetNodeUrl) qp.set('node_url', targetNodeUrl)
           if (isCouncilActive) qp.set('enable_council', 'true')
-          qp.set('enable_subagents', String(settings.subagentsEnabled !== false))
-          qp.set('chat_id', sendToChatId)
+          if (settings.subagentsEnabled !== false) qp.set('enable_subagents', 'true')
           endpoint = `/process-and-ask/?${qp.toString()}`
         } else {
           headers['Content-Type'] = 'application/json'
@@ -603,9 +595,10 @@ When generating the requested ${(formatSkillResolution as any).format.toUpperCas
           window.location.hostname === '127.0.0.1' ||
           window.location.hostname === ''
         )
+        const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:'
         const primaryGateways = (isLocalHost
           ? ['http://127.0.0.1:8000', cleanBaseUrl]
-          : [cleanBaseUrl, 'http://127.0.0.1:8000']
+          : [cleanBaseUrl, isHttpsPage ? '' : 'http://127.0.0.1:8000']
         ).filter(
           (u, idx, arr) => Boolean(u) && arr.indexOf(u) === idx
         )
